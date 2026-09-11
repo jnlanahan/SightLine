@@ -108,9 +108,12 @@ export function parseInstruction(
         expectedResult:
           action === "instruct" ? (obj.expected_result ?? "").trim() : "",
         troubleshooting: Boolean(obj.troubleshooting),
-        completedSteps: Array.isArray(obj.completed_steps)
-          ? obj.completed_steps.map(String)
-          : previousSteps,
+        // An explicit [] never replaces a non-empty list — the list only grows.
+        completedSteps:
+          Array.isArray(obj.completed_steps) &&
+          (obj.completed_steps.length > 0 || previousSteps.length === 0)
+            ? obj.completed_steps.map(String)
+            : previousSteps,
         upcomingSteps: Array.isArray(obj.upcoming_steps)
           ? obj.upcoming_steps.map(String)
           : [],

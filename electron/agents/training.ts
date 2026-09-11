@@ -65,7 +65,7 @@ export const trainingAgent: Agent = {
     // Unreachable while stallEnabled is false; kept sensible in case the
     // policy ever changes.
     stalled: `The screen has been still a long while. If you speak at all, keep it to one short, warm check-in — never feedback they didn't ask for.`,
-    sessionStart: `The session just started. Greet them briefly, then set up the current task from your training context: its objective in one or two sentences, and a reminder that they can hit "Check my work" when they think it's done or "I'm stuck" if they need a nudge. Then go quiet and let them work. Do not call wait, and do not set digression on this turn.`,
+    sessionStart: `The session just started. Greet them briefly, then set up the current task from your training context: its objective in one or two sentences, and a reminder that they can hit "Check my work" when they think it's done or "I'm stuck" if they need a nudge. Then go quiet and let them work. This turn is action="instruct". Do not call wait, do not use action="done" (even if the task looks finished already — they check their own work with the button), and do not set digression on this turn.`,
     followUp: `The user just sent you something directly (see the follow-up in this turn's message) — a button press or a question. Answer it now — you must call say, never wait, even though wait is your normal answer while they work. "[check-my-work]" means grade against the done criteria and set task_verdict; "[stuck]" means give the smallest useful hint; anything else is a question — answer briefly and let them get back to it.`,
   },
   maxClarifications: 5,

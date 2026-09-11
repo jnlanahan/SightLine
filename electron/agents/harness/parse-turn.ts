@@ -26,6 +26,17 @@ function strArray(v: unknown, fallback: string[]): string[] {
 }
 
 /**
+ * The completed-steps list only ever grows, so an explicit empty array from
+ * the model — plausible on a `wait`, where the field is optional and easy to
+ * fill with `[]` — is never a legitimate replacement for a non-empty list.
+ */
+function stepsArray(v: unknown, previous: string[]): string[] {
+  if (!Array.isArray(v)) return previous;
+  if (v.length === 0 && previous.length > 0) return previous;
+  return v.map(String);
+}
+
+/**
  * Build the turn result from whichever terminal tool the model called.
  *
  * `wait` produces the same silent-turn shape the loop has always handled:
@@ -61,7 +72,7 @@ export function parseTerminalTool(
     // verify skill round-trips on the next turn.
     expectedResult: action === "instruct" ? str(input.expected_result) : "",
     troubleshooting: Boolean(input.troubleshooting),
-    completedSteps: strArray(input.completed_steps, previousSteps),
+    completedSteps: stepsArray(input.completed_steps, previousSteps),
     upcomingSteps: strArray(input.upcoming_steps, []),
     digression: Boolean(input.digression),
     done: action === "done",

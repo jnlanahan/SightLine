@@ -1,9 +1,12 @@
 // research — looking things up mid-turn.
 //
-// Contributes the search_web tool plus the two legacy fields that drove the
-// old out-of-band research path. The fields stay because the renderer still
-// honours them: an agent composed WITHOUT this skill has no search tool, and
-// setting needsResearch is then its only way to ask for a lookup.
+// The live skill contributes the search_web tool. The deferred variant (no
+// tool — the model asks the app to search and gets findings next turn)
+// instead carries the two fields that drive the renderer's out-of-band
+// research path. They are deliberately NOT on the live skill any more: they
+// sat in every tech-support tick's cached prefix and schema, and a model that
+// set them anyway triggered a torn-down turn plus a second call for something
+// the tool answers in-turn.
 
 import type { Skill } from "../harness/types";
 import { searchWebTool } from "../tools/research";
@@ -33,7 +36,6 @@ export const researchSkill: Skill = {
   id: "research",
   systemFragment: `Looking things up — you have a search_web tool that returns a short factual summary in this same turn. Use it the moment you are blocked by something you cannot know from the screen: an unfamiliar error, whether a menu has moved in a newer version, the current steps for a task you're unsure of. The user is a non-expert who needs accurate, current steps — do not guess when you could check. Do not use it for anything the screenshot already answers.`,
   tools: [searchWebTool],
-  outputFields: LEGACY_FIELDS,
 };
 
 /**

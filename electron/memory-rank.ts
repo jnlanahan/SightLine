@@ -105,6 +105,13 @@ export function scoreFact(
 // relevant memory gets silently discarded, which reads to the user as the
 // coach having forgotten everything.
 const MIN_SCORE = 0.15;
+// A fact that DOES share words with the goal is kept on a much lower bar.
+// Obstacles and history carry a low kind weight by design, so a three-month-
+// old "their VPN blocks the sync port" scores ~0.07 against "fix VPN upload
+// failures" — below MIN_SCORE — while an unrelated setup fact sails through
+// on its floor. Topical relevance is the whole point of remembering an
+// obstacle; the floor-based cutoff should only gate the untopical ones.
+const MIN_TOPICAL_SCORE = 0.05;
 
 /**
  * The facts worth telling the agent about, best first. Archived facts are
@@ -119,8 +126,12 @@ export function selectFacts(
   const goalWords = keywords(goal);
   return facts
     .filter((f) => !f.archived && f.content.trim().length > 0)
-    .map((f) => ({ fact: f, score: scoreFact(f, goalWords, now) }))
-    .filter((s) => s.score >= MIN_SCORE)
+    .map((f) => ({
+      fact: f,
+      score: scoreFact(f, goalWords, now),
+      topical: overlapScore(f, goalWords) > 0,
+    }))
+    .filter((s) => s.score >= (s.topical ? MIN_TOPICAL_SCORE : MIN_SCORE))
     .sort((a, b) =>
       // Deterministic: break score ties by recency, then by id, so the same
       // inputs always produce the same prompt (and the same cache prefix).

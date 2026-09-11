@@ -25,10 +25,16 @@
 // reconciliation between a terminal call and a lookup in the same response.
 
 import type Anthropic from "@anthropic-ai/sdk";
-import type { InstructionResponse } from "../../types";
+import type { ConversationTurn, InstructionResponse } from "../../types";
 import { InstructionChunker, type SpeechChunk } from "../../speech-chunker";
-import { parseInstruction } from "../../instruction-parse";
-import { estimateCostUsd, normalizeUsage, type TokenUsage } from "../../usage";
+import { extractJson, parseInstruction } from "../../instruction-parse";
+import {
+  EMPTY_USAGE,
+  addUsage,
+  estimateCostUsd,
+  normalizeUsage,
+  type TokenUsage,
+} from "../../usage";
 import { buildContextHeader } from "./context";
 import { parseTerminalTool } from "./parse-turn";
 import { midTurnTools, systemPrompt, toolDefinitions } from "./schema";
@@ -43,9 +49,22 @@ import {
   type TurnContext,
 } from "./types";
 
-const MAX_TOKENS = 800;
+// Output ceiling per response. Output is billed only as generated, so this
+// costs nothing when the model is brief — it is purely the room a turn has.
+// It was 800, which a late-task `say` (a dozen completed steps re-listed,
+// upcoming steps, notes, a memory, a highlight, sixty words of speech) could
+// exceed; the SDK then hands back a PARTIAL tool input with no error, the
+// truncated step list silently replaced the real one, and speech cut off
+// mid-sentence. 2048 leaves headroom; a hit is also logged now.
+const MAX_TOKENS = 2048;
 /** Previous frame + latest frame. See the note in claude.ts on frame budget. */
 const MAX_FRAMES = 2;
+/** Text-only history turns sent with each tick. */
+const MAX_HISTORY_TURNS = 10;
+// One streamed response. The SDK's default is ten minutes with retries, which
+// is how a single hung request used to take the coach offline for half an
+// hour with nothing in the log. A vision turn normally finishes in 5-15 s.
+const REQUEST_TIMEOUT_MS = 60_000;
 
 export interface RunTurnOptions {
   client: Anthropic;
@@ -173,28 +192,31 @@ async function streamOnce(
 ): Promise<StreamOutcome> {
   const { client, model, agent, onSpeechChunk } = opts;
 
-  const stream = client.messages.stream({
-    model,
-    max_tokens: MAX_TOKENS,
-    // Cache breakpoint on the system prompt. Tools render BEFORE system, so
-    // this one marker covers the tool definitions too — which is exactly why
-    // the tool list has to stay a fixed literal per agent.
-    system: [
-      {
-        type: "text",
-        text: systemPrompt(agent),
-        cache_control: { type: "ephemeral" },
-      } as unknown as Anthropic.Messages.TextBlockParam,
-    ],
-    tools: tools as unknown as Anthropic.Messages.Tool[],
-    // Exactly one tool per response: the model either looks something up or
-    // ends its turn, never both. Makes "is the turn over?" a single check.
-    tool_choice: {
-      type: "any",
-      disable_parallel_tool_use: true,
-    } as unknown as Anthropic.Messages.ToolChoice,
-    messages,
-  });
+  const stream = client.messages.stream(
+    {
+      model,
+      max_tokens: MAX_TOKENS,
+      // Cache breakpoint on the system prompt. Tools render BEFORE system, so
+      // this one marker covers the tool definitions too — which is exactly why
+      // the tool list has to stay a fixed literal per agent.
+      system: [
+        {
+          type: "text",
+          text: systemPrompt(agent),
+          cache_control: { type: "ephemeral" },
+        } as unknown as Anthropic.Messages.TextBlockParam,
+      ],
+      tools: tools as unknown as Anthropic.Messages.Tool[],
+      // Exactly one tool per response: the model either looks something up or
+      // ends its turn, never both. Makes "is the turn over?" a single check.
+      tool_choice: {
+        type: "any",
+        disable_parallel_tool_use: true,
+      } as unknown as Anthropic.Messages.ToolChoice,
+      messages,
+    },
+    { timeout: REQUEST_TIMEOUT_MS },
+  );
 
   const chunker = new InstructionChunker();
   // Index of the `say` block, if this response is one. Only deltas carrying
@@ -231,21 +253,43 @@ async function streamOnce(
   return { message, usage: normalizeUsage(message.usage) };
 }
 
-function accumulate(a: TokenUsage, b: TokenUsage): TokenUsage {
-  return {
-    inputTokens: a.inputTokens + b.inputTokens,
-    outputTokens: a.outputTokens + b.outputTokens,
-    cacheReadTokens: a.cacheReadTokens + b.cacheReadTokens,
-    cacheCreationTokens: a.cacheCreationTokens + b.cacheCreationTokens,
-  };
+/**
+ * The text-only history sent ahead of the current turn.
+ *
+ * The Messages API requires the first message to be a `user` turn. Only the
+ * goal and typed follow-ups add user turns, while every spoken instruction
+ * adds an assistant turn — so after ten or so instructions with no question
+ * from the user, a naive tail slice is all-assistant and every request is
+ * rejected with a 400 until the session is restarted. When the tail doesn't
+ * open on a user turn, the most recent user turn before it (the goal, or the
+ * last question) is prepended — the API merges consecutive same-role turns,
+ * so the instruction history itself stays intact.
+ */
+export function historyMessages(
+  conversation: readonly ConversationTurn[],
+  limit = MAX_HISTORY_TURNS,
+): Anthropic.Messages.MessageParam[] {
+  const start = Math.max(0, conversation.length - limit);
+  let tail = conversation.slice(start);
+  if (tail.length === 0) return [];
+  if (tail[0].role !== "user") {
+    let anchor = -1;
+    for (let i = start - 1; i >= 0; i--) {
+      if (conversation[i].role === "user") {
+        anchor = i;
+        break;
+      }
+    }
+    if (anchor >= 0) {
+      tail = [conversation[anchor], ...tail];
+    } else {
+      const firstUser = tail.findIndex((t) => t.role === "user");
+      if (firstUser < 0) return [];
+      tail = tail.slice(firstUser);
+    }
+  }
+  return tail.map((t) => ({ role: t.role, content: t.content }));
 }
-
-const ZERO_USAGE: TokenUsage = {
-  inputTokens: 0,
-  outputTokens: 0,
-  cacheReadTokens: 0,
-  cacheCreationTokens: 0,
-};
 
 /** Run one full agent turn, including any mid-turn tool calls. */
 export async function runAgentTurn(opts: RunTurnOptions): Promise<TurnResult> {
@@ -255,10 +299,7 @@ export async function runAgentTurn(opts: RunTurnOptions): Promise<TurnResult> {
 
   const messages: Anthropic.Messages.MessageParam[] = [
     // History is text-only; vision frames ride on the current turn.
-    ...ctx.conversation.slice(-10).map((t) => ({
-      role: t.role,
-      content: t.content,
-    })),
+    ...historyMessages(ctx.conversation),
     {
       role: "user",
       content: buildUserBlocks(agent, ctx, opts.toContextResolution),
@@ -266,7 +307,31 @@ export async function runAgentTurn(opts: RunTurnOptions): Promise<TurnResult> {
   ];
 
   const toolsUsed: string[] = [];
-  let usage = ZERO_USAGE;
+  let usage: TokenUsage = { ...EMPTY_USAGE };
+
+  // A turn cut off by max_tokens arrives as a PARTIAL tool input. Whatever
+  // was said has already been spoken, but the bookkeeping fields can't be
+  // trusted — a half-written step list must not replace the real one.
+  const finish = (parsed: InstructionResponse, truncated: boolean): TurnResult => {
+    if (truncated) {
+      log(
+        `[agent:${agent.id}] response hit max_tokens (${MAX_TOKENS}) — keeping the previous step list`,
+      );
+      parsed = {
+        ...parsed,
+        completedSteps: ctx.completedSteps,
+        upcomingSteps: ctx.upcomingSteps,
+      };
+    }
+    return {
+      ...parsed,
+      usage,
+      model,
+      costUsd: estimateCostUsd(model, usage),
+      toolsUsed,
+      planEdits: deps.planDraft.edits,
+    };
+  };
 
   try {
     for (let iteration = 0; iteration < agent.maxToolIterations; iteration++) {
@@ -287,48 +352,45 @@ export async function runAgentTurn(opts: RunTurnOptions): Promise<TurnResult> {
         messages,
         activeTools,
       );
-      usage = accumulate(usage, turnUsage);
+      usage = addUsage(usage, turnUsage);
+      const truncated = message.stop_reason === "max_tokens";
 
       const toolUse = message.content.find(
         (b): b is Anthropic.Messages.ToolUseBlock => b.type === "tool_use",
       );
 
       // No tool call at all. tool_choice:"any" should make this impossible,
-      // but a schema-rejected turn would land here — fall back to reading the
-      // response as the old-style JSON blob rather than going silent.
+      // but a schema-rejected turn or a refusal lands here. If the text is
+      // the old-style JSON blob, read it; otherwise end the turn silently —
+      // speaking the raw text (or inventing "continue with the next step",
+      // as the old fallback did) is worse than one quiet tick, and the stall
+      // ladder recovers on its own.
       if (!toolUse) {
         const text = message.content
           .filter((b): b is Anthropic.Messages.TextBlock => b.type === "text")
           .map((b) => b.text)
-          .join("\n")
+          .join("")
           .trim();
         log(
-          `[agent:${agent.id}] no tool call (stop=${message.stop_reason}) — falling back to text parse`,
+          `[agent:${agent.id}] no tool call (stop=${message.stop_reason}) — ${extractJson(text) ? "parsing text as JSON" : "ending the turn silently"}`,
         );
-        return {
-          ...parseInstruction(text, ctx.completedSteps),
-          usage,
-          model,
-          costUsd: estimateCostUsd(model, usage),
-          toolsUsed,
-          planEdits: deps.planDraft.edits,
-        };
+        return finish(
+          extractJson(text)
+            ? parseInstruction(text, ctx.completedSteps)
+            : parseTerminalTool(WAIT_TOOL, {}, ctx.completedSteps),
+          truncated,
+        );
       }
 
       if (toolUse.name === SAY_TOOL || toolUse.name === WAIT_TOOL) {
-        const parsed = parseTerminalTool(
-          toolUse.name,
-          (toolUse.input ?? {}) as Record<string, unknown>,
-          ctx.completedSteps,
+        return finish(
+          parseTerminalTool(
+            toolUse.name,
+            (toolUse.input ?? {}) as Record<string, unknown>,
+            ctx.completedSteps,
+          ),
+          truncated,
         );
-        return {
-          ...parsed,
-          usage,
-          model,
-          costUsd: estimateCostUsd(model, usage),
-          toolsUsed,
-          planEdits: deps.planDraft.edits,
-        };
       }
 
       // Mid-turn tool. Run it, feed the result back, go again.

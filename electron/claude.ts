@@ -11,9 +11,9 @@ import type {
 } from "./types";
 import { getKey } from "./credentials";
 import { toContextResolution } from "./capture";
+import { logLine } from "./log";
 import type { SpeechChunk } from "./speech-chunker";
 import { extractJson } from "./instruction-parse";
-import { PLAN_RESEARCH_RULE } from "./agents/shared";
 import { getAgent } from "./agents/registry";
 import { MODULE_DETAIL_PROMPT } from "./agents/training";
 import { outlineForPrompt } from "./training-plan";
@@ -28,6 +28,23 @@ export { MissingApiKeyError, RateLimitError } from "./agents/harness/errors";
 import { MissingApiKeyError } from "./agents/harness/errors";
 
 const MODEL = "claude-sonnet-4-6";
+
+// Anthropic's server-side web search. The planners lean on it for current
+// menu paths and product behaviour; the agent's mid-turn search_web tool is
+// built on it too. This is the variant with dynamic filtering, supported on
+// Sonnet 4.6 and later; an account or model that rejects it gets the same
+// call retried without the tool (see withServerTools).
+const WEB_SEARCH_TOOL = { type: "web_search_20260209", name: "web_search", max_uses: 3 };
+
+// How long a pre-session call may run. These are non-streaming and a web
+// search round can take a while, but the SDK default of ten minutes (with
+// retries) is not a timeout anyone waiting on a spinner would recognise.
+const PLANNER_TIMEOUT_MS = 90_000;
+// The agent's mid-turn lookup is silence the user sits through — keep it short.
+const RESEARCH_TIMEOUT_MS = 20_000;
+// Server-side tool loops can return `pause_turn`; the caller continues by
+// re-sending the conversation. A couple of rounds is plenty for max_uses 3.
+const MAX_SERVER_TOOL_ROUNDS = 3;
 
 /**
  * Everything the harness needs that it cannot get itself. Supplied by main.ts,
@@ -83,6 +100,25 @@ export interface NextInstructionArgs {
   screenChanged?: boolean;
 }
 
+// One client per key. Constructing a client per call is cheap but not free,
+// and the key lookup behind it is a disk read — this runs every 3-15 s for
+// the life of a session.
+let cachedClient: { key: string; client: Anthropic } | null = null;
+
+async function anthropicClient(): Promise<Anthropic> {
+  const apiKey = await getKey("anthropic");
+  if (!apiKey) throw new MissingApiKeyError();
+  if (cachedClient?.key !== apiKey) {
+    cachedClient = { key: apiKey, client: new Anthropic({ apiKey }) };
+  }
+  return cachedClient.client;
+}
+
+function describeError(err: unknown): string {
+  if (err instanceof Anthropic.APIError) return `HTTP ${err.status}: ${err.message}`;
+  return err instanceof Error ? err.message : String(err);
+}
+
 /**
  * One agent turn.
  *
@@ -103,10 +139,7 @@ export async function getNextInstruction(
   onSpeechChunk?: (chunk: SpeechChunk) => void,
   runtime?: AgentRuntime,
 ): Promise<InstructionResponse> {
-  const apiKey = await getKey("anthropic");
-  if (!apiKey) throw new MissingApiKeyError();
-
-  const client = new Anthropic({ apiKey });
+  const client = await anthropicClient();
   const agent = getAgent(args.mode);
   const log = runtime?.log ?? (() => {});
 
@@ -117,7 +150,10 @@ export async function getNextInstruction(
     captureRegion:
       runtime?.captureRegion ??
       (async () => null),
-    research: runWebResearch,
+    // Bounded: the runner turns a throw into an is_error tool result, so a
+    // hung search costs the agent one short wait, not the whole tick.
+    research: (query) =>
+      withDeadline(runWebResearch(query), RESEARCH_TIMEOUT_MS, "research_timeout"),
     planDraft: newPlanDraft(),
     log,
   };
@@ -152,11 +188,27 @@ export async function getNextInstruction(
   return response;
 }
 
+function withDeadline<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const deadline = new Promise<T>((_resolve, reject) => {
+    timer = setTimeout(() => reject(new Error(label)), ms);
+  });
+  return Promise.race([p, deadline]).finally(() => {
+    if (timer !== null) clearTimeout(timer);
+  });
+}
+
+/**
+ * The response's text, concatenated. Joined with nothing: a web-search-enabled
+ * call returns its answer as several text blocks split at citation
+ * boundaries, and joining them with newlines put raw line breaks inside JSON
+ * string values — which failed to parse and silently produced an empty plan.
+ */
 function extractText(resp: Anthropic.Messages.Message): string {
   return resp.content
     .filter((b): b is Anthropic.Messages.TextBlock => b.type === "text")
     .map((b) => b.text)
-    .join("\n")
+    .join("")
     .trim();
 }
 
@@ -172,24 +224,98 @@ function mediaTypeOf(dataUrl: string): ImageMediaType {
   return (m?.[1] as ImageMediaType) ?? "image/png";
 }
 
+function screenshotBlocks(
+  screenshot: string | undefined,
+): Array<Anthropic.Messages.TextBlockParam | Anthropic.Messages.ImageBlockParam> {
+  if (!screenshot) return [];
+  return [
+    { type: "text", text: "Here's the user's current screen for context:" },
+    {
+      type: "image",
+      source: {
+        type: "base64",
+        media_type: mediaTypeOf(screenshot),
+        data: stripDataUrlPrefix(screenshot),
+      },
+    },
+  ];
+}
+
+/**
+ * A non-streaming call that may use the server-side web_search tool.
+ *
+ * - `pause_turn` means the server's tool loop paused; the conversation so far
+ *   is re-sent so it can continue. Treating it as a finished answer (the old
+ *   behaviour) returned a half-written plan.
+ * - If the API rejects the tool definition itself (a 400 — the account or
+ *   model lacks it), the call is retried once without the tool. Any other
+ *   error is rethrown: the SDK already retries transient failures, and
+ *   re-issuing a rate-limited request without the tool just deepens the
+ *   rate limit.
+ */
+async function withServerTools(
+  client: Anthropic,
+  params: Anthropic.Messages.MessageCreateParamsNonStreaming,
+  label: string,
+): Promise<Anthropic.Messages.Message> {
+  const run = async (useWebSearch: boolean) => {
+    const messages = [...params.messages];
+    let last: Anthropic.Messages.Message | null = null;
+    for (let round = 0; round < MAX_SERVER_TOOL_ROUNDS; round++) {
+      const p: Anthropic.Messages.MessageCreateParamsNonStreaming = {
+        ...params,
+        messages,
+      };
+      if (useWebSearch) {
+        // The installed SDK's types predate server-side tools; the API
+        // accepts them regardless.
+        (p as { tools?: unknown }).tools = [WEB_SEARCH_TOOL];
+      }
+      last = await client.messages.create(p, { timeout: PLANNER_TIMEOUT_MS });
+      if ((last.stop_reason as string) !== "pause_turn") return last;
+      logLine(`[claude:${label}] pause_turn — continuing the server tool loop`);
+      messages.push({ role: "assistant", content: last.content });
+    }
+    return last!;
+  };
+
+  try {
+    return await run(true);
+  } catch (err) {
+    if (err instanceof Anthropic.BadRequestError) {
+      logLine(
+        `[claude:${label}] web search rejected (${describeError(err)}); retrying without it`,
+      );
+      return run(false);
+    }
+    throw err;
+  }
+}
+
 export async function getClarifications(args: {
   mode: AppMode;
   goal: string;
 }): Promise<ClarificationResponse> {
-  const apiKey = await getKey("anthropic");
-  if (!apiKey) throw new MissingApiKeyError();
-
-  const client = new Anthropic({ apiKey });
+  const client = await anthropicClient();
   const agent = getAgent(args.mode);
   // Training's deeper intake earns more questions and the tokens to ask them.
   const limit = agent.maxClarifications ?? 3;
   try {
-    const resp = await client.messages.create({
-      model: MODEL,
-      max_tokens: limit > 3 ? 800 : 400,
-      system: agent.clarificationPrompt,
-      messages: [{ role: "user", content: `Task: ${args.goal}` }],
-    });
+    const resp = await client.messages.create(
+      {
+        model: MODEL,
+        // Five questions with four options each plus scaffolding ran past the
+        // old 800-token cap often enough that the truncated JSON failed to
+        // parse and the intake silently asked nothing.
+        max_tokens: 1500,
+        system: agent.clarificationPrompt,
+        messages: [{ role: "user", content: `Task: ${args.goal}` }],
+      },
+      { timeout: PLANNER_TIMEOUT_MS },
+    );
+    if (resp.stop_reason === "max_tokens") {
+      logLine("[claude:clarify] response hit max_tokens — questions may be truncated");
+    }
     const text = extractText(resp);
     const json = extractJson(text);
     if (json) {
@@ -210,8 +336,11 @@ export async function getClarifications(args: {
         };
       }
     }
-  } catch {
-    // fail safe — never block session start
+    logLine(`[claude:clarify] no questions in response (${text.length} chars)`);
+  } catch (err) {
+    // Fail safe — never block session start — but never silently either: a
+    // 401, a 429, and a parse failure all used to look like "nothing to ask".
+    logLine(`[claude:clarify] FAILED: ${describeError(err)}`);
   }
   return { questions: [] };
 }
@@ -224,65 +353,31 @@ export async function getSessionPlan(args: {
   // tailor steps to what's actually on screen. Optional.
   screenshot?: string;
 }): Promise<SessionPlan> {
-  const apiKey = await getKey("anthropic");
-  if (!apiKey) throw new MissingApiKeyError();
-
-  const client = new Anthropic({ apiKey });
+  const client = await anthropicClient();
   const clarText = args.clarifications
     .filter((c) => c.answer.trim())
     .map((c) => `Q: ${c.question}\nA: ${c.answer}`)
     .join("\n");
 
-  const userContent: Array<
-    Anthropic.Messages.TextBlockParam | Anthropic.Messages.ImageBlockParam
-  > = [];
-  if (args.screenshot) {
-    userContent.push({
-      type: "text",
-      text: "Here's the user's current screen for context:",
-    });
-    userContent.push({
-      type: "image",
-      source: {
-        type: "base64",
-        media_type: mediaTypeOf(args.screenshot),
-        data: stripDataUrlPrefix(args.screenshot),
-      },
-    });
-  }
-  userContent.push({
-    type: "text",
-    text: `Goal: ${args.goal}${clarText ? `\n\nClarifications:\n${clarText}` : ""}`,
-  });
-
-  // Try with web search enabled; if the account/API rejects the tool, retry
-  // without it so we still produce a plan (just without live lookups).
-  async function callPlan(useWebSearch: boolean) {
-    const params: Anthropic.Messages.MessageCreateParamsNonStreaming = {
-      model: MODEL,
-      max_tokens: 1500,
-      system: getAgent(args.mode).planPrompt,
-      messages: [{ role: "user", content: userContent }],
-    };
-    if (useWebSearch) {
-      // web_search is a server-side tool; the SDK types here predate it, so we
-      // attach it loosely. The API runs the search loop and returns the final
-      // plan text in one response.
-      (params as { tools?: unknown }).tools = [
-        { type: "web_search_20250305", name: "web_search", max_uses: 3 },
-      ];
-    }
-    return client.messages.create(params);
-  }
+  const userContent = [
+    ...screenshotBlocks(args.screenshot),
+    {
+      type: "text" as const,
+      text: `Goal: ${args.goal}${clarText ? `\n\nClarifications:\n${clarText}` : ""}`,
+    },
+  ];
 
   try {
-    let resp;
-    try {
-      resp = await callPlan(true);
-    } catch (err) {
-      console.warn("[SightLine plan] web search unavailable, retrying without:", err);
-      resp = await callPlan(false);
-    }
+    const resp = await withServerTools(
+      client,
+      {
+        model: MODEL,
+        max_tokens: 1500,
+        system: getAgent(args.mode).planPrompt,
+        messages: [{ role: "user", content: userContent }],
+      },
+      "plan",
+    );
     const text = extractText(resp);
     const json = extractJson(text);
     if (json) {
@@ -294,8 +389,9 @@ export async function getSessionPlan(args: {
         };
       }
     }
-  } catch {
-    // fail safe
+    logLine(`[claude:plan] no plan in response (stop=${resp.stop_reason}, ${text.length} chars)`);
+  } catch (err) {
+    logLine(`[claude:plan] FAILED: ${describeError(err)}`);
   }
   return { overview: "", steps: [] };
 }
@@ -315,61 +411,33 @@ export async function getCurriculumOutline(args: {
   clarifications: Clarification[];
   screenshot?: string;
 }): Promise<CurriculumOutline | null> {
-  const apiKey = await getKey("anthropic");
-  if (!apiKey) throw new MissingApiKeyError();
-
-  const client = new Anthropic({ apiKey });
+  const client = await anthropicClient();
   const clarText = args.clarifications
     .filter((c) => c.answer.trim())
     .map((c) => `Q: ${c.question}\nA: ${c.answer}`)
     .join("\n");
 
-  const userContent: Array<
-    Anthropic.Messages.TextBlockParam | Anthropic.Messages.ImageBlockParam
-  > = [];
-  if (args.screenshot) {
-    userContent.push({
-      type: "text",
-      text: "Here's the user's current screen for context:",
-    });
-    userContent.push({
-      type: "image",
-      source: {
-        type: "base64",
-        media_type: mediaTypeOf(args.screenshot),
-        data: stripDataUrlPrefix(args.screenshot),
-      },
-    });
-  }
-  userContent.push({
-    type: "text",
-    text: `Goal: ${args.goal}${clarText ? `\n\nIntake answers:\n${clarText}` : ""}`,
-  });
-
-  async function callOutline(useWebSearch: boolean) {
-    const params: Anthropic.Messages.MessageCreateParamsNonStreaming = {
-      model: MODEL,
-      max_tokens: 4000,
-      system: getAgent("training").planPrompt,
-      messages: [{ role: "user", content: userContent }],
-    };
-    if (useWebSearch) {
-      (params as { tools?: unknown }).tools = [
-        { type: "web_search_20250305", name: "web_search", max_uses: 3 },
-      ];
-    }
-    return client.messages.create(params);
-  }
+  const userContent = [
+    ...screenshotBlocks(args.screenshot),
+    {
+      type: "text" as const,
+      text: `Goal: ${args.goal}${clarText ? `\n\nIntake answers:\n${clarText}` : ""}`,
+    },
+  ];
 
   try {
-    let resp;
-    try {
-      resp = await callOutline(true);
-    } catch (err) {
-      console.warn("[SightLine curriculum] web search unavailable, retrying without:", err);
-      resp = await callOutline(false);
-    }
-    const json = extractJson(extractText(resp));
+    const resp = await withServerTools(
+      client,
+      {
+        model: MODEL,
+        max_tokens: 4000,
+        system: getAgent("training").planPrompt,
+        messages: [{ role: "user", content: userContent }],
+      },
+      "curriculum",
+    );
+    const text = extractText(resp);
+    const json = extractJson(text);
     if (json) {
       const obj = JSON.parse(json) as {
         title?: unknown;
@@ -399,8 +467,11 @@ export async function getCurriculumOutline(args: {
         };
       }
     }
-  } catch {
-    // fail safe
+    logLine(
+      `[claude:curriculum] no outline in response (stop=${resp.stop_reason}, ${text.length} chars)`,
+    );
+  } catch (err) {
+    logLine(`[claude:curriculum] FAILED: ${describeError(err)}`);
   }
   return null;
 }
@@ -415,12 +486,10 @@ export async function detailTrainingModule(args: {
   plan: TrainingPlan;
   moduleIndex: number;
 }): Promise<ModuleTaskDetail[] | null> {
-  const apiKey = await getKey("anthropic");
-  if (!apiKey) throw new MissingApiKeyError();
+  const client = await anthropicClient();
   const module = args.plan.modules[args.moduleIndex];
   if (!module) return null;
 
-  const client = new Anthropic({ apiKey });
   const journal = args.plan.journal
     .slice(-10)
     .map((j) => `- ${j.note}`)
@@ -437,30 +506,19 @@ export async function detailTrainingModule(args: {
     `Draft task titles:\n${module.tasks.map((t) => `- ${t.title}`).join("\n")}`,
   ].filter((p) => p.length > 0);
 
-  async function callDetail(useWebSearch: boolean) {
-    const params: Anthropic.Messages.MessageCreateParamsNonStreaming = {
-      model: MODEL,
-      max_tokens: 3000,
-      system: MODULE_DETAIL_PROMPT,
-      messages: [{ role: "user", content: parts.join("\n\n") }],
-    };
-    if (useWebSearch) {
-      (params as { tools?: unknown }).tools = [
-        { type: "web_search_20250305", name: "web_search", max_uses: 3 },
-      ];
-    }
-    return client.messages.create(params);
-  }
-
   try {
-    let resp;
-    try {
-      resp = await callDetail(true);
-    } catch (err) {
-      console.warn("[SightLine module detail] web search unavailable, retrying without:", err);
-      resp = await callDetail(false);
-    }
-    const json = extractJson(extractText(resp));
+    const resp = await withServerTools(
+      client,
+      {
+        model: MODEL,
+        max_tokens: 3000,
+        system: MODULE_DETAIL_PROMPT,
+        messages: [{ role: "user", content: parts.join("\n\n") }],
+      },
+      "module-detail",
+    );
+    const text = extractText(resp);
+    const json = extractJson(text);
     if (json) {
       const obj = JSON.parse(json) as { tasks?: unknown };
       if (Array.isArray(obj.tasks) && obj.tasks.length > 0) {
@@ -480,8 +538,11 @@ export async function detailTrainingModule(args: {
         });
       }
     }
-  } catch {
-    // fail safe
+    logLine(
+      `[claude:module-detail] no tasks in response (stop=${resp.stop_reason}, ${text.length} chars)`,
+    );
+  } catch (err) {
+    logLine(`[claude:module-detail] FAILED: ${describeError(err)}`);
   }
   return null;
 }
@@ -499,22 +560,17 @@ Search the web, then answer the query with a tight, factual summary under 250 wo
 - Plain text only, no markdown headings, no preamble, no "based on my search".`;
 
 export async function runWebResearch(query: string): Promise<string> {
-  const apiKey = await getKey("anthropic");
-  if (!apiKey) throw new MissingApiKeyError();
-
-  const client = new Anthropic({ apiKey });
-  const params: Anthropic.Messages.MessageCreateParamsNonStreaming = {
-    model: MODEL,
-    max_tokens: 1024,
-    system: RESEARCH_SYSTEM_PROMPT,
-    messages: [{ role: "user", content: query }],
-  };
-  // web_search is a server-side tool; the SDK types here predate it (same
-  // arrangement as getSessionPlan).
-  (params as { tools?: unknown }).tools = [
-    { type: "web_search_20250305", name: "web_search", max_uses: 3 },
-  ];
-  const resp = await client.messages.create(params);
+  const client = await anthropicClient();
+  const resp = await withServerTools(
+    client,
+    {
+      model: MODEL,
+      max_tokens: 1024,
+      system: RESEARCH_SYSTEM_PROMPT,
+      messages: [{ role: "user", content: query }],
+    },
+    "research",
+  );
   const text = extractText(resp);
   if (!text) throw new Error("web research returned no text");
   return text;
@@ -527,10 +583,7 @@ export async function getGoalEvaluation(args: {
   conversation: ConversationTurn[];
   frames: CaptureFrame[];
 }): Promise<GoalEvaluation> {
-  const apiKey = await getKey("anthropic");
-  if (!apiKey) throw new MissingApiKeyError();
-
-  const client = new Anthropic({ apiKey });
+  const client = await anthropicClient();
 
   const stepsSummary = args.completedSteps.length > 0
     ? `Completed steps: ${args.completedSteps.join(", ")}`
@@ -546,7 +599,7 @@ export async function getGoalEvaluation(args: {
     source: {
       type: "base64" as const,
       media_type: mediaTypeOf(f.dataUrl),
-      data: f.dataUrl.replace(/^data:image\/\w+;base64,/, ""),
+      data: stripDataUrlPrefix(f.dataUrl),
     },
   }));
 
@@ -559,12 +612,15 @@ export async function getGoalEvaluation(args: {
   ];
 
   try {
-    const resp = await client.messages.create({
-      model: MODEL,
-      max_tokens: 200,
-      system: "You evaluate whether a user has completed their stated goal, based on screenshots and conversation history. Be honest, specific, and encouraging. Never invent progress that isn't visible.",
-      messages: [{ role: "user", content: userContent }],
-    });
+    const resp = await client.messages.create(
+      {
+        model: MODEL,
+        max_tokens: 300,
+        system: "You evaluate whether a user has completed their stated goal, based on screenshots and conversation history. Be honest, specific, and encouraging. Never invent progress that isn't visible.",
+        messages: [{ role: "user", content: userContent }],
+      },
+      { timeout: PLANNER_TIMEOUT_MS },
+    );
     const text = extractText(resp);
     const json = extractJson(text);
     if (json) {
@@ -573,8 +629,9 @@ export async function getGoalEvaluation(args: {
         return { achieved: obj.achieved, verdict: String(obj.verdict).trim() };
       }
     }
-  } catch {
-    // fail safe
+    logLine(`[claude:evaluate] no verdict in response (${text.length} chars)`);
+  } catch (err) {
+    logLine(`[claude:evaluate] FAILED: ${describeError(err)}`);
   }
   return { achieved: false, verdict: "Couldn't evaluate at this time. Keep going — you're making progress!" };
 }

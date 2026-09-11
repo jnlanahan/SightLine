@@ -213,3 +213,21 @@ describe("formatFactsForPrompt", () => {
     expect(text.toLowerCase()).toContain("screen says otherwise");
   });
 });
+
+describe("selectFacts — topical facts survive the floor", () => {
+  it("keeps a months-old obstacle that matches the goal", () => {
+    // Obstacles carry a low kind weight by design, so an old one used to fall
+    // under the untopical cutoff even when it was exactly what the user was
+    // about to hit again.
+    const old = fact("their VPN blocks the sync port", "obstacle", {
+      lastUsedAt: NOW - 90 * DAY,
+    });
+    const picked = selectFacts([old], "fix VPN upload failures", NOW);
+    expect(picked.map((f) => f.id)).toEqual([old.id]);
+  });
+
+  it("still drops an untopical history note", () => {
+    const note = fact("last time they renamed a folder", "history");
+    expect(selectFacts([note], "configure the printer", NOW)).toEqual([]);
+  });
+});
