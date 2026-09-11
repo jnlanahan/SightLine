@@ -12,9 +12,14 @@
 
 import { logLine } from "../log";
 import { loadSettings } from "../settings-store";
+import type { Settings } from "../types";
 import { speakText, type TtsVoice } from "../openai-tts";
 import { hasGoogleCredentials, speakTextGoogle } from "../google-tts";
-import { speakTextElevenLabs, hasElevenLabsKey } from "./elevenlabs";
+import {
+  speakTextElevenLabs,
+  hasElevenLabsKey,
+  isDeadVoice,
+} from "./elevenlabs";
 import { readCached, writeCached } from "./cache";
 import {
   ELEVEN_MODEL,
@@ -41,12 +46,15 @@ export interface SpeakFailure {
   message: string;
 }
 
-// Per-provider hard timeouts. Each is generous enough for a slow-but-working
-// request and short enough that falling through still beats silence.
+// Per-provider hard timeouts. This is a conversation: a sentence that takes
+// longer than this to arrive is already an awkward silence, and the next
+// provider (or the system voice) will have it out sooner. ElevenLabs Flash
+// normally answers in well under a second; Google in one to two. The whole
+// chain stays under the renderer's own IPC guard so main always decides.
 const TIMEOUT_MS: Record<SpokenEngine, number> = {
-  elevenlabs: 9_000,
-  google: 10_000,
-  openai: 15_000,
+  elevenlabs: 6_000,
+  google: 7_000,
+  openai: 7_000,
 };
 
 function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
@@ -81,47 +89,98 @@ async function providerAvailable(name: SpokenEngine): Promise<boolean> {
  * but never removes the fallbacks — a user who picked ElevenLabs and then let
  * their credits lapse should get a Google voice, not silence.
  */
-function providerOrder(): SpokenEngine[] {
-  const preferred = loadSettings().ttsProvider;
+function providerOrder(s: Settings): SpokenEngine[] {
+  const preferred = s.ttsProvider;
   const all: SpokenEngine[] = ["elevenlabs", "google", "openai"];
   if (preferred === "auto") return all;
   return [preferred, ...all.filter((p) => p !== preferred)];
 }
 
+// settings.json is hand-editable and unvalidated on load. A speed that isn't
+// a finite number used to throw inside the cache-key builder — outside the
+// try — which rejected the IPC call and silently sent every sentence to the
+// system voice. Normal speed is the only safe reading of a broken value.
+function safeSpeed(raw: unknown): number {
+  return typeof raw === "number" && Number.isFinite(raw) ? raw : 1;
+}
+
 function requestFor(
   text: string,
   provider: SpokenEngine,
+  s: Settings,
   previousText = "",
 ): SynthRequest {
-  const s = loadSettings();
   return {
     text,
     provider,
     voice: provider === "elevenlabs" ? s.elevenVoiceId : s.ttsVoice,
     model: provider === "elevenlabs" ? ELEVEN_MODEL : provider,
-    speed: s.ttsSpeed,
+    speed: safeSpeed(s.ttsSpeed),
     previousText,
   };
 }
 
+// Each provider gets an AbortSignal alongside the promise timeout. The
+// timeout alone only abandoned the promise: the HTTP request kept running,
+// holding one of the account's concurrency slots — and ElevenLabs' free tier
+// has two. A slow stretch therefore cascaded into 429s on every following
+// sentence. Aborting frees the slot the moment we give up on the request.
 async function synthesize(
   text: string,
   provider: SpokenEngine,
-  previousText = "",
+  s: Settings,
+  previousText: string,
+  signal: AbortSignal,
 ): Promise<Buffer> {
-  const s = loadSettings();
   switch (provider) {
     case "elevenlabs":
       return speakTextElevenLabs(text, {
         voiceId: s.elevenVoiceId,
-        speed: s.ttsSpeed,
+        speed: safeSpeed(s.ttsSpeed),
         previousText,
+        signal,
       });
     case "google":
+      // The gRPC client has its own per-call deadline (see google-tts.ts).
       return speakTextGoogle(text, s.ttsVoice);
     case "openai":
-      return speakText(text, { voice: s.ttsVoice as TtsVoice });
+      return speakText(text, { voice: s.ttsVoice as TtsVoice, signal });
   }
+}
+
+async function synthesizeWithDeadline(
+  text: string,
+  provider: SpokenEngine,
+  s: Settings,
+  previousText: string,
+  label: string,
+): Promise<Buffer> {
+  const ms = TIMEOUT_MS[provider];
+  const controller = new AbortController();
+  const abortTimer = setTimeout(() => controller.abort(), ms);
+  try {
+    return await withTimeout(
+      synthesize(text, provider, s, previousText, controller.signal),
+      ms,
+      label,
+    );
+  } finally {
+    clearTimeout(abortTimer);
+  }
+}
+
+/**
+ * Whether this synthesized audio is worth keeping on disk. Only the FIRST
+ * sentence of a response (no prior context) is cacheable in practice — a
+ * context-bearing key virtually never recurs, so writing it is churn toward
+ * the prune limit. And audio produced by a substituted fallback voice must
+ * not be stored under the configured voice's key, or the coach keeps playing
+ * the wrong voice from cache after the user fixes their plan.
+ */
+function worthCaching(req: SynthRequest): boolean {
+  if (req.previousText && req.previousText.trim().length > 0) return false;
+  if (req.provider === "elevenlabs" && isDeadVoice(req.voice)) return false;
+  return true;
 }
 
 /**
@@ -140,7 +199,9 @@ export async function speak(
     return { __error: "request_failed", message: "empty_text" };
   }
 
-  const order = providerOrder();
+  // One settings read per sentence, not one per provider attempt.
+  const s = loadSettings();
+  const order = providerOrder(s);
   const failures: string[] = [];
   let anyAvailable = false;
 
@@ -148,7 +209,7 @@ export async function speak(
     if (!(await providerAvailable(provider))) continue;
     anyAvailable = true;
 
-    const req = requestFor(trimmed, provider, previousText);
+    const req = requestFor(trimmed, provider, s, previousText);
     const hit = readCached(req);
     if (hit) {
       return {
@@ -160,12 +221,14 @@ export async function speak(
     }
 
     try {
-      const audio = await withTimeout(
-        synthesize(trimmed, provider, previousText),
-        TIMEOUT_MS[provider],
+      const audio = await synthesizeWithDeadline(
+        trimmed,
+        provider,
+        s,
+        previousText,
         `${provider}_tts_timeout`,
       );
-      writeCached(req, audio);
+      if (worthCaching(req)) writeCached(req, audio);
       const ms = Date.now() - startedAt;
       if (failures.length > 0) {
         logLine(`[tts] ${provider} succeeded after: ${failures.join(" | ")}`);
@@ -200,8 +263,9 @@ export async function speak(
  * burst the provider's rate limit.
  */
 export async function warmPhraseCache(): Promise<void> {
+  const s = loadSettings();
   let active: SpokenEngine | null = null;
-  for (const p of providerOrder()) {
+  for (const p of providerOrder(s)) {
     if (await providerAvailable(p)) {
       active = p;
       break;
@@ -214,18 +278,20 @@ export async function warmPhraseCache(): Promise<void> {
   for (const raw of WARMABLE_PHRASES) {
     // Same preprocessing as speak(), or the warmed key would never be hit.
     const phrase = preprocessForTts(raw);
-    const req = requestFor(phrase, active);
+    const req = requestFor(phrase, active, s);
     if (readCached(req)) {
       skipped++;
       continue;
     }
     try {
-      const audio = await withTimeout(
-        synthesize(phrase, active),
-        TIMEOUT_MS[active],
+      const audio = await synthesizeWithDeadline(
+        phrase,
+        active,
+        s,
+        "",
         `${active}_warm_timeout`,
       );
-      writeCached(req, audio);
+      if (worthCaching(req)) writeCached(req, audio);
       warmed++;
     } catch (err) {
       // One failure means the provider is unhappy — stop rather than hammer it.

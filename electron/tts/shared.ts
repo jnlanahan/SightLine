@@ -120,18 +120,6 @@ export function preprocessForTts(text: string): string {
 // renderer so the startup cache warmer can reach them without IPC; the
 // renderer re-exports them from src/hooks/useTts.ts.
 
-/** Spoken when the user has been idle a while with no screen change. */
-export const WAITING_PHRASES: readonly string[] = [
-  "No rush — take your time.",
-  "Still here whenever you're ready.",
-  "Go ahead and give that a try.",
-  "Take a sec, I'm not going anywhere.",
-  "Whenever you're ready, I'll pick it up.",
-  "Feel free to ask if anything's unclear.",
-  "I'm watching — take as long as you need.",
-  "No rush — just ask if you get stuck.",
-];
-
 /** Spoken on goal completion. */
 export const COMPLETION_PHRASES: readonly string[] = [
   "And that's a wrap. Nice work.",
@@ -175,7 +163,6 @@ export const NO_ANSWER_PHRASES: readonly string[] = [
 export const WARMABLE_PHRASES: readonly string[] = [
   ...THINKING_PHRASES,
   ...COMPLETION_PHRASES,
-  ...WAITING_PHRASES,
   ...NO_ANSWER_PHRASES,
 ];
 

@@ -99,6 +99,7 @@ let changeListener:
   | null = null;
 let screenListenersInstalled = false;
 let reassertTimer: ReturnType<typeof setTimeout> | null = null;
+let settleTimer: ReturnType<typeof setTimeout> | null = null;
 
 export function setDockChangeListener(
   cb: (s: { docked: boolean; rect: Rect | null; displayLost?: boolean }) => void,
@@ -190,8 +191,12 @@ function assertAppBarRect(): boolean {
   // of the reserved strip — including ours, right after we move into it
   // (verified: bounds drift to workArea+8px without this). Re-assert once
   // after the cascade settles; only the appbar owner may sit in its strip.
+  // One shared timer: a live drag-resize calls this many times a second, and
+  // a timer per call replayed every stale width in sequence at the end.
   const win = state.win;
-  setTimeout(() => {
+  if (settleTimer) clearTimeout(settleTimer);
+  settleTimer = setTimeout(() => {
+    settleTimer = null;
     if (state?.win === win && !win.isDestroyed()) win.setBounds(granted);
   }, 350);
   return true;
@@ -303,6 +308,24 @@ export function updateDockWidth(widthDip: number): void {
   notifyChange();
 }
 
+// The saved floating bounds may sit on a monitor that has since been
+// unplugged (that is one of the reasons we undock). Restoring there would put
+// the window off-screen; pull it onto the nearest live display's work area.
+function clampToLiveDisplay(b: Rect): Rect {
+  const display = screen.getDisplayMatching({
+    x: b.x,
+    y: b.y,
+    width: b.width,
+    height: b.height,
+  });
+  const wa = display.workArea;
+  const width = Math.min(b.width, wa.width);
+  const height = Math.min(b.height, wa.height);
+  const x = Math.max(wa.x, Math.min(b.x, wa.x + wa.width - width));
+  const y = Math.max(wa.y, Math.min(b.y, wa.y + wa.height - height));
+  return { x, y, width, height };
+}
+
 function removeAppBar(): void {
   const f = getFfi();
   if (!f || !state) return;
@@ -323,6 +346,10 @@ export function undockWindow(): void {
     clearTimeout(reassertTimer);
     reassertTimer = null;
   }
+  if (settleTimer) {
+    clearTimeout(settleTimer);
+    settleTimer = null;
+  }
   removeAppBar();
   const { win, floatingBounds, floatingMinSize, closedListener } = state;
   state = null;
@@ -336,7 +363,7 @@ export function undockWindow(): void {
     win.setMinimumSize(floatingMinSize[0], floatingMinSize[1]);
     win.setResizable(true);
     win.setMovable(true);
-    win.setBounds(floatingBounds);
+    win.setBounds(clampToLiveDisplay(floatingBounds));
   }
   console.log("[dock] undocked, floating bounds restored");
   notifyChange();

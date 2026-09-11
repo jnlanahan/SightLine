@@ -2,7 +2,6 @@ import {
   app,
   BrowserWindow,
   dialog,
-  globalShortcut,
   ipcMain,
   Menu,
   nativeImage,
@@ -21,7 +20,6 @@ import {
   captureFrame,
   getLastCaptureGeometry,
   listCaptureTargets,
-  listDisplays,
 } from "./capture";
 import { getLogPath, logLine } from "./log";
 import {
@@ -39,12 +37,7 @@ import {
   setDockChangeListener,
 } from "./dock";
 import { clampDockWidth, RAIL_WIDTH, subtractDockStrip } from "./dock-geometry";
-import {
-  clearKey,
-  hasKey,
-  setKey,
-  type CredentialKey,
-} from "./credentials";
+import { hasKey, setKey } from "./credentials";
 import {
   detailTrainingModule,
   getClarifications,
@@ -55,13 +48,21 @@ import {
   runWebResearch,
   MissingApiKeyError,
   RateLimitError,
+  type NextInstructionArgs,
 } from "./claude";
 import { describeAgent } from "./agents/registry";
 import { MissingOpenAIKeyError, transcribe } from "./whisper";
 import { hasGoogleCredentials } from "./google-tts";
 import { speak as synthesizeSpeech, warmPhraseCache } from "./tts";
 import { hasElevenLabsKey, listElevenVoices } from "./tts/elevenlabs";
-import type { AppMode, Clarification, CaptureFrame, ConversationTurn, UploadedContext } from "./types";
+import type {
+  AppMode,
+  CaptureFrame,
+  CaptureRegion,
+  Clarification,
+  ConversationTurn,
+  UploadedContext,
+} from "./types";
 import { uIOhook } from "uiohook-napi";
 import { HoldDetector, isPushToTalkCode } from "./hotkey";
 import {
@@ -387,11 +388,36 @@ function getGlowDisplay(displayId: string | null) {
   );
 }
 
+// The glow window's top-left relative to the display it sits on. Zero when
+// floating; the dock strip's width (or zero) when docked, because the glow
+// then covers only the remainder of the display.
+function glowOffsetOnDisplay(): { x: number; y: number } {
+  if (!glowWindow || glowWindow.isDestroyed()) return { x: 0, y: 0 };
+  const gb = glowWindow.getBounds();
+  const display = screen.getDisplayMatching(gb);
+  return { x: gb.x - display.bounds.x, y: gb.y - display.bounds.y };
+}
+
 function broadcastGlowMode() {
   if (!glowWindow || glowWindow.isDestroyed()) return;
+  // The stored region is display-relative; the glow renders in its own
+  // window's coordinates, which may start at the dock strip's edge.
+  const stored = loadSettings().captureRegion ?? null;
+  let region: CaptureRegion | null = null;
+  if (stored) {
+    const off = glowOffsetOnDisplay();
+    const gb = glowWindow.getBounds();
+    const x = Math.max(0, stored.x - off.x);
+    const y = Math.max(0, stored.y - off.y);
+    const right = Math.min(gb.width, stored.x + stored.width - off.x);
+    const bottom = Math.min(gb.height, stored.y + stored.height - off.y);
+    if (right - x >= 1 && bottom - y >= 1) {
+      region = { x, y, width: right - x, height: bottom - y };
+    }
+  }
   glowWindow.webContents.send("glow:set-mode", {
     mode: glowAdjusting ? "adjust" : "view",
-    region: loadSettings().captureRegion ?? null,
+    region,
   });
 }
 
@@ -481,6 +507,40 @@ async function resolveWatchedDisplayId(): Promise<string | null> {
   return String(screen.getPrimaryDisplay().id);
 }
 
+// The floating window's collapse-to-bar shapes. Shared by the IPC handler and
+// the dock path, which has to expand a collapsed capsule before docking —
+// otherwise dock.ts snapshots the 380x56 stub as the "floating bounds" and a
+// later undock restores the full UI into it.
+const COLLAPSED_BAR = { width: 380, height: 56 };
+const FLOATING_MIN = { width: 460, height: 380 };
+
+function collapseFloating(): void {
+  if (!mainWindow || mainWindow.isDestroyed() || isCollapsed) return;
+  const b = mainWindow.getBounds();
+  expandedSize = { width: b.width, height: b.height };
+  isCollapsed = true;
+  // Must shrink the minimum before setBounds — the normal minHeight would
+  // block the bar height.
+  mainWindow.setMinimumSize(300, 48);
+  mainWindow.setBounds({ x: b.x, y: b.y, ...COLLAPSED_BAR });
+  mainWindow.setResizable(false);
+}
+
+function expandFloating(): void {
+  if (!mainWindow || mainWindow.isDestroyed() || !isCollapsed) return;
+  const b = mainWindow.getBounds();
+  isCollapsed = false;
+  mainWindow.setResizable(true);
+  mainWindow.setMinimumSize(FLOATING_MIN.width, FLOATING_MIN.height);
+  // Expand where the bar currently sits.
+  mainWindow.setBounds({
+    x: b.x,
+    y: b.y,
+    width: expandedSize?.width ?? 540,
+    height: expandedSize?.height ?? 720,
+  });
+}
+
 // Dock the panel to the watched monitor — the one actually captured — so the
 // coach sits beside the work it's coaching through.
 async function dockToWatchedDisplay(): Promise<boolean> {
@@ -490,13 +550,20 @@ async function dockToWatchedDisplay(): Promise<boolean> {
   const display =
     screen.getAllDisplays().find((d) => String(d.id) === watchedId) ??
     screen.getPrimaryDisplay();
+  // A collapsed floating capsule must expand before docking (see above). The
+  // strip then starts at the rail width so the collapsed state carries over.
+  const wasCollapsed = isCollapsed && !isDocked();
+  if (wasCollapsed) expandFloating();
   const ok = dockWindow(
     mainWindow,
     display,
     s.dockSide,
-    clampDockWidth(s.dockWidth),
+    wasCollapsed ? RAIL_WIDTH : clampDockWidth(s.dockWidth),
   );
-  if (ok) mainWindow.setOpacity(1);
+  if (ok) {
+    isCollapsed = wasCollapsed;
+    mainWindow.setOpacity(1);
+  }
   return ok;
 }
 
@@ -525,21 +592,36 @@ async function setGlowAdjust(adjust: boolean) {
   broadcastGlowMode();
 }
 
-// Clamp a proposed region to the display and treat a (near-)full-screen
-// selection as "no region" so capture falls back to the whole display.
+// Convert the region the user drew in the glow window into DISPLAY-relative
+// coordinates, clamp it to the display, and treat a selection covering the
+// whole glow area as "no region" so capture falls back to the full desktop.
+//
+// Display-relative is the only stable frame: the glow window covers just the
+// remainder of the display while docked, so a region stored in ITS
+// coordinates silently moved every time the dock width changed or the panel
+// undocked — the model ended up looking at the wrong part of the screen.
 function normalizeRegion(
   region: { x: number; y: number; width: number; height: number } | null,
   displayId: string | null,
-): { x: number; y: number; width: number; height: number } | null {
+): CaptureRegion | null {
   if (!region) return null;
-  const { width: dw, height: dh } = getGlowDisplay(displayId).size;
-  const x = Math.max(0, Math.min(region.x, dw));
-  const y = Math.max(0, Math.min(region.y, dh));
+  const display = getGlowDisplay(displayId);
+  const { width: dw, height: dh } = display.size;
+  const gb =
+    glowWindow && !glowWindow.isDestroyed()
+      ? glowWindow.getBounds()
+      : { x: display.bounds.x, y: display.bounds.y, width: dw, height: dh };
+  const coversGlow =
+    region.x <= 2 &&
+    region.y <= 2 &&
+    region.width >= gb.width - 4 &&
+    region.height >= gb.height - 4;
+  if (coversGlow) return null;
+  const off = { x: gb.x - display.bounds.x, y: gb.y - display.bounds.y };
+  const x = Math.max(0, Math.min(region.x + off.x, dw));
+  const y = Math.max(0, Math.min(region.y + off.y, dh));
   const width = Math.max(1, Math.min(region.width, dw - x));
   const height = Math.max(1, Math.min(region.height, dh - y));
-  const coversFull =
-    x <= 2 && y <= 2 && width >= dw - 4 && height >= dh - 4;
-  if (coversFull) return null;
   return {
     x: Math.round(x),
     y: Math.round(y),
@@ -624,10 +706,21 @@ function createWindow() {
     void mainWindow.loadFile(path.join(__dirname, "../dist/index.html"));
   }
 
+  // Minimize undocks (a minimized appbar would leave a dead reserved strip).
+  // Coming back should put the sidebar back — until this handler existed,
+  // one minimize left the app floating for the rest of the run.
+  mainWindow.on("restore", () => {
+    if (wantsDock && !isDocked()) void dockToWatchedDisplay();
+  });
+
   mainWindow.on("closed", () => {
     hideGlowOverlay();
     stopWindowDrag();
-    uIOhook.stop();
+    try {
+      uIOhook.stop();
+    } catch {
+      // never started
+    }
     if (inputDebounceTimer) {
       clearTimeout(inputDebounceTimer);
       inputDebounceTimer = null;
@@ -657,6 +750,15 @@ app.whenReady().then(async () => {
       uiSideRailMigration: true,
     });
     console.log("[settings] applied one-time side-rail width migration");
+  }
+
+  // One-time migration: capture regions used to be stored relative to the
+  // glow window (the desktop minus the dock strip), which moved with the dock.
+  // They are display-relative now; an old value can't be converted without
+  // knowing the dock state it was drawn in, so it is cleared once.
+  if (!loadSettings().captureRegionDisplayRelative) {
+    saveSettings({ captureRegion: null, captureRegionDisplayRelative: true });
+    console.log("[settings] applied one-time capture-region migration");
   }
 
   registerIpc();
@@ -739,6 +841,8 @@ app.whenReady().then(async () => {
   // Hold-to-talk. Watched globally because the user is looking at the app
   // being coached, not at SightLine — a focus-scoped shortcut would never
   // fire. The detector collapses OS auto-repeat down to one press edge.
+  // (These run on every system-wide keystroke; loadSettings is served from
+  // memory, so this is a map lookup, not a disk read.)
   uIOhook.on("keydown", (e) => {
     const key = loadSettings().pushToTalkKey;
     if (pttDetector.keyDown(isPushToTalkCode(key, e.keycode)) === "press") {
@@ -754,7 +858,16 @@ app.whenReady().then(async () => {
   // Safety net for manual dragging: if the renderer's pointerup is ever
   // missed, the global mouse-up still ends the drag.
   uIOhook.on("mouseup", stopWindowDrag);
-  uIOhook.start();
+  try {
+    uIOhook.start();
+  } catch (err) {
+    // The native hook failing to load must not take the rest of startup
+    // with it. The app still works — without the input trigger and
+    // push-to-talk — and the log says why.
+    logLine(
+      `[input] global input hook failed to start (input trigger + push-to-talk disabled): ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
 
   // System tray — always-available quit fallback regardless of which view is open.
   const trayIcon = nativeImage.createEmpty();
@@ -769,12 +882,16 @@ app.whenReady().then(async () => {
   );
   tray.on("click", () => mainWindow?.show());
 
-  // Ctrl+Q as a global keyboard shortcut to quit from anywhere.
-  globalShortcut.register("Control+Q", () => app.quit());
+  // Ctrl+Q is handled by the renderer while SightLine has focus. It used to
+  // be a GLOBAL shortcut, which quit the coach — mid-session, without the
+  // in-app confirmation — whenever the user pressed Ctrl+Q in the program
+  // they were being coached in, and stole the key from that program.
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
+}).catch((err: unknown) => {
+  logLine(`[app] startup failed: ${err instanceof Error ? err.stack ?? err.message : String(err)}`);
 });
 
 app.on("window-all-closed", () => {
@@ -859,25 +976,6 @@ function registerIpc() {
     elevenlabs: hasElevenLabsKey() || (await hasKey("elevenlabs")),
   }));
 
-  ipcMain.handle(
-    "keys:set",
-    async (
-      _e: IpcMainInvokeEvent,
-      payload: { name: CredentialKey; value: string },
-    ) => {
-      await setKey(payload.name, payload.value);
-    },
-  );
-
-  ipcMain.handle(
-    "keys:clear",
-    async (_e: IpcMainInvokeEvent, payload: { name: CredentialKey }) => {
-      await clearKey(payload.name);
-    },
-  );
-
-  ipcMain.handle("displays:list", () => listDisplays());
-
   ipcMain.handle("capture:list-targets", () => listCaptureTargets());
 
   ipcMain.handle("capture:recalibrate", async () => {
@@ -937,28 +1035,7 @@ function registerIpc() {
 
   ipcMain.handle(
     "claude:next-instruction",
-    async (
-      e: IpcMainInvokeEvent,
-      args: {
-        mode: AppMode;
-        goal: string;
-        completedSteps: string[];
-        upcomingSteps?: string[];
-        conversation: ConversationTurn[];
-        frames: CaptureFrame[];
-        followUp?: string;
-        clarificationContext?: string;
-        uploadedContext?: string;
-        agentNotes?: string[];
-        lastExpectedResult?: string;
-        secondsSinceScreenChange?: number;
-        secondsSinceLastSpoke?: number;
-        stalled?: boolean;
-        sessionJustStarted?: boolean;
-        screenChanged?: boolean;
-        recalledMemory?: string;
-      },
-    ) => {
+    async (e: IpcMainInvokeEvent, args: NextInstructionArgs) => {
       const startedAt = Date.now();
       try {
         const result = await getNextInstruction(
@@ -1110,21 +1187,16 @@ function registerIpc() {
   );
 
   ipcMain.handle(
-    "window:set-ignore-mouse",
-    (_e: IpcMainInvokeEvent, payload: { ignore: boolean }) => {
-      if (!mainWindow) return;
-      mainWindow.setIgnoreMouseEvents(payload.ignore, { forward: true });
-    },
-  );
-
-  ipcMain.handle(
     "window:set-collapsed",
     (_e: IpcMainInvokeEvent, payload: { collapsed: boolean }) => {
       if (!mainWindow || mainWindow.isDestroyed()) return;
       // Docked: collapse shrinks the reserved strip to a thin rail instead
       // of the floating capsule — the session keeps running, the desktop
-      // gets its width back.
+      // gets its width back. `isCollapsed` is kept in step so an undock
+      // later knows which floating shape to restore (this used to desync
+      // and leave the full UI crammed into the 380x56 collapsed stub).
       if (isDocked()) {
+        isCollapsed = payload.collapsed;
         updateDockWidth(
           payload.collapsed
             ? RAIL_WIDTH
@@ -1132,27 +1204,8 @@ function registerIpc() {
         );
         return;
       }
-      const b = mainWindow.getBounds();
-      if (payload.collapsed && !isCollapsed) {
-        expandedSize = { width: b.width, height: b.height };
-        isCollapsed = true;
-        // Must shrink the minimum before setBounds — the normal minHeight
-        // (380) would block the bar height.
-        mainWindow.setMinimumSize(300, 48);
-        mainWindow.setBounds({ x: b.x, y: b.y, width: 380, height: 56 });
-        mainWindow.setResizable(false);
-      } else if (!payload.collapsed && isCollapsed) {
-        isCollapsed = false;
-        mainWindow.setResizable(true);
-        mainWindow.setMinimumSize(320, 380);
-        // Expand where the bar currently sits.
-        mainWindow.setBounds({
-          x: b.x,
-          y: b.y,
-          width: expandedSize?.width ?? 380,
-          height: expandedSize?.height ?? 720,
-        });
-      }
+      if (payload.collapsed) collapseFloating();
+      else expandFloating();
     },
   );
 
@@ -1174,10 +1227,8 @@ function registerIpc() {
   ipcMain.handle("window:minimize", () => {
     if (!mainWindow || mainWindow.isDestroyed()) return;
     // A minimized appbar would leave a dead reserved strip — undock first.
-    if (isDocked()) {
-      wantsDock = false;
-      undockWindow();
-    }
+    // `wantsDock` is left alone so the "restore" handler can redock.
+    if (isDocked()) undockWindow();
     mainWindow.minimize();
   });
 
@@ -1231,8 +1282,15 @@ function registerIpc() {
   // policy live in ./tts — this handler is just the IPC surface.
   ipcMain.handle(
     "tts:speak",
-    async (_e: IpcMainInvokeEvent, payload: { text: string }) => {
-      const result = await synthesizeSpeech(payload.text);
+    async (
+      _e: IpcMainInvokeEvent,
+      payload: { text: string; previousText?: string },
+    ) => {
+      // previousText is the request-stitching context (what this response
+      // already said). It was being dropped here, which made every sentence
+      // after the first start a fresh performance — the wandering intonation
+      // the voice settings were tuned to fix.
+      const result = await synthesizeSpeech(payload.text, payload.previousText ?? "");
       if ("__error" in result) return result;
       logLine(
         `[tts] ${result.engine}${result.cached ? " (cached)" : ""} ${result.ms}ms ` +
@@ -1243,17 +1301,6 @@ function registerIpc() {
   );
 
   ipcMain.handle("tts:list-voices", () => listElevenVoices());
-
-  ipcMain.handle(
-    "overlay:show-glow",
-    (_e: IpcMainInvokeEvent, payload: { displayId: string | null }) => {
-      showGlowOverlay(payload.displayId ?? null);
-    },
-  );
-
-  ipcMain.handle("overlay:hide-glow", () => {
-    hideGlowOverlay();
-  });
 
   ipcMain.handle(
     "overlay:set-adjust",
@@ -1343,12 +1390,35 @@ function registerIpc() {
     };
   });
 
-  // Live drag-resize fires many times per second — apply the width
-  // immediately (that's the live re-flow), persist it debounced.
+  // Live drag-resize fires many times per second. Every width change is an
+  // AppBar SETPOS, and SETPOS makes Windows broadcast a work-area change that
+  // every maximized window on that monitor re-lays-out for — so the strip is
+  // re-asserted at most every 50 ms (trailing edge keeps the final width),
+  // and the setting is persisted debounced.
+  const DOCK_RESIZE_THROTTLE_MS = 50;
   let dockWidthSaveTimer: ReturnType<typeof setTimeout> | null = null;
+  let dockResizeTimer: ReturnType<typeof setTimeout> | null = null;
+  let dockResizeLastAt = 0;
+  let dockResizePending: number | null = null;
+  const applyDockWidth = (width: number) => {
+    dockResizeLastAt = Date.now();
+    dockResizePending = null;
+    if (isDocked()) updateDockWidth(width);
+  };
   ipcMain.handle("dock:resize", (_e, payload: { width: number }) => {
     const width = clampDockWidth(payload.width);
-    if (isDocked()) updateDockWidth(width);
+    const sinceLast = Date.now() - dockResizeLastAt;
+    if (sinceLast >= DOCK_RESIZE_THROTTLE_MS && dockResizeTimer === null) {
+      applyDockWidth(width);
+    } else {
+      dockResizePending = width;
+      if (dockResizeTimer === null) {
+        dockResizeTimer = setTimeout(() => {
+          dockResizeTimer = null;
+          if (dockResizePending !== null) applyDockWidth(dockResizePending);
+        }, Math.max(0, DOCK_RESIZE_THROTTLE_MS - sinceLast));
+      }
+    }
     if (dockWidthSaveTimer) clearTimeout(dockWidthSaveTimer);
     dockWidthSaveTimer = setTimeout(() => {
       dockWidthSaveTimer = null;

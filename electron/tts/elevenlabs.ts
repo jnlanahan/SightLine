@@ -39,6 +39,25 @@ async function apiKey(): Promise<string | null> {
 // back to the account's own first voice instead.
 const deadVoices = new Set<string>();
 let resolvedFallbackVoice: string | null = null;
+// When the fallback lookup itself failed, don't repeat it on every sentence.
+let fallbackLookupFailedAt = 0;
+const FALLBACK_LOOKUP_RETRY_MS = 60_000;
+
+// A 401 on a PREMADE voice is the key, not the voice: invalid, revoked, or
+// out of quota. Marking the voice dead would send every sentence through two
+// extra round trips (a doomed fallback lookup, then a doomed request) before
+// Google gets a turn. Instead, stand ElevenLabs down for a while.
+let unauthorizedUntil = 0;
+const UNAUTHORIZED_COOLDOWN_MS = 5 * 60_000;
+
+/** True when the configured voice is known-unusable and a fallback is substituted. */
+export function isDeadVoice(voiceId: string | undefined): boolean {
+  return deadVoices.has(voiceId?.trim() || DEFAULT_ELEVEN_VOICE_ID);
+}
+
+function isPremadePreset(voiceId: string): boolean {
+  return ELEVEN_VOICE_PRESETS.some((v) => v.id === voiceId);
+}
 
 /**
  * Synthesize one chunk. `speed` maps onto ElevenLabs' voice_settings.speed
@@ -54,6 +73,9 @@ export async function speakTextElevenLabs(
     previousText?: string;
   } = {},
 ): Promise<Buffer> {
+  if (Date.now() < unauthorizedUntil) {
+    throw new Error("elevenlabs_unauthorized_cooldown");
+  }
   const key = await apiKey();
   if (!key) throw new Error("missing_elevenlabs_key");
 
@@ -117,7 +139,12 @@ export async function speakTextElevenLabs(
     // The last two are the common ones on free accounts, and without them a
     // single unusable default voice silently downgrades the whole session to
     // the system voice instead of just picking a different ElevenLabs voice.
-    if ([401, 402, 404, 422].includes(resp.status)) deadVoices.add(voiceId);
+    if (resp.status === 401 && isPremadePreset(voiceId)) {
+      // A premade voice works on every plan, so this 401 is about the key.
+      unauthorizedUntil = Date.now() + UNAUTHORIZED_COOLDOWN_MS;
+    } else if ([401, 402, 404, 422].includes(resp.status)) {
+      deadVoices.add(voiceId);
+    }
     throw new Error(
       `elevenlabs_http_${resp.status}${detail ? `: ${detail.slice(0, 200)}` : ""}`,
     );
@@ -176,11 +203,17 @@ function describeLabels(labels: Record<string, string> | undefined): string {
 // First voice the account actually owns — used when the configured id is dead.
 async function accountFallbackVoice(key: string): Promise<string | null> {
   if (resolvedFallbackVoice) return resolvedFallbackVoice;
+  if (Date.now() - fallbackLookupFailedAt < FALLBACK_LOOKUP_RETRY_MS) {
+    return null;
+  }
   try {
     const resp = await fetch(`${API_BASE}/voices`, {
       headers: { "xi-api-key": key },
     });
-    if (!resp.ok) return null;
+    if (!resp.ok) {
+      fallbackLookupFailedAt = Date.now();
+      return null;
+    }
     const data = (await resp.json()) as {
       voices?: Array<{ voice_id?: string; category?: string }>;
     };
@@ -193,8 +226,10 @@ async function accountFallbackVoice(key: string): Promise<string | null> {
     const first =
       usable.find((v) => v.category === "premade") ?? usable[0];
     resolvedFallbackVoice = first?.voice_id ?? null;
+    if (!resolvedFallbackVoice) fallbackLookupFailedAt = Date.now();
     return resolvedFallbackVoice;
   } catch {
+    fallbackLookupFailedAt = Date.now();
     return null;
   }
 }

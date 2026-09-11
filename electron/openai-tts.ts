@@ -15,6 +15,8 @@ type SupportedVoice = "alloy" | "echo" | "fable" | "nova" | "onyx" | "shimmer";
 
 export interface SpeakOptions {
   voice?: TtsVoice;
+  /** Aborts the HTTP request itself, so a timed-out call doesn't keep running. */
+  signal?: AbortSignal;
 }
 
 const TONE_INSTRUCTIONS =
@@ -48,24 +50,32 @@ export async function speakText(
   // Try the expressive model first — it accepts tone instructions, supports all
   // voices including coral/sage, and sounds noticeably more human.
   // Falls back to tts-1-hd on 403/404/400/422 (account lacks access).
+  const requestOptions = opts.signal ? { signal: opts.signal } : undefined;
   try {
-    const response = await client.audio.speech.create({
-      model: "gpt-4o-mini-tts" as "tts-1-hd",
-      voice: voice as SupportedVoice,
-      input: text,
-      response_format: "mp3",
-      instructions: TONE_INSTRUCTIONS,
-    });
-    return Buffer.from(await response.arrayBuffer());
-  } catch (err) {
-    const status = (err as { status?: number })?.status;
-    if (status === 403 || status === 404 || status === 400 || status === 422) {
-      const response = await client.audio.speech.create({
-        model: "tts-1-hd",
-        voice: fallbackVoice,
+    const response = await client.audio.speech.create(
+      {
+        model: "gpt-4o-mini-tts" as "tts-1-hd",
+        voice: voice as SupportedVoice,
         input: text,
         response_format: "mp3",
-      });
+        instructions: TONE_INSTRUCTIONS,
+      },
+      requestOptions,
+    );
+    return Buffer.from(await response.arrayBuffer());
+  } catch (err) {
+    if (opts.signal?.aborted) throw err;
+    const status = (err as { status?: number })?.status;
+    if (status === 403 || status === 404 || status === 400 || status === 422) {
+      const response = await client.audio.speech.create(
+        {
+          model: "tts-1-hd",
+          voice: fallbackVoice,
+          input: text,
+          response_format: "mp3",
+        },
+        requestOptions,
+      );
       return Buffer.from(await response.arrayBuffer());
     }
     throw err;

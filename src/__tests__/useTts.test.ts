@@ -1,25 +1,21 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-// Mock Electron IPC dependencies before importing the module under test.
+// Mock the IPC bridge before importing the module under test. The cloud path
+// always fails here, so every stream exercises the fallback + drain logic.
+const speakMock = vi.fn();
 vi.mock("../lib/api", () => ({
   api: () => ({
     tts: {
-      speak: vi.fn().mockResolvedValue({ __error: "not available in test" }),
+      speak: speakMock,
     },
     log: vi.fn(),
   }),
 }));
 
-vi.mock("../store/settings", () => ({
-  useSettings: {
-    getState: () => ({ settings: { ttsVoice: undefined, ttsEnabled: true } }),
-  },
-}));
-
-// Dynamic import so the module is fresh per describe block when needed.
 describe("waitForSpeechEnd", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    speakMock.mockResolvedValue({ __error: "not available in test" });
   });
 
   it("is exported from useTts", async () => {
@@ -55,32 +51,57 @@ describe("waitForSpeechEnd", () => {
     speak("test fallback");
     const done = waitForSpeechEnd();
 
-    // The mocked api returns an error, so playOpenAI fails and resolves the
-    // promise via the fallback path. Await with a timeout guard.
+    // The mocked api returns an error, so the cloud path fails and the
+    // stream drains through the fallback path.
     await expect(done).resolves.toBeUndefined();
   });
 });
 
-describe("WAITING_PHRASES", () => {
-  it("has at least 7 entries", async () => {
-    const { WAITING_PHRASES } = await import("../hooks/useTts");
-    expect(WAITING_PHRASES.length).toBeGreaterThanOrEqual(7);
+describe("cancelled streams", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    speakMock.mockResolvedValue({ __error: "not available in test" });
   });
 
-  it("all phrases are under 12 words", async () => {
-    const { WAITING_PHRASES } = await import("../hooks/useTts");
-    for (const phrase of WAITING_PHRASES) {
+  it("does not synthesize chunks enqueued after the stream was cancelled", async () => {
+    const { openSpeechStream } = await import("../hooks/useTts");
+    const stream = openSpeechStream();
+    stream.enqueue("First sentence.");
+    // A barge-in / new stream cancels the first one…
+    const next = openSpeechStream();
+    // …so anything the first stream still tries to say is dropped silently.
+    stream.enqueue("Stale sentence that must never be synthesized.");
+    stream.end();
+    next.end();
+    await new Promise((r) => setTimeout(r, 0));
+    const texts = speakMock.mock.calls.map((c) => String(c[0]));
+    expect(texts).not.toContain("Stale sentence that must never be synthesized.");
+  });
+
+  it("passes the earlier sentences of a response as context for the later ones", async () => {
+    const { openSpeechStream, waitForSpeechEnd } = await import("../hooks/useTts");
+    const stream = openSpeechStream();
+    stream.enqueue("See the blue button?");
+    stream.enqueue("Click that.");
+    stream.end();
+    await waitForSpeechEnd(2_000);
+    const calls = speakMock.mock.calls.map((c) => [String(c[0]), String(c[1])]);
+    expect(calls).toContainEqual(["See the blue button?", ""]);
+    expect(calls).toContainEqual(["Click that.", "See the blue button?"]);
+  });
+});
+
+describe("THINKING_PHRASES", () => {
+  it("has several fillers so the coach doesn't repeat itself", async () => {
+    const { THINKING_PHRASES } = await import("../hooks/useTts");
+    expect(THINKING_PHRASES.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it("all phrases are short enough to play while Claude thinks", async () => {
+    const { THINKING_PHRASES } = await import("../hooks/useTts");
+    for (const phrase of THINKING_PHRASES) {
       const wordCount = phrase.split(/\s+/).length;
-      expect(wordCount, `"${phrase}" is too long (${wordCount} words)`).toBeLessThanOrEqual(12);
-    }
-  });
-
-  it("no two consecutive phrases start with the same word", async () => {
-    const { WAITING_PHRASES } = await import("../hooks/useTts");
-    for (let i = 1; i < WAITING_PHRASES.length; i++) {
-      const prev = WAITING_PHRASES[i - 1].split(" ")[0];
-      const curr = WAITING_PHRASES[i].split(" ")[0];
-      expect(curr, `Phrases ${i - 1} and ${i} both start with "${prev}"`).not.toBe(prev);
+      expect(wordCount, `"${phrase}" is too long (${wordCount} words)`).toBeLessThanOrEqual(8);
     }
   });
 });

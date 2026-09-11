@@ -268,6 +268,9 @@ export interface Settings {
   // One-time migration flag: widens the saved window once for the side-rail
   // layout (plan steps now live in a right-hand column that needs room).
   uiSideRailMigration: boolean;
+  // One-time migration flag: captureRegion is stored display-relative now
+  // (it used to be relative to the glow window, which moves with the dock).
+  captureRegionDisplayRelative: boolean;
   // Coach Mode: dock the panel to the side of the watched monitor during
   // sessions (Windows AppBar — the OS reserves the strip).
   dockEnabled: boolean;

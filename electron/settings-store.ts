@@ -3,6 +3,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import type { Settings } from "./types";
 import { DEFAULT_ELEVEN_VOICE_ID } from "./tts/shared";
+import { logLine } from "./log";
 
 const DEFAULTS: Settings = {
   captureIntervalSec: 5,
@@ -32,6 +33,7 @@ const DEFAULTS: Settings = {
   solidBackground: true,
   uiOpaqueMigration: false,
   uiSideRailMigration: false,
+  captureRegionDisplayRelative: false,
   dockEnabled: true,
   dockSide: "left",
   dockWidth: 400,
@@ -52,25 +54,53 @@ const RETIRED_VOICE_IDS = new Set([
   "XB0fDUnXU5powFXDhCwa",
 ]);
 
-export function loadSettings(): Settings {
+// The parsed file, once read. Settings are consulted on hot paths — every
+// global key press (for the push-to-talk key), every capture, every TTS
+// sentence — and each of those used to be a synchronous disk read plus a
+// JSON parse on the main thread. This process is the only writer, so the
+// in-memory copy is always current once saveSettings keeps it in sync.
+let cache: Settings | null = null;
+
+function readFromDisk(): Settings {
+  let parsed: Partial<Settings> = {};
   try {
     const raw = fs.readFileSync(settingsPath(), "utf-8");
-    const parsed = JSON.parse(raw) as Partial<Settings>;
-    const merged = { ...DEFAULTS, ...parsed };
-    if (RETIRED_VOICE_IDS.has(merged.elevenVoiceId)) {
-      merged.elevenVoiceId = DEFAULTS.elevenVoiceId;
+    parsed = JSON.parse(raw) as Partial<Settings>;
+  } catch (err) {
+    const code = (err as { code?: string })?.code;
+    // A missing file is the normal first run. Anything else — a corrupt file
+    // after a crash mid-write, a hand edit gone wrong — used to silently
+    // become defaults, which reads as "my settings vanished".
+    if (code !== "ENOENT") {
+      logLine(
+        `[settings] could not read settings.json, using defaults: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
-    return merged;
-  } catch {
-    return { ...DEFAULTS };
   }
+  const merged = { ...DEFAULTS, ...parsed };
+  if (RETIRED_VOICE_IDS.has(merged.elevenVoiceId)) {
+    merged.elevenVoiceId = DEFAULTS.elevenVoiceId;
+  }
+  return merged;
+}
+
+export function loadSettings(): Settings {
+  if (!cache) cache = readFromDisk();
+  // Callers receive a copy so a mutation can never leak into the cache.
+  return { ...cache };
 }
 
 export function saveSettings(next: Partial<Settings>): Settings {
   const merged = { ...loadSettings(), ...next };
+  cache = merged;
   try {
-    fs.mkdirSync(path.dirname(settingsPath()), { recursive: true });
-    fs.writeFileSync(settingsPath(), JSON.stringify(merged, null, 2), "utf-8");
+    const file = settingsPath();
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    // Write-then-rename so a crash mid-write leaves the previous good file
+    // rather than a truncated one.
+    const tmp = `${file}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify(merged, null, 2), "utf-8");
+    fs.renameSync(tmp, file);
   } catch (err) {
     console.error("[settings] failed to write:", err);
   }

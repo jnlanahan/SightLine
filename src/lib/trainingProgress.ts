@@ -51,24 +51,23 @@ export async function applyTrainingTurn(
   log: (msg: string) => void,
 ): Promise<void> {
   const s = useSession.getState();
-  let plan = s.activePlan;
-  if (!plan) return;
+  const planId = s.activePlan?.id;
+  if (!planId) return;
   if (!result.taskVerdict && !result.mistakePattern) return;
-  const now = Date.now();
 
-  if (result.mistakePattern) {
-    plan = recordMistakePattern(plan, result.mistakePattern, now);
-  }
-
+  // Store the frame the verdict was given on — one image per explicit
+  // check, attached to the feedback entry. Best-effort, like all persistence.
+  // This is the only await, and it runs BEFORE the plan is read and edited:
+  // the background module-detailing call can replace activePlan while the
+  // frame is being written, and applying the verdict to a copy taken earlier
+  // would persist a plan with that detail silently undone.
+  let frameFile: string | null = null;
   if (result.taskVerdict) {
-    // Store the frame the verdict was given on — one image per explicit
-    // check, attached to the feedback entry. Best-effort, like all persistence.
-    let frameFile: string | null = null;
     const lastFrame = s.frames[s.frames.length - 1];
     if (lastFrame) {
       try {
         const saved = await api().plans.saveFrame({
-          planId: plan.id,
+          planId,
           frameId: newLocalId("chk"),
           dataUrl: lastFrame.dataUrl,
         });
@@ -77,6 +76,18 @@ export async function applyTrainingTurn(
         // no frame — the text feedback still lands
       }
     }
+  }
+
+  // Guard against a session switch while the frame write was in flight.
+  let plan = useSession.getState().activePlan;
+  if (!plan || plan.id !== planId) return;
+  const now = Date.now();
+
+  if (result.mistakePattern) {
+    plan = recordMistakePattern(plan, result.mistakePattern, now);
+  }
+
+  if (result.taskVerdict) {
     const summary = (result.instruction ?? "").trim().slice(0, 240);
     const verdict = applyTaskVerdict(plan, result.taskVerdict, summary, frameFile, now);
     plan = verdict.plan;
@@ -89,8 +100,6 @@ export async function applyTrainingTurn(
     }
   }
 
-  // Guard against a session switch while the frame write was in flight.
-  if (useSession.getState().activePlan?.id !== plan.id) return;
   useSession.getState().setActivePlan(plan);
   void api().plans.save(plan);
 }

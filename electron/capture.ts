@@ -11,7 +11,6 @@ import type {
   CaptureFrame,
   CaptureRegion,
   CaptureTarget,
-  DisplayInfo,
   HighlightRect,
 } from "./types";
 
@@ -35,17 +34,6 @@ const MAX_PAYLOAD_WIDTH = 1280;
 const JPEG_QUALITY = 82;
 // Cap the intermediate full-screen grab so 4K/5K displays don't blow up memory.
 const MAX_GRAB_WIDTH = 2560;
-
-export function listDisplays(): DisplayInfo[] {
-  const primary = screen.getPrimaryDisplay();
-  return screen.getAllDisplays().map((d, i) => ({
-    id: String(d.id),
-    label: d.label && d.label.length > 0 ? d.label : `Display ${i + 1}`,
-    primary: d.id === primary.id,
-    width: d.size.width,
-    height: d.size.height,
-  }));
-}
 
 /**
  * List every screen capture source with a live thumbnail, paired to a display
@@ -156,6 +144,34 @@ function findPinnedOrCalibrated(
   return null;
 }
 
+// Auto-recalibration from inside a capture is a last resort (it flashes every
+// screen). Never more than once a minute, however the sources look.
+const AUTO_RECALIBRATE_COOLDOWN_MS = 60_000;
+let lastAutoRecalibrationAt = 0;
+
+function shouldRecalibrate(
+  sources: DesktopCapturerSource[],
+  selection: CaptureSelection,
+  cal: CalibrationResult | null,
+  target: Display,
+): boolean {
+  if (Date.now() - lastAutoRecalibrationAt < AUTO_RECALIBRATE_COOLDOWN_MS) {
+    return false;
+  }
+  const ids = new Set(sources.map((s) => s.id));
+  // A pinned source id that no longer exists — ids rotated or the monitor
+  // is gone — is worth one re-probe.
+  if (selection.sourceId && cal?.sourceToDisplay.has(selection.sourceId)) {
+    return !ids.has(selection.sourceId);
+  }
+  // A calibrated mapping FOR THIS DISPLAY whose source has vanished.
+  const mapped = cal?.displayToSource.get(String(target.id));
+  if (mapped) return !ids.has(mapped);
+  // No mapping for this display: calibration couldn't identify it last time,
+  // and re-probing now would most likely fail the same way. Use the ladder.
+  return false;
+}
+
 export interface CaptureOptions {
   /**
    * Sub-rectangle of the FINAL frame (after dock-strip subtraction and the
@@ -203,14 +219,18 @@ export async function captureFrame(
   });
 
   // Resolution order: user-pinned source (picked by thumbnail) → calibrated
-  // mapping → the old ID-matching ladder as last resort. If the pinned or
-  // calibrated source vanished (monitor unplugged, source ids rotated),
-  // recalibrate once and retry before falling back.
+  // mapping → the old ID-matching ladder as last resort. If a source we HAD
+  // a mapping for has vanished from the list (monitor unplugged, source ids
+  // rotated), recalibrate once and retry before falling back.
+  //
+  // The condition is deliberately narrow. It used to fire whenever the map
+  // had ANY entry and this display simply wasn't among them (calibration is
+  // allowed to be partial), which flashed the magenta markers across every
+  // screen on every single tick for the whole session. Recalibration is also
+  // rate-limited here for the same reason.
   let resolved = findPinnedOrCalibrated(sources, selection, cal, target);
-  const expectedButMissing =
-    !resolved &&
-    (selection.sourceId || selection.sourceName || cal?.displayToSource.size);
-  if (expectedButMissing) {
+  if (!resolved && shouldRecalibrate(sources, selection, cal, target)) {
+    lastAutoRecalibrationAt = Date.now();
     invalidateCalibration();
     try {
       cal = await getCalibration(true);
@@ -241,9 +261,10 @@ export async function captureFrame(
 
   // Coach Mode: while the sidebar is docked on this display, its own strip is
   // cut out of every frame — the model never sees its own panel. The dock
-  // strip is subtracted FIRST; the user's region (drawn inside the glow
-  // window, which itself covers only the remainder while docked) applies
-  // relative to that base. Both are clamped.
+  // strip is subtracted FIRST; the user's region (display-relative) is then
+  // intersected with that remainder, so a region that overlaps the strip
+  // loses only the overlap and one that sits entirely under it falls back to
+  // the whole remainder rather than producing a sliver.
   let effectiveRegion = region;
   const dock = getDockRectDip();
   if (dock && dock.displayId === String(target.id)) {
@@ -254,18 +275,7 @@ export async function captureFrame(
       width: base.width,
       height: base.height,
     };
-    if (region) {
-      const x = baseRel.x + clamp(region.x, 0, Math.max(0, baseRel.width - 1));
-      const y = baseRel.y + clamp(region.y, 0, Math.max(0, baseRel.height - 1));
-      effectiveRegion = {
-        x,
-        y,
-        width: clamp(region.width, 1, baseRel.x + baseRel.width - x),
-        height: clamp(region.height, 1, baseRel.y + baseRel.height - y),
-      };
-    } else {
-      effectiveRegion = baseRel;
-    }
+    effectiveRegion = region ? intersect(region, baseRel) ?? baseRel : baseRel;
   }
 
   // Zoom narrows whatever the effective region already is, expressed as
@@ -333,6 +343,19 @@ export async function captureFrame(
 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
+}
+
+// Smallest region worth capturing on its own. Below this the crop is a
+// sliver that carries no information, so the caller falls back to the base.
+const MIN_REGION_SIDE = 40;
+
+function intersect(a: CaptureRegion, b: CaptureRegion): CaptureRegion | null {
+  const x = Math.max(a.x, b.x);
+  const y = Math.max(a.y, b.y);
+  const right = Math.min(a.x + a.width, b.x + b.width);
+  const bottom = Math.min(a.y + a.height, b.y + b.height);
+  if (right - x < MIN_REGION_SIDE || bottom - y < MIN_REGION_SIDE) return null;
+  return { x, y, width: right - x, height: bottom - y };
 }
 
 // Width used for historical frames in the vision payload. Only the latest

@@ -26,6 +26,9 @@ export interface CalibrationResult {
 const THUMB_SIZE = { width: 320, height: 200 };
 const MARKER_PAINT_DELAY_MS = 300; // compositor needs a frame or two after show
 const RETRY_DELAY_MS = 400;
+// After destroying a marker, give the compositor a couple of frames to present
+// the desktop without it before any capture is allowed to run.
+const MARKER_TEARDOWN_DELAY_MS = 120;
 
 // The marker has to cover most of a display in a colour the detector can pick
 // out of a thumbnail (see calibrate-detect.ts: MIN_MARKER_RATIO is 0.35, so a
@@ -132,7 +135,12 @@ async function probeDisplay(
     console.warn(`[calibrate] probe failed for display=${display.id}:`, err);
     return null;
   } finally {
-    if (marker && !marker.isDestroyed()) marker.close();
+    // destroy(), not close(): close() is asynchronous, so the marker could
+    // still be composited when the caller's capture ran — a magenta frame in
+    // front of the model. destroy() tears the window down synchronously, and
+    // the short pause lets the compositor present the frame without it.
+    if (marker && !marker.isDestroyed()) marker.destroy();
+    await sleep(MARKER_TEARDOWN_DELAY_MS);
   }
 }
 

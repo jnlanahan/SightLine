@@ -9,7 +9,6 @@ import type {
   CaptureTarget,
   ClarificationResponse,
   ConversationTurn,
-  DisplayInfo,
   DockState,
   ElevenVoiceOption,
   GoalEvaluation,
@@ -28,6 +27,7 @@ import type {
   TrainingPlan,
 } from "./db/schema";
 import type { CurriculumOutline, ModuleTaskDetail } from "./training-plan";
+import type { NextInstructionArgs } from "./claude";
 
 export interface SightLineApi {
   settings: {
@@ -36,11 +36,6 @@ export interface SightLineApi {
   };
   keys: {
     status(): Promise<ApiKeyStatus>;
-    set(name: "anthropic" | "openai", value: string): Promise<void>;
-    clear(name: "anthropic" | "openai"): Promise<void>;
-  };
-  displays: {
-    list(): Promise<DisplayInfo[]>;
   };
   capture: {
     once(displayId: string | null): Promise<CaptureFrame>;
@@ -61,27 +56,7 @@ export interface SightLineApi {
     describe(args: { mode: AppMode }): Promise<AgentDescriptor>;
   };
   claude: {
-    nextInstruction(args: {
-      mode: AppMode;
-      goal: string;
-      completedSteps: string[];
-      upcomingSteps?: string[];
-      conversation: ConversationTurn[];
-      frames: CaptureFrame[];
-      followUp?: string;
-      clarificationContext?: string;
-      uploadedContext?: string;
-      agentNotes?: string[];
-      lastExpectedResult?: string;
-      secondsSinceScreenChange?: number;
-      secondsSinceLastSpoke?: number;
-      stalled?: boolean;
-      sessionJustStarted?: boolean;
-      screenChanged?: boolean;
-      recalledMemory?: string;
-      trainingContext?: string;
-      referenceFrame?: string;
-    }): Promise<
+    nextInstruction(args: NextInstructionArgs): Promise<
       | InstructionResponse
       | { __error: "missing_api_key" }
       | { __error: "rate_limited"; retryAfterSec: number }
@@ -128,7 +103,6 @@ export interface SightLineApi {
   };
   window: {
     setOpacity(opacity: number): Promise<void>;
-    setIgnoreMouse(ignore: boolean): Promise<void>;
     setCollapsed(collapsed: boolean): Promise<void>;
     minimize(): Promise<void>;
     openExternal(url: string): Promise<void>;
@@ -152,8 +126,6 @@ export interface SightLineApi {
     search(query: string): Promise<{ text: string } | { __error: string; message?: string }>;
   };
   overlay: {
-    showGlow(displayId: string | null): Promise<void>;
-    hideGlow(): Promise<void>;
     setAdjust(adjust: boolean): Promise<void>;
     onRegionUpdated(cb: (region: CaptureRegion | null) => void): () => void;
     // Flash a short glow over an on-screen element. Coordinates are
@@ -230,11 +202,6 @@ const api: SightLineApi = {
   },
   keys: {
     status: () => ipcRenderer.invoke("keys:get-status"),
-    set: (name, value) => ipcRenderer.invoke("keys:set", { name, value }),
-    clear: (name) => ipcRenderer.invoke("keys:clear", { name }),
-  },
-  displays: {
-    list: () => ipcRenderer.invoke("displays:list"),
   },
   capture: {
     once: (displayId) => ipcRenderer.invoke("capture:once", { displayId }),
@@ -273,8 +240,6 @@ const api: SightLineApi = {
   window: {
     setOpacity: (opacity) =>
       ipcRenderer.invoke("window:set-opacity", { opacity }),
-    setIgnoreMouse: (ignore) =>
-      ipcRenderer.invoke("window:set-ignore-mouse", { ignore }),
     setCollapsed: (collapsed) =>
       ipcRenderer.invoke("window:set-collapsed", { collapsed }),
     minimize: () => ipcRenderer.invoke("window:minimize"),
@@ -292,8 +257,6 @@ const api: SightLineApi = {
     search: (query) => ipcRenderer.invoke("research:search", { query }),
   },
   overlay: {
-    showGlow: (displayId) => ipcRenderer.invoke("overlay:show-glow", { displayId }),
-    hideGlow: () => ipcRenderer.invoke("overlay:hide-glow"),
     setAdjust: (adjust) => ipcRenderer.invoke("overlay:set-adjust", { adjust }),
     onRegionUpdated: (cb) => {
       const handler = (_: Electron.IpcRendererEvent, region: CaptureRegion | null) =>

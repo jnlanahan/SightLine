@@ -51,13 +51,3 @@ export async function ensureAgentPolicy(
   const descriptor = await inFlight.promise;
   return descriptor?.loop ?? null;
 }
-
-/** The cached policy, or null if the agent hasn't been described yet. */
-export function currentAgentPolicy(mode: AppMode): LoopPolicy | null {
-  return cached?.mode === mode ? cached.descriptor.loop : null;
-}
-
-/** Drop the cache. Called when a session ends so the next one re-describes. */
-export function resetAgentPolicy(): void {
-  cached = null;
-}

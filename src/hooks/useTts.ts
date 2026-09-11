@@ -5,19 +5,13 @@ import {
   COMPLETION_PHRASES,
   NO_ANSWER_PHRASES,
   THINKING_PHRASES,
-  WAITING_PHRASES,
 } from "../../electron/tts/shared";
 
 // The fixed phrase set lives in electron/tts/shared.ts so the main process can
 // pre-synthesize it at startup without an IPC round-trip. Re-exported here
 // because this is where the rest of the renderer expects to find it — one
 // definition, so a phrase can never drift out of the warm cache.
-export {
-  COMPLETION_PHRASES,
-  NO_ANSWER_PHRASES,
-  THINKING_PHRASES,
-  WAITING_PHRASES,
-};
+export { COMPLETION_PHRASES, NO_ANSWER_PHRASES, THINKING_PHRASES };
 
 function pickRandom<T>(arr: readonly T[], avoid?: T): T {
   if (arr.length === 1) return arr[0];
@@ -28,15 +22,9 @@ function pickRandom<T>(arr: readonly T[], avoid?: T): T {
   return next;
 }
 
-let lastWaitingPhrase: string | undefined;
 let lastCompletionPhrase: string | undefined;
 let lastThinkingPhrase: string | undefined;
 let lastNoAnswerPhrase: string | undefined;
-
-export function randomWaitingPhrase(): string {
-  lastWaitingPhrase = pickRandom(WAITING_PHRASES, lastWaitingPhrase);
-  return lastWaitingPhrase;
-}
 
 export function randomCompletionPhrase(): string {
   lastCompletionPhrase = pickRandom(COMPLETION_PHRASES, lastCompletionPhrase);
@@ -79,10 +67,13 @@ let speakDonePromise: Promise<void> = Promise.resolve();
 export function waitForSpeechEnd(maxWaitMs = 45_000): Promise<void> {
   // Safety net: never let a caller hang forever on a speech promise that a
   // future bug fails to resolve.
-  return Promise.race([
-    speakDonePromise,
-    new Promise<void>((resolve) => setTimeout(resolve, maxWaitMs)),
-  ]);
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const cap = new Promise<void>((resolve) => {
+    timer = setTimeout(resolve, maxWaitMs);
+  });
+  return Promise.race([speakDonePromise, cap]).finally(() => {
+    if (timer !== null) clearTimeout(timer);
+  });
 }
 
 export function getTtsMode(): TtsMode {
@@ -116,20 +107,19 @@ function cancelCurrent() {
 }
 
 function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
-  return Promise.race([
-    p,
-    new Promise<T>((_resolve, reject) =>
-      setTimeout(() => reject(new Error(label)), ms),
-    ),
-  ]);
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const deadline = new Promise<T>((_resolve, reject) => {
+    timer = setTimeout(() => reject(new Error(label)), ms);
+  });
+  return Promise.race([p, deadline]).finally(() => {
+    if (timer !== null) clearTimeout(timer);
+  });
 }
 
 type CloudAudio =
   | { ok: true; audioBase64: string; engine: CloudEngine }
   | { ok: false; message: string };
 
-// Kick off cloud synthesis for one chunk. Called the moment a chunk is
-// enqueued, so chunk N+1 synthesizes while chunk N is still playing.
 // Cap on synthesis requests in flight at once.
 //
 // Speech is pipelined — chunk N+1 is synthesized while chunk N plays — which
@@ -140,6 +130,12 @@ type CloudAudio =
 // Queuing instead costs nothing on paid plans (the pipeline is still a chunk
 // ahead of playback) and prevents that entirely.
 const MAX_CONCURRENT_SYNTHESIS = 2;
+
+// The main process runs its own per-provider timeouts and falls through the
+// provider chain; this only has to outlast that whole chain. It exists so a
+// stuck IPC channel can never leave playback hung — on timeout the chunk falls
+// through to the system voice.
+const IPC_TIMEOUT_MS = 25_000;
 
 let inFlightSynthesis = 0;
 const synthesisWaiters: Array<() => void> = [];
@@ -159,18 +155,27 @@ function releaseSynthesisSlot(): void {
   if (next) next();
 }
 
+const CANCELLED: CloudAudio = { ok: false, message: "cancelled" };
+
+// Kick off cloud synthesis for one chunk. Called the moment a chunk is
+// enqueued, so chunk N+1 synthesizes while chunk N is still playing.
 async function fetchCloudAudio(
   text: string,
   previousText: string,
+  gen: number,
 ): Promise<CloudAudio> {
+  // A cancelled stream's chunks must not occupy synthesis slots. Without this
+  // check, a barge-in mid-answer left up to five stale requests queued ahead
+  // of the next stream's thinking filler — the "instant" filler arrived
+  // seconds late, and every stale sentence was synthesized and billed for
+  // audio nobody would hear.
+  if (gen !== speakGeneration) return CANCELLED;
   await acquireSynthesisSlot();
   try {
-    // Bound the IPC round-trip. The main process already times out each TTS
-    // provider, but this is a final guard so a stuck channel can never leave
-    // playback hung — on timeout we fall through to the web-speech fallback.
+    if (gen !== speakGeneration) return CANCELLED;
     const result = await withTimeout(
       api().tts.speak(text, previousText),
-      20_000,
+      IPC_TIMEOUT_MS,
       "tts_ipc_timeout",
     );
     if ("__error" in result) {
@@ -193,8 +198,8 @@ async function fetchCloudAudio(
 }
 
 // Play one synthesized chunk to completion. Resolves true if the audio
-// played (or was cancelled mid-play), false if playback couldn't start —
-// the caller then falls back to web speech.
+// played (or was cancelled), false if playback couldn't start — the caller
+// then falls back to web speech.
 function playAudioBuffer(
   audioBase64: string,
   engine: CloudEngine,
@@ -232,64 +237,100 @@ function playAudioBuffer(
     audio.play().then(
       () => recordTtsMode(engine),
       (playErr) => {
-        // Autoplay blocked or decode error — let the caller fall back.
-        console.warn("[SightLine TTS] audio.play() failed:", playErr);
         if (settled) return;
         settled = true;
         URL.revokeObjectURL(blobUrl);
         if (currentAudio === audio) currentAudio = null;
+        // A cancel that lands during the decode gap rejects play() BEFORE the
+        // abort event fires. That is not a playback failure, and treating it
+        // as one made the system voice read out a sentence the user had just
+        // interrupted. Only a rejection on a live stream means "fall back".
+        if (gen !== speakGeneration) {
+          resolve(true);
+          return;
+        }
+        console.warn("[SightLine TTS] audio.play() failed:", playErr);
         resolve(false);
       },
     );
   });
 }
 
-function playWebSpeech(text: string) {
+// Web Speech gives no reliable end event in every Chromium build, so the
+// wait is capped by a generous reading-time estimate of the text.
+const WEB_SPEECH_MS_PER_CHAR = 70;
+const WEB_SPEECH_MIN_MS = 1_500;
+const WEB_SPEECH_MAX_MS = 30_000;
+
+// Speak with the browser's own voice. Resolves when the utterance ends (or
+// errors, or the time cap passes) so the queue pump — and therefore
+// isSpeaking() — stays truthful while the system voice is talking. The old
+// fire-and-forget version reported "done" on hand-off, which let the next
+// tick's stream cancel the sentence mid-word.
+function playWebSpeech(text: string): Promise<void> {
   if (typeof window === "undefined" || !window.speechSynthesis) {
     console.warn("[SightLine TTS] speechSynthesis not available.");
-    return;
+    return Promise.resolve();
   }
   console.warn(
-    "[SightLine TTS] Using system speech synthesis. Check your Google/OpenAI keys and network for the natural voice.",
+    "[SightLine TTS] Using system speech synthesis. Check your ElevenLabs/Google/OpenAI keys and network for the natural voice.",
   );
 
-  const utt = new SpeechSynthesisUtterance(text);
-  utt.rate = 1.0;
-  utt.pitch = 1.0;
+  return new Promise<void>((resolve) => {
+    const utt = new SpeechSynthesisUtterance(text);
+    utt.rate = 1.0;
+    utt.pitch = 1.0;
 
-  function pickVoice(voices: SpeechSynthesisVoice[]) {
-    const en = (v: SpeechSynthesisVoice) => v.lang.startsWith("en");
-    return (
-      voices.find((v) => v.name.includes("Natural") && en(v)) ??
-      voices.find((v) => v.lang === "en-US") ??
-      voices.find(en) ??
-      null
+    let settled = false;
+    let cap: ReturnType<typeof setTimeout> | null = null;
+    const done = () => {
+      if (settled) return;
+      settled = true;
+      if (cap !== null) clearTimeout(cap);
+      resolve();
+    };
+    utt.onend = done;
+    utt.onerror = done;
+    const capMs = Math.min(
+      WEB_SPEECH_MAX_MS,
+      Math.max(WEB_SPEECH_MIN_MS, text.length * WEB_SPEECH_MS_PER_CHAR),
     );
-  }
+    cap = setTimeout(done, capMs);
 
-  recordTtsMode("system");
-  const voices = window.speechSynthesis.getVoices();
-  if (voices.length > 0) {
-    const v = pickVoice(voices);
-    if (v) utt.voice = v;
-    window.speechSynthesis.speak(utt);
-  } else {
-    // Voices haven't loaded yet — attach listener then speak.
-    const handler = () => {
-      window.speechSynthesis.onvoiceschanged = null;
-      const v = pickVoice(window.speechSynthesis.getVoices());
+    function pickVoice(voices: SpeechSynthesisVoice[]) {
+      const en = (v: SpeechSynthesisVoice) => v.lang.startsWith("en");
+      return (
+        voices.find((v) => v.name.includes("Natural") && en(v)) ??
+        voices.find((v) => v.lang === "en-US") ??
+        voices.find(en) ??
+        null
+      );
+    }
+
+    recordTtsMode("system");
+    const voices = window.speechSynthesis.getVoices();
+    if (voices.length > 0) {
+      const v = pickVoice(voices);
       if (v) utt.voice = v;
       window.speechSynthesis.speak(utt);
-    };
-    window.speechSynthesis.onvoiceschanged = handler;
-    // Safety net: if the event never fires, speak with default voice.
-    window.setTimeout(() => {
-      if (window.speechSynthesis.onvoiceschanged === handler) {
+    } else {
+      // Voices haven't loaded yet — attach listener then speak.
+      const handler = () => {
         window.speechSynthesis.onvoiceschanged = null;
+        const v = pickVoice(window.speechSynthesis.getVoices());
+        if (v) utt.voice = v;
         window.speechSynthesis.speak(utt);
-      }
-    }, 500);
-  }
+      };
+      window.speechSynthesis.onvoiceschanged = handler;
+      // Safety net: if the event never fires, speak with default voice.
+      window.setTimeout(() => {
+        if (window.speechSynthesis.onvoiceschanged === handler) {
+          window.speechSynthesis.onvoiceschanged = null;
+          window.speechSynthesis.speak(utt);
+        }
+      }, 500);
+    }
+  });
 }
 
 // A speech stream: sentences are enqueued as they arrive (from the streaming
@@ -355,18 +396,19 @@ export function openSpeechStream(): SpeechStream {
           );
           if (played) continue;
         }
+        // Cancelled while the cloud chunk was failing to start — nothing to
+        // fall back to, the user moved on.
+        if (gen !== speakGeneration) return;
         if (!degraded) {
           degraded = true;
           api().log(`[tts] falling back to web speech (gen ${gen})`);
         }
         if (typeof window !== "undefined" && window.speechSynthesis) {
-          playWebSpeech(item.text);
+          await playWebSpeech(item.text);
         } else {
           recordTtsMode("none");
         }
       }
-      // Web Speech has no reliable end signal — once degraded, resolve as
-      // soon as everything is handed off, matching the old behavior.
       if (ended && gen === speakGeneration) finishAll();
     } finally {
       pumping = false;
@@ -389,7 +431,7 @@ export function openSpeechStream(): SpeechStream {
         text: trimmed,
         audioPromise: degraded
           ? Promise.resolve({ ok: false, message: "degraded" })
-          : fetchCloudAudio(trimmed, previousText),
+          : fetchCloudAudio(trimmed, previousText, gen),
       });
       void pump();
     },

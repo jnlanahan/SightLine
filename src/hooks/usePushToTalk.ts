@@ -5,8 +5,11 @@ import { useSettings } from "../store/settings";
 import { cancelSpeech } from "./useTts";
 
 // A hold shorter than this is almost always a stray key tap, not speech.
-// Transcribing it would submit garbage (or an empty string) as a follow-up.
-const MIN_HOLD_MS = 250;
+// Transcribing it would submit garbage as a follow-up — speech models
+// hallucinate "Thank you." or "you" on near-silent clips, and that text then
+// triggers a real Claude call. Half a second is still well under the time it
+// takes to say one word.
+const MIN_HOLD_MS = 500;
 
 // Hard ceiling on one utterance. Guards against a stuck key or a user who
 // walks away mid-hold leaving the mic open indefinitely.
@@ -142,6 +145,11 @@ export function usePushToTalk(onTranscript: (text: string) => void) {
       const done = new Promise<void>((resolve) => {
         recorder.onstop = () => resolve();
       });
+      // Flag the hand-off BEFORE awaiting the recorder: `listening` just went
+      // false, and until `transcribing` is true the loop's "user is speaking"
+      // guard is off — a backstop tick could start a Claude call in that gap
+      // and the transcript would then land mid-"thinking".
+      useSession.getState().setTranscribing(true);
       try {
         recorder.stop();
       } catch {
@@ -154,10 +162,10 @@ export function usePushToTalk(onTranscript: (text: string) => void) {
       chunksRef.current = [];
       if (blob.size === 0) {
         api().log("[ptt] no audio captured");
+        useSession.getState().setTranscribing(false);
         return;
       }
 
-      useSession.getState().setTranscribing(true);
       try {
         const base64 = await blobToBase64(blob);
         const result = await api().whisper.transcribe({

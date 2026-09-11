@@ -6,7 +6,6 @@ import {
   MAX_TTS_CHARS,
   NO_ANSWER_PHRASES,
   THINKING_PHRASES,
-  WAITING_PHRASES,
   WARMABLE_PHRASES,
   cacheKeyFor,
   clampTtsText,
@@ -87,7 +86,6 @@ describe("WARMABLE_PHRASES", () => {
     for (const phrase of [
       ...THINKING_PHRASES,
       ...COMPLETION_PHRASES,
-      ...WAITING_PHRASES,
       ...NO_ANSWER_PHRASES,
     ]) {
       expect(WARMABLE_PHRASES).toContain(phrase);

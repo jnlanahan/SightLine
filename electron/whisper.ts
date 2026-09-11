@@ -25,19 +25,27 @@ export async function transcribe(args: TranscribeArgs): Promise<string> {
     type: args.mimeType,
   });
   // gpt-4o-mini-transcribe is faster and more accurate than whisper-1 for
-  // short voice commands; fall back if the account lacks access.
+  // short voice commands; fall back if the account lacks access. The
+  // language hint stops the model guessing a language from a half-second of
+  // breath noise, which is where most of the "Thank you." hallucinations on
+  // short clips come from.
   try {
     const result = await client.audio.transcriptions.create({
       model: "gpt-4o-mini-transcribe",
       file,
+      language: "en",
     });
     return result.text.trim();
   } catch (err) {
     const status = (err as { status?: number })?.status;
-    if (status === 403 || status === 404 || status === 400 || status === 422) {
+    // 403/404/422 mean "this account can't use that model". A 400 is a bad
+    // request — typically a clip too short to decode — and re-uploading the
+    // same clip to a second model just fails twice.
+    if (status === 403 || status === 404 || status === 422) {
       const result = await client.audio.transcriptions.create({
         model: "whisper-1",
         file,
+        language: "en",
       });
       return result.text.trim();
     }
