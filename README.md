@@ -18,7 +18,7 @@ cycle repeats.
 - **Anthropic SDK** (`@anthropic-ai/sdk`) — Claude vision calls
 - **OpenAI SDK** — Whisper voice transcription
 - **Google Cloud TTS** — text-to-speech
-- **keytar** — API keys in the Windows Credential Manager
+- **Electron `safeStorage`** — API keys encrypted at rest (DPAPI on Windows)
 - **uiohook-napi** — global mouse/keyboard hook for input-triggered captures
 
 ## Modes
@@ -59,7 +59,7 @@ electron/               Electron main + preload (TypeScript)
   capture.ts            desktopCapturer wrapper
   claude.ts             Anthropic call + mid-stream JSON extraction
   whisper.ts            OpenAI Whisper call
-  credentials.ts        keytar wrapper
+  credentials.ts        safeStorage-encrypted key store
   settings-store.ts     JSON-on-disk settings (non-secret)
   types.ts              Shared types used by both processes
 src/                    React renderer
@@ -93,9 +93,6 @@ npm run dev
 ```
 
 Runs Vite on <http://localhost:5173> and launches Electron pointing at it.
-
-> If `keytar` fails to load with an ABI mismatch, run `npm run rebuild` to
-> rebuild native modules against Electron's Node ABI.
 
 ## Build a Windows installer
 
@@ -151,7 +148,7 @@ TTS starts speaking before the response finishes. The system prompt lives in
 
 - Screenshots pass from `desktopCapturer` into the Anthropic API as base64 in
   memory — nothing written to disk.
-- API keys live in Windows Credential Manager (`keytar`), not plain-text files.
+- API keys are stored encrypted with Electron's `safeStorage`, not in plain text.
 - **Pause** immediately halts the capture timer and all API calls.
 - **Stop** clears the entire session including the frame buffer.
 - On first launch a privacy notice spells out what gets sent and where.
@@ -168,7 +165,7 @@ GOOGLE_CLIENT_EMAIL=...
 GOOGLE_PRIVATE_KEY=...
 ```
 
-Keys are read at startup and stored in Windows Credential Manager.
+Keys are read at startup and stored encrypted via `safeStorage`.
 
 ## License
 
