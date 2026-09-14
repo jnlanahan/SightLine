@@ -5,12 +5,21 @@ import { useTheme } from "./ThemeProvider";
 import { ar, lt, waveColor } from "./theme";
 import { IMic, ISend } from "./icons";
 
-export function Glow({ inset = "-60px -50px -90px -50px" }: { inset?: string }) {
+export function Glow({
+  inset = "-60px -50px -90px -50px",
+  paused = false,
+}: {
+  inset?: string;
+  /** Freeze the bloom (e.g. while the window is unfocused) — a blurred
+   *  full-window layer animating at 60 fps is the single most expensive
+   *  thing this UI paints. */
+  paused?: boolean;
+}) {
   const T = useTheme();
   return (
     <div aria-hidden style={{
       position: "absolute", inset, pointerEvents: "none", zIndex: 0, filter: "blur(34px)",
-      animation: "sl-bloom 7s ease-in-out infinite",
+      animation: paused ? "none" : "sl-bloom 7s ease-in-out infinite",
       background: `radial-gradient(58% 50% at 64% 28%, ${ar(T.accentRGB, 0.16)} 0%, transparent 70%), radial-gradient(58% 55% at 32% 78%, ${ar(T.accentRGB, 0.09)} 0%, transparent 70%)`,
     }} />
   );

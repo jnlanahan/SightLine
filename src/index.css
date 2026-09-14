@@ -74,35 +74,6 @@ textarea {
   animation: fadeIn 0.18s ease-out;
 }
 
-/* ── Slider (used in Settings.tsx) ── */
-.slider-range {
-  appearance: none;
-  background: rgba(44, 48, 34, 0.12);
-  height: 6px;
-  border-radius: 9999px;
-  outline: none;
-  cursor: pointer;
-}
-.slider-range::-webkit-slider-thumb {
-  appearance: none;
-  width: 16px;
-  height: 16px;
-  border-radius: 9999px;
-  background: white;
-  border: 0;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25), 0 0 0 1px rgba(0, 0, 0, 0.05);
-  cursor: pointer;
-}
-.slider-range::-moz-range-thumb {
-  width: 16px;
-  height: 16px;
-  border-radius: 9999px;
-  background: white;
-  border: 0;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
-  cursor: pointer;
-}
-
 /* ── Status dot ping ── */
 @keyframes sl-live-pulse {
   0%   { transform: scale(0.6); opacity: 0.5; }
@@ -120,8 +91,13 @@ textarea {
   from { background-position: -120% 0; }
   to   { background-position: 220% 0; }
 }
+/* Honour the OS "reduce motion" setting for every ambient animation (bloom,
+   pulses, blinks, the sight line), not just the hairline. */
 @media (prefers-reduced-motion: reduce) {
-  .sl-sightline { animation: none !important; }
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
 }
 
 /* ── Settings slide-in ── */

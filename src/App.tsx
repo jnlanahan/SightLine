@@ -32,14 +32,14 @@ import { usePushToTalk } from "./hooks/usePushToTalk";
 import { useTheme } from "./design/ThemeProvider";
 import { Glow, Logo, Spinner, CtrlBtn } from "./design/primitives";
 import {
-  IMic,
   IPause,
   IGear,
   IExpand,
   IMonitor,
   IMinimize,
   IClose,
-  IChevron,
+  ISpeakerOn,
+  ISpeakerOff,
 } from "./design/icons";
 import { ar, lt } from "./design/theme";
 import { budgetStatus, formatUsd } from "../electron/usage";
@@ -89,7 +89,11 @@ export default function App() {
   const instruction    = useSession((s) => s.currentInstruction);
   const completedSteps = useSession((s) => s.completedSteps);
   const upcomingSteps  = useSession((s) => s.upcomingSteps);
-  const frames         = useSession((s) => s.frames);
+  // Only WHETHER a frame exists is subscribed here. pushFrame creates a new
+  // array on every tick, so subscribing to `frames` re-rendered the entire
+  // tree every 15 s and on every input burst; the one component that shows
+  // a frame (PeekOverlay) reads it itself.
+  const hasFrame       = useSession((s) => s.frames.length > 0);
   const error          = useSession((s) => s.lastError);
   const done           = useSession((s) => s.done);
   const reset          = useSession((s) => s.reset);
@@ -123,10 +127,13 @@ export default function App() {
   // start, and history needs a real duration.
   const sessionStartedAtRef = useRef<number | null>(null);
 
-  // Keep the newest message (usually the current instruction) in view.
+  // Keep the newest message (usually the current instruction) in view. Not
+  // keyed on status: every Claude call flips watching → thinking → watching,
+  // which yanked a user who had scrolled up to reread a step back down twice
+  // per tick even when nothing new was said.
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [conversation.length, instruction, status, evalResult]);
+  }, [conversation.length, instruction, evalResult]);
 
   const rateLimitCountdown = useRateLimitCountdown();
   const { cancel: cancelTts } = useTts();
@@ -189,11 +196,27 @@ export default function App() {
     };
   }, []);
 
+  const opacitySetting = settings?.opacity;
   useEffect(() => {
-    if (!settings || docked) return; // docked sidebar stays opaque
-    const target = focused ? 1 : settings.opacity;
+    if (opacitySetting === undefined || docked) return; // docked sidebar stays opaque
+    const target = focused ? 1 : opacitySetting;
     void api().window.setOpacity(target);
-  }, [focused, settings, docked]);
+  }, [focused, opacitySetting, docked]);
+
+  // Ctrl+Q while SightLine has focus. This used to be a GLOBAL shortcut in
+  // the main process, which quit the coach — without the mid-session
+  // confirmation — whenever the user pressed Ctrl+Q in the program they were
+  // being coached in. Scoped to this window it is just a normal quit key.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== "q") return;
+      e.preventDefault();
+      if (useSession.getState().goal) setShowQuitConfirm(true);
+      else void api().app.quit();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   useEffect(() => {
     if (!showPeek) return;
@@ -401,6 +424,7 @@ export default function App() {
     setShowPeek(false);
     setShowStopConfirm(false);
     setEvalResult(null);
+    setPlanOpen(false);
     // Stay docked — the sidebar is the persistent home, not a per-session
     // takeover. The user leaves docked mode via the header/Settings toggle.
   }
@@ -410,19 +434,28 @@ export default function App() {
     cancelTts();
     setEvalResult(null);
     setStatus("evaluating");
-    const result = await api().claude.evaluateGoal({
-      mode,
-      goal,
-      completedSteps,
-      conversation,
-      frames,
-    });
-    if ("__error" in result) {
-      setStatus("watching");
-      return;
+    // If the IPC call itself rejects (not just returns an error envelope),
+    // the session must not stay parked in "evaluating" — nothing else moves
+    // it, the loop doesn't tick there, and the Done button is hidden.
+    let next: SessionStatus = "watching";
+    try {
+      const s = useSession.getState();
+      const result = await api().claude.evaluateGoal({
+        mode,
+        goal,
+        completedSteps: s.completedSteps,
+        conversation: s.conversation,
+        frames: s.frames.slice(-2),
+      });
+      if (!("__error" in result)) {
+        setEvalResult(result);
+        next = "waiting";
+      }
+    } catch (err) {
+      api().log(`[eval] FAILED: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      if (useSession.getState().status === "evaluating") setStatus(next);
     }
-    setEvalResult(result);
-    setStatus("waiting");
   }
 
   function submitFollowUp(text: string) {
@@ -438,6 +471,11 @@ export default function App() {
       status === "error" ||
       status === "researching"
     ) {
+      // A follow-up after "done" means the session is live again. `done` was
+      // a one-way latch: nothing cleared it, so after one premature done the
+      // training buttons stayed hidden and every later instruction rendered
+      // inside the "Task complete" card for the rest of the session.
+      if (status === "waiting") useSession.getState().setDone(false);
       useSession.getState().setPauseReason(null);
       useSession.getState().setResearchQuery(null);
       setStatus("watching");
@@ -460,7 +498,6 @@ export default function App() {
     void patchSettings({ ttsEnabled: next });
   }
 
-  const lastFrame  = frames.length > 0 ? frames[frames.length - 1] : null;
   const showSpinner = status === "thinking" || status === "researching" || status === "clarifying";
 
   // Troubleshooting overrides the ambient status while the session is live —
@@ -475,7 +512,7 @@ export default function App() {
   if (collapsed) {
     if (docked) {
       return (
-        <PanelShell docked>
+        <PanelShell docked animate={focused}>
           <DockRail
             status={status}
             statusText={statusText}
@@ -492,7 +529,7 @@ export default function App() {
       );
     }
     return (
-      <PanelShell radius={16}>
+      <PanelShell radius={16} animate={focused}>
         <CollapsedBar
           status={status}
           instruction={instruction}
@@ -509,7 +546,7 @@ export default function App() {
 
   if (view === "privacy") {
     return (
-      <PanelShell docked={docked}>
+      <PanelShell docked={docked} animate={focused}>
         <PrivacyNotice
           onAccept={async () => {
             await patchSettings({ hasSeenPrivacyNotice: true });
@@ -522,14 +559,14 @@ export default function App() {
 
   if (view === "settings") {
     return (
-      <PanelShell docked={docked}>
+      <PanelShell docked={docked} animate={focused}>
         <SettingsView onClose={() => setView("panel")} />
       </PanelShell>
     );
   }
 
   return (
-    <PanelShell docked={docked}>
+    <PanelShell docked={docked} animate={focused}>
       {docked && <DockResizeHandle side={settings?.dockSide ?? "left"} />}
       <PanelHeader
         status={status}
@@ -567,22 +604,7 @@ export default function App() {
       )}
 
       {/* Peek overlay */}
-      {showPeek && lastFrame && (
-        <div
-          className="absolute inset-x-0 z-50 mx-2 cursor-pointer overflow-hidden rounded-xl border border-sl-divider bg-sl-bg shadow-xl"
-          style={{ top: 72 }}
-          onClick={() => setShowPeek(false)}
-        >
-          <img
-            src={lastFrame.dataUrl}
-            alt="Current view"
-            className="max-h-48 w-full object-contain"
-          />
-          <p className="px-2 py-1 text-center font-mono text-[9px] text-sl-ink3">
-            {new Date(lastFrame.timestamp).toLocaleTimeString()} · click to close
-          </p>
-        </div>
-      )}
+      {showPeek && hasFrame && <PeekOverlay onClose={() => setShowPeek(false)} />}
 
       {/* Content area */}
       {(!mode || !goal) ? (
@@ -658,8 +680,11 @@ export default function App() {
               />
             </div>
             {/* Training: the two explicit speech triggers. The coach watches
-                silently; these buttons are how the user asks for its voice. */}
-            {mode === "training" && activePlan && !done && (
+                silently; these buttons are how the user asks for its voice.
+                Always available while a plan is active — hiding them on
+                `done` left the user with no way to talk to the coach after
+                one premature done. */}
+            {mode === "training" && activePlan && (
               <div style={{ marginTop: 8 }}>
                 <TrainingActions
                   busy={status === "thinking" || status === "evaluating"}
@@ -704,7 +729,7 @@ export default function App() {
           <ControlBar
             status={status}
             ttsEnabled={settings?.ttsEnabled ?? false}
-            hasPeek={Boolean(lastFrame)}
+            hasPeek={hasFrame}
             showPeek={showPeek}
             attachedCount={attachedFileNames.length}
             rateLimitCountdown={rateLimitCountdown}
@@ -762,16 +787,47 @@ function beginWindowDrag(e: React.PointerEvent) {
   window.addEventListener("pointercancel", end);
 }
 
+/* ── Peek at the last captured frame ──
+   The only place a frame is rendered, and the only subscriber to the frame
+   buffer — so the per-tick frame push re-renders this (when open) and
+   nothing else. */
+
+function PeekOverlay({ onClose }: { onClose(): void }) {
+  const lastFrame = useSession((s) => s.frames[s.frames.length - 1] ?? null);
+  if (!lastFrame) return null;
+  return (
+    <div
+      className="absolute inset-x-0 z-50 mx-2 cursor-pointer overflow-hidden rounded-xl border border-sl-divider bg-sl-bg shadow-xl"
+      style={{ top: 72 }}
+      onClick={onClose}
+    >
+      <img
+        src={lastFrame.dataUrl}
+        alt="Current view"
+        className="max-h-48 w-full object-contain"
+      />
+      <p className="px-2 py-1 text-center font-mono text-[9px] text-sl-ink3">
+        {new Date(lastFrame.timestamp).toLocaleTimeString()} · click to close
+      </p>
+    </div>
+  );
+}
+
 /* ── Panel shell — full-window glass container ── */
 
 function PanelShell({
   children,
   radius = 22,
   docked = false,
+  animate = true,
 }: {
   children: React.ReactNode;
   radius?: number;
   docked?: boolean;
+  /** Run the ambient glow animation. Off while the window is unfocused — a
+   *  blurred full-window layer repainting at 60 fps behind the app the user
+   *  is actually working in is pure GPU cost. */
+  animate?: boolean;
 }) {
   const T = useTheme();
   const solidBg = useSettings((s) => s.settings?.solidBackground ?? false);
@@ -809,7 +865,7 @@ function PanelShell({
           : `0 1px 0 0 ${T.hi} inset, 0 24px 60px -18px rgba(22,26,14,0.55), 0 0 0 1px rgba(22,26,14,0.18)`,
         borderRadius: r,
       }} />
-      {!docked && <Glow />}
+      {!docked && <Glow paused={!animate} />}
       <div style={{ position: "relative", zIndex: 1, display: "flex", flexDirection: "column", height: "100%" }}>
         {children}
       </div>
@@ -1717,22 +1773,12 @@ function ContextPanel({
 
 function SpeakerOnIcon() {
   const T = useTheme();
-  return (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-      <path d="M2 5v4h2l3 2.5v-9L4 5H2z" fill={T.accent} fillOpacity="0.25" stroke={T.accent} strokeWidth="1.4" strokeLinejoin="round" />
-      <path d="M9.5 4.5c1 .8 1 4.2 0 5M11 3c1.6 1.4 1.6 6.6 0 8" stroke={T.accent} strokeWidth="1.4" strokeLinecap="round" fill="none" />
-    </svg>
-  );
+  return <ISpeakerOn c={T.accent} />;
 }
 
 function SpeakerOffIcon() {
   const T = useTheme();
-  return (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-      <path d="M2 5v4h2l3 2.5v-9L4 5H2z" fill="none" stroke={T.ink3} strokeWidth="1.4" strokeLinejoin="round" />
-      <path d="M9 5l3.5 4M12.5 5L9 9" stroke={T.ink3} strokeWidth="1.4" strokeLinecap="round" />
-    </svg>
-  );
+  return <ISpeakerOff c={T.ink3} />;
 }
 
 function CropIcon() {

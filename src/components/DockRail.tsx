@@ -1,6 +1,6 @@
 import { useTheme } from "../design/ThemeProvider";
 import { Logo, CtrlBtn } from "../design/primitives";
-import { IMic, IPause } from "../design/icons";
+import { IPause, ISpeakerOff, ISpeakerOn } from "../design/icons";
 import { lt } from "../design/theme";
 import type { SessionStatus } from "../lib/api";
 
@@ -127,12 +127,15 @@ export function DockRail({
           flexShrink: 0,
         }}
       >
+        {/* Speaker (output), not mic (input) — same glyph and red muted state
+            as the full panel, so "the app went silent" is visible from the
+            rail too. */}
         <CtrlBtn
-          title={ttsEnabled ? "Voice on — click to mute" : "Voice off — click to enable"}
+          title={ttsEnabled ? "Voice on — click to mute the coach" : "Muted — click to turn the coach's voice on"}
           onClick={onToggleVoice}
-          color={ttsEnabled ? T.accentText : undefined}
+          color={ttsEnabled ? T.accentText : "#C22F2F"}
         >
-          <IMic c={ttsEnabled ? T.accentText : "currentColor"} />
+          {ttsEnabled ? <ISpeakerOn c={T.accent} /> : <ISpeakerOff c="#C22F2F" />}
         </CtrlBtn>
         <button
           className="no-drag"

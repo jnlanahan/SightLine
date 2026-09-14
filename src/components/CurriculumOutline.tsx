@@ -85,6 +85,11 @@ function ModuleRow({
         border: `1px solid ${isCurrent ? ar(T.accentRGB, 0.35) : lt(0.08)}`,
         background: isCurrent ? ar(T.accentRGB, 0.05) : lt(0.025),
         overflow: "hidden",
+        // In a column flexbox, overflow:hidden lets min-height collapse to 0,
+        // so the rows were SHRUNK to fit the 38vh box instead of scrolling
+        // inside it — in a short floating window each module became a
+        // sliver with one visible task. Rows keep their size; the list scrolls.
+        flexShrink: 0,
       }}
     >
       <button

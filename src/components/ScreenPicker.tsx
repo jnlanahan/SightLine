@@ -19,10 +19,15 @@ export function ScreenPicker({ compact = false }: { compact?: boolean }) {
   const refresh = () => void api().capture.listTargets().then(setTargets);
   useEffect(() => {
     refresh();
-    // Thumbnails go stale — refresh them while the picker is visible.
+    // Thumbnails go stale — refresh them while the full picker (Settings) is
+    // visible. Each refresh is a thumbnail grab of every display plus a JPEG
+    // encode, so the compact goal-screen variant fetches once: on a single
+    // monitor it renders nothing at all, and the interval was still running
+    // the whole time the user typed their goal.
+    if (compact) return;
     const timer = window.setInterval(refresh, 4_000);
     return () => window.clearInterval(timer);
-  }, []);
+  }, [compact]);
 
   if (!settings) return null;
   // In compact mode (goal screen) only show when there's a real choice.

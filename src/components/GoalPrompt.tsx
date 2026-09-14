@@ -111,6 +111,10 @@ export function GoalPrompt({ mode, onStart, onStartPlan, onBack }: Props) {
   async function handleStart() {
     const t = value.trim();
     if (!t) return;
+    // The button disables while loading but Ctrl+Enter didn't check — two
+    // quick presses ran two clarification calls and, in training, saved two
+    // plans with different ids.
+    if (loadingClarify || loadingPlan) return;
     setLoadingClarify(true);
     try {
       const result = await api().claude.getClarifications({ mode, goal: t });
@@ -271,7 +275,7 @@ export function GoalPrompt({ mode, onStart, onStartPlan, onBack }: Props) {
 
         {loadingPlan && (
           <div style={{ display: "flex", alignItems: "center", gap: 8, color: T.ink3, fontSize: 12.5 }}>
-            <span style={{ animation: "spin 1s linear infinite", display: "inline-block" }}>⟳</span>
+            <span style={{ animation: "sl-spin 1s linear infinite", display: "inline-block" }}>⟳</span>
             This takes a minute — I'm sizing the plan to your goal.
           </div>
         )}
@@ -370,7 +374,7 @@ export function GoalPrompt({ mode, onStart, onStartPlan, onBack }: Props) {
 
         {loadingPlan && (
           <div style={{ display: "flex", alignItems: "center", gap: 8, color: T.ink3, fontSize: 12.5 }}>
-            <span style={{ animation: "spin 1s linear infinite", display: "inline-block" }}>⟳</span>
+            <span style={{ animation: "sl-spin 1s linear infinite", display: "inline-block" }}>⟳</span>
             Talking to your guide…
           </div>
         )}

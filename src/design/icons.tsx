@@ -12,6 +12,14 @@ export const IList = ({ c = "currentColor" }: IconProps) => (
 export const IMic = ({ c = "currentColor" }: IconProps) => (
   <svg style={sq} viewBox="0 0 20 20" fill="none"><rect x="7.5" y="2.5" width="5" height="9.5" rx="2.5" stroke={c} strokeWidth="1.7" /><path d="M4 9.5a6 6 0 0 0 12 0M10 15.5V18" stroke={c} strokeWidth="1.7" strokeLinecap="round" /></svg>
 );
+// The coach's voice OUTPUT. Deliberately a speaker, not a microphone: a mic
+// means input, and the hold-to-talk mic sits right next to these controls.
+export const ISpeakerOn = ({ c = "currentColor" }: IconProps) => (
+  <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 5v4h2l3 2.5v-9L4 5H2z" fill={c} fillOpacity="0.25" stroke={c} strokeWidth="1.4" strokeLinejoin="round" /><path d="M9.5 4.5c1 .8 1 4.2 0 5M11 3c1.6 1.4 1.6 6.6 0 8" stroke={c} strokeWidth="1.4" strokeLinecap="round" fill="none" /></svg>
+);
+export const ISpeakerOff = ({ c = "currentColor" }: IconProps) => (
+  <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 5v4h2l3 2.5v-9L4 5H2z" fill="none" stroke={c} strokeWidth="1.4" strokeLinejoin="round" /><path d="M9 5l3.5 4M12.5 5L9 9" stroke={c} strokeWidth="1.4" strokeLinecap="round" /></svg>
+);
 export const IPause = ({ c = "currentColor" }: IconProps) => (
   <svg style={sq} viewBox="0 0 20 20" fill="none"><rect x="5.5" y="4" width="3.2" height="12" rx="1.2" fill={c} /><rect x="11.3" y="4" width="3.2" height="12" rx="1.2" fill={c} /></svg>
 );

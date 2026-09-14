@@ -326,11 +326,13 @@ export function Settings({ onClose }: Props) {
             T={T}
             label="Read instructions aloud"
             hint={
-              keyStatus.google
-                ? "Using Google natural voice"
-                : keyStatus.openai
-                  ? "Using OpenAI voice"
-                  : "Using system voice"
+              keyStatus.elevenlabs
+                ? "Using ElevenLabs natural voice"
+                : keyStatus.google
+                  ? "Using Google natural voice"
+                  : keyStatus.openai
+                    ? "Using OpenAI voice"
+                    : "Using system voice"
             }
             checked={settings.ttsEnabled}
             onChange={(v) => patch({ ttsEnabled: v })}
