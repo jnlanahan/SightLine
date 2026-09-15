@@ -24,6 +24,11 @@ export interface SessionState {
   mode: AppMode | null;
   goal: string | null;
   currentInstruction: string;
+  // Copyable code/command text that came with the current instruction.
+  currentCode: string;
+  // The mid-turn tool the agent is running right now (web search, zoomed
+  // read), so the UI can say "Looking that up…" instead of a bare spinner.
+  activeTool: { name: string; detail: string } | null;
   completedSteps: string[];
   upcomingSteps: string[];
   diverted: boolean;
@@ -96,7 +101,8 @@ export interface SessionState {
   setStatus(s: SessionStatus): void;
   setMode(mode: AppMode | null): void;
   setGoal(goal: string): void;
-  setInstruction(text: string): void;
+  setInstruction(text: string, code?: string): void;
+  setActiveTool(tool: { name: string; detail: string } | null): void;
   setCompletedSteps(steps: string[]): void;
   setUpcomingSteps(steps: string[]): void;
   setDiverted(val: boolean): void;
@@ -138,6 +144,8 @@ const initial = {
   mode: null as AppMode | null,
   goal: null,
   currentInstruction: "",
+  currentCode: "",
+  activeTool: null as { name: string; detail: string } | null,
   completedSteps: [] as string[],
   upcomingSteps: [] as string[],
   diverted: false,
@@ -179,7 +187,9 @@ export const useSession = create<SessionState>((set) => ({
   setStatus: (s) => set({ status: s }),
   setMode: (mode) => set({ mode }),
   setGoal: (goal) => set({ goal }),
-  setInstruction: (text) => set({ currentInstruction: text }),
+  setInstruction: (text, code = "") =>
+    set({ currentInstruction: text, currentCode: code }),
+  setActiveTool: (tool) => set({ activeTool: tool }),
   setCompletedSteps: (steps) => set({ completedSteps: steps }),
   setUpcomingSteps: (steps) => set({ upcomingSteps: steps }),
   setDiverted: (val) => set({ diverted: val }),

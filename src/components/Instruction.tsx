@@ -1,13 +1,18 @@
 import { useEffect, useRef, useState } from "react";
 import { useTheme } from "../design/ThemeProvider";
 import { lt } from "../design/theme";
+import { CodeBlock } from "./CodeBlock";
 
 interface Props {
   instruction: string;
+  // Copyable code/command text that came with the instruction, if any.
+  code?: string;
   status: string;
   done: boolean;
   error: string | null;
   researchQuery?: string | null;
+  // The mid-turn tool running right now, so the busy label can say why.
+  activeTool?: { name: string; detail: string } | null;
   // The coach is diagnosing a failure rather than guiding the plan.
   troubleshooting?: boolean;
   // "I did this" — tells the coach the step is complete without typing.
@@ -42,10 +47,16 @@ function useTypewriter(text: string): string {
   return shown;
 }
 
-export function Instruction({ instruction, status, done, error, researchQuery, troubleshooting, onStepDone }: Props) {
+export function Instruction({ instruction, code = "", status, done, error, researchQuery, activeTool, troubleshooting, onStepDone }: Props) {
   const T = useTheme();
   const display = useTypewriter(instruction);
   const busy = status === "thinking" || status === "evaluating";
+  const busyLabel =
+    activeTool?.name === "search_web"
+      ? "Looking that up…"
+      : activeTool?.name === "read_screen_region"
+        ? "Taking a closer look…"
+        : "One sec…";
 
   if (error) {
     return (
@@ -207,6 +218,7 @@ export function Instruction({ instruction, status, done, error, researchQuery, t
           />
         )}
       </div>
+      {code && <CodeBlock code={code} onDark />}
       {onStepDone && (
         <button
           type="button"
@@ -230,7 +242,7 @@ export function Instruction({ instruction, status, done, error, researchQuery, t
           <svg width="13" height="13" viewBox="0 0 13 13" fill="none" aria-hidden>
             <path d="M2 7l3 3 6-7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
-          {busy ? "One sec…" : "I did this — next step"}
+          {busy ? busyLabel : "I did this — next step"}
         </button>
       )}
     </div>

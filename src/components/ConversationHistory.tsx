@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { useTheme } from "../design/ThemeProvider";
 import { ar, lt } from "../design/theme";
+import { CodeBlock } from "./CodeBlock";
 import type { ConversationTurn } from "../../electron/types";
 
 interface Props {
@@ -66,6 +67,7 @@ export function ConversationHistory({
               }}
             >
               {turn.content}
+              {turn.code && <CodeBlock code={turn.code} />}
             </div>
           </div>
         );

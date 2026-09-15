@@ -76,6 +76,8 @@ export interface RunTurnOptions {
   toContextResolution(dataUrl: string): string;
   /** Fires per finished sentence, mid-stream. Never fires for a `wait` turn. */
   onSpeechChunk?: (chunk: SpeechChunk) => void;
+  /** Fires as a mid-turn tool starts running — the user is about to wait. */
+  onToolStart?: (tool: string, input: Record<string, unknown>) => void;
   log(message: string): void;
 }
 
@@ -288,7 +290,12 @@ export function historyMessages(
       tail = tail.slice(firstUser);
     }
   }
-  return tail.map((t) => ({ role: t.role, content: t.content }));
+  // A code block the coach handed over rides along in its turn, so "that
+  // didn't paste right" can be answered by resending it rather than guessing.
+  return tail.map((t) => ({
+    role: t.role,
+    content: t.code ? `${t.content}\n\n${t.code}` : t.content,
+  }));
 }
 
 /** Run one full agent turn, including any mid-turn tool calls. */
@@ -307,6 +314,10 @@ export async function runAgentTurn(opts: RunTurnOptions): Promise<TurnResult> {
   ];
 
   const toolsUsed: string[] = [];
+  // A tool that failed this turn is withdrawn for the rest of it. A timed-out
+  // search handed back as "Tool failed" used to be retried verbatim, doubling
+  // the silence the user sat through.
+  const failedTools = new Set<string>();
   let usage: TokenUsage = { ...EMPTY_USAGE };
 
   // A turn cut off by max_tokens arrives as a PARTIAL tool input. Whatever
@@ -342,7 +353,7 @@ export async function runAgentTurn(opts: RunTurnOptions): Promise<TurnResult> {
       const lastChance = iteration === agent.maxToolIterations - 1;
       const activeTools = lastChance
         ? tools.filter((t) => t.name === SAY_TOOL || t.name === WAIT_TOOL)
-        : tools;
+        : tools.filter((t) => !failedTools.has(t.name));
       if (lastChance && toolsByName.size > 0) {
         log(`[agent:${agent.id}] tool budget spent — forcing a terminal turn`);
       }
@@ -396,16 +407,15 @@ export async function runAgentTurn(opts: RunTurnOptions): Promise<TurnResult> {
       // Mid-turn tool. Run it, feed the result back, go again.
       const tool = toolsByName.get(toolUse.name);
       toolsUsed.push(toolUse.name);
+      const input = (toolUse.input ?? {}) as Record<string, unknown>;
       let out: ToolOutput;
       if (!tool) {
         out = { text: `Unknown tool "${toolUse.name}".`, isError: true };
       } else {
+        opts.onToolStart?.(toolUse.name, input);
         const startedAt = Date.now();
         try {
-          out = await tool.run(
-            (toolUse.input ?? {}) as Record<string, unknown>,
-            deps,
-          );
+          out = await tool.run(input, deps);
           log(
             `[agent:${agent.id}] tool ${toolUse.name} ok in ${Date.now() - startedAt}ms` +
               (out.imageDataUrl ? " (+image)" : ""),
@@ -415,7 +425,11 @@ export async function runAgentTurn(opts: RunTurnOptions): Promise<TurnResult> {
           // say something. Hand the error back and let it adapt.
           const msg = err instanceof Error ? err.message : String(err);
           log(`[agent:${agent.id}] tool ${toolUse.name} FAILED: ${msg}`);
-          out = { text: `Tool failed: ${msg}`, isError: true };
+          failedTools.add(toolUse.name);
+          out = {
+            text: `Tool failed: ${msg}. ${toolUse.name} is unavailable for the rest of this turn — do not call it again. Answer from what you can see and already know.`,
+            isError: true,
+          };
         }
       }
 

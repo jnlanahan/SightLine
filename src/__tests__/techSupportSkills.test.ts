@@ -38,6 +38,28 @@ describe("tech support agent skills", () => {
     expect(prompt).toContain("good coaching, not laziness");
   });
 
+  it("pacing: speaks only for a reason, and never re-issues a live step", () => {
+    // The two complaints from live use: talking while the user is mid-step,
+    // and waiting too long once the step is done. Both are named rules.
+    expect(prompt).toContain("Speak only for a reason");
+    expect(prompt).toContain("Never re-issue the current step");
+    expect(prompt).toContain("give the next one right away");
+  });
+
+  it("speech: code and commands go in a copyable field, never in speech", () => {
+    expect(sayProps).toHaveProperty("code");
+    // Generation order: the spoken sentence must still come first so TTS
+    // starts before a long code block finishes streaming.
+    expect(Object.keys(sayProps).indexOf("instruction")).toBeLessThan(
+      Object.keys(sayProps).indexOf("code"),
+    );
+    expect(prompt).toContain('goes in the "code" field, never in "instruction"');
+  });
+
+  it("point: fractions are of the full screenshot, never a zoomed view", () => {
+    expect(prompt).toContain("never of a zoomed read_screen_region view");
+  });
+
   it("troubleshoot: has an explicit troubleshooting protocol", () => {
     expect(prompt).toContain("Troubleshooting — when something goes wrong");
     expect(sayProps).toHaveProperty("troubleshooting");

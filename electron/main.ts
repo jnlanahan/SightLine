@@ -1,6 +1,7 @@
 import {
   app,
   BrowserWindow,
+  clipboard,
   dialog,
   ipcMain,
   Menu,
@@ -1069,6 +1070,16 @@ function registerIpc() {
                 return null;
               }
             },
+            onToolStart(tool, input) {
+              if (e.sender.isDestroyed()) return;
+              const detail =
+                typeof input.query === "string"
+                  ? input.query
+                  : typeof input.reason === "string"
+                    ? input.reason
+                    : "";
+              e.sender.send("claude:tool-start", { tool, detail });
+            },
             log: logLine,
           },
         );
@@ -1214,6 +1225,20 @@ function registerIpc() {
     async (_e: IpcMainInvokeEvent, payload: { url: string }) => {
       if (!/^https?:\/\//i.test(payload.url)) return;
       await shell.openExternal(payload.url);
+    },
+  );
+
+  ipcMain.handle(
+    "clipboard:write",
+    (_e: IpcMainInvokeEvent, payload: { text: string }) => {
+      if (typeof payload?.text !== "string") return false;
+      try {
+        clipboard.writeText(payload.text);
+        return true;
+      } catch (err) {
+        logLine(`[clipboard] write failed: ${err instanceof Error ? err.message : String(err)}`);
+        return false;
+      }
     },
   );
 

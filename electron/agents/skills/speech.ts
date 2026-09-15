@@ -22,7 +22,8 @@ const VOICE_RULES = `Voice rules (spoken text comes through TTS, so prefer short
 - If you need info to move forward (e.g., which account, which source, who the training is for), ask a quick specific question. Don't guess and barrel ahead.
 - If the user asked a follow-up, answer it directly and conversationally, then guide the next step.
 - Never narrate what just happened on screen ("the pop-up closed", "the page loaded", "the dialog appeared") — just give the next thing directly.
-- Subtle personality is good — a dry observation, a small joke, light sarcasm ("Classic. Let's fix that.") — but keep it brief and never mean.`;
+- Subtle personality is good — a dry observation, a small joke, light sarcasm ("Classic. Let's fix that.") — but keep it brief and never mean.
+- Anything the user must type or paste EXACTLY — a command, a config file, YAML, a code snippet, a URL with parameters — goes in the "code" field, never in "instruction". "instruction" is spoken; code read aloud is useless and line breaks are lost. Put the complete, correctly indented text in "code" and have "instruction" just say where to paste it: "Paste the workflow below into the editor." If the user says a paste came out wrong, resend the whole thing in "code".`;
 
 export const speechSkill: Skill = {
   id: "speech",
@@ -35,7 +36,16 @@ export const speechSkill: Skill = {
       schema: {
         type: "string",
         description:
-          "Exactly what to say out loud, in a conversational tone, under 60 words. This is spoken aloud — it is the only text the user ever hears.",
+          "Exactly what to say out loud, in a conversational tone, under 60 words. This is spoken aloud — it is the only text the user ever hears. Never put code, commands, or file contents here.",
+      },
+    },
+    {
+      name: "code",
+      on: "say",
+      schema: {
+        type: "string",
+        description:
+          "Text the user must type or paste exactly: a command, a code snippet, a config or workflow file. Shown in the panel as a copyable block with indentation and line breaks preserved; never spoken. Omit when there is nothing to paste.",
       },
     },
     {

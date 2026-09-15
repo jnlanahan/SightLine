@@ -87,6 +87,9 @@ export interface SightLineApi {
     // Fires once per completed sentence of the instruction while Claude's
     // response is still streaming — lets TTS start on the first sentence.
     onSpeechChunk(cb: (chunk: { text: string; index: number }) => void): () => void;
+    // Fires when the agent starts a mid-turn tool (a web search, a zoomed
+    // read). `detail` is the query or reason, for display.
+    onToolStart(cb: (ev: { tool: string; detail: string }) => void): () => void;
     evaluateGoal(args: {
       mode: AppMode;
       goal: string;
@@ -192,6 +195,12 @@ export interface SightLineApi {
     // Reveal the diagnostic log file in Explorer.
     openLogs(): Promise<void>;
   };
+  clipboard: {
+    // Through the main process: the renderer's navigator.clipboard silently
+    // fails when the panel isn't the focused window, which while coaching is
+    // most of the time.
+    write(text: string): Promise<boolean>;
+  };
   log(message: string): void;
 }
 
@@ -231,6 +240,14 @@ const api: SightLineApi = {
       ) => cb(chunk);
       ipcRenderer.on("claude:speech-chunk", handler);
       return () => ipcRenderer.removeListener("claude:speech-chunk", handler);
+    },
+    onToolStart: (cb) => {
+      const handler = (
+        _: Electron.IpcRendererEvent,
+        ev: { tool: string; detail: string },
+      ) => cb(ev);
+      ipcRenderer.on("claude:tool-start", handler);
+      return () => ipcRenderer.removeListener("claude:tool-start", handler);
     },
     evaluateGoal: (args) => ipcRenderer.invoke("claude:evaluate-goal", args),
   },
@@ -317,6 +334,9 @@ const api: SightLineApi = {
   app: {
     quit: () => ipcRenderer.invoke("app:quit"),
     openLogs: () => ipcRenderer.invoke("logs:open"),
+  },
+  clipboard: {
+    write: (text) => ipcRenderer.invoke("clipboard:write", { text }),
   },
   log: (message) => ipcRenderer.send("session:log", message),
 };

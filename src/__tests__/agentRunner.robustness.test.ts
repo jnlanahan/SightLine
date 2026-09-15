@@ -55,6 +55,23 @@ describe("historyMessages", () => {
   });
 });
 
+describe("the code field", () => {
+  it("keeps indentation and interior line breaks — it's meant to be pasted", () => {
+    const yaml = "\n\nname: CI\non:\n  push:\n    branches: [main]\n  \n";
+    const parsed = parseTerminalTool(
+      "say",
+      { action: "instruct", instruction: "Paste this.", code: yaml },
+      [],
+    );
+    expect(parsed.code).toBe("name: CI\non:\n  push:\n    branches: [main]");
+  });
+
+  it("is empty on a silent turn and when absent", () => {
+    expect(parseTerminalTool("wait", { code: "x" }, []).code).toBe("");
+    expect(parseTerminalTool("say", { action: "instruct", instruction: "Hi." }, []).code).toBe("");
+  });
+});
+
 describe("an empty completed_steps never erases progress", () => {
   it("keeps the previous list when the model sends []", () => {
     const parsed = parseTerminalTool("wait", { completed_steps: [] }, ["Opened Settings"]);

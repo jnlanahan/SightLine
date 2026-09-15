@@ -87,6 +87,8 @@ export default function App() {
   const mode           = useSession((s) => s.mode);
   const goal           = useSession((s) => s.goal);
   const instruction    = useSession((s) => s.currentInstruction);
+  const currentCode    = useSession((s) => s.currentCode);
+  const activeTool     = useSession((s) => s.activeTool);
   const completedSteps = useSession((s) => s.completedSteps);
   const upcomingSteps  = useSession((s) => s.upcomingSteps);
   // Only WHETHER a frame exists is subscribed here. pushFrame creates a new
@@ -503,7 +505,15 @@ export default function App() {
   // Troubleshooting overrides the ambient status while the session is live —
   // the user should see the coach has switched from guiding to fixing.
   const fixing = troubleshooting && (status === "watching" || status === "thinking");
-  const statusText = fixing ? "Troubleshooting…" : STATUS_TEXT[status];
+  // A mid-turn tool is the one moment "Thinking…" is actively misleading —
+  // the user is waiting on a web search and deserves to know.
+  const toolText =
+    status === "thinking" && activeTool
+      ? activeTool.name === "search_web"
+        ? "Looking that up…"
+        : "Taking a closer look…"
+      : null;
+  const statusText = toolText ?? (fixing ? "Troubleshooting…" : STATUS_TEXT[status]);
   const statusDot  = fixing ? "#C07C10" : STATUS_DOT[status];
 
   // Collapsed — all hooks above keep running (capture loop, TTS), only the
@@ -667,10 +677,12 @@ export default function App() {
             <div style={{ marginTop: 8 }}>
               <Instruction
                 instruction={instruction}
+                code={currentCode}
                 status={status}
                 done={done}
                 error={error}
                 researchQuery={researchQuery}
+                activeTool={activeTool}
                 troubleshooting={troubleshooting}
                 onStepDone={
                   mode === "tech_support"

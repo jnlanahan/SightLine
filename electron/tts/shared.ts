@@ -144,6 +144,16 @@ export const THINKING_PHRASES: readonly string[] = [
 ];
 
 /**
+ * Spoken when the agent starts a web search mid-turn. Without it the user
+ * sits through the whole lookup on a silent spinner, which reads as a freeze.
+ */
+export const LOOKUP_PHRASES: readonly string[] = [
+  "Let me look that up.",
+  "One sec, checking on that.",
+  "Let me search that real quick.",
+];
+
+/**
  * Last resort when the user asked a direct question and the model still chose
  * to say nothing. The thinking filler has already played by then, so silence
  * reads as the coach ignoring them — these keep the exchange closed. Kept
@@ -162,6 +172,7 @@ export const NO_ANSWER_PHRASES: readonly string[] = [
  */
 export const WARMABLE_PHRASES: readonly string[] = [
   ...THINKING_PHRASES,
+  ...LOOKUP_PHRASES,
   ...COMPLETION_PHRASES,
   ...NO_ANSWER_PHRASES,
 ];

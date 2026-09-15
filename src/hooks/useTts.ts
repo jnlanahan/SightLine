@@ -3,6 +3,7 @@ import { useSession } from "../store/session";
 import {
   preprocessForTts,
   COMPLETION_PHRASES,
+  LOOKUP_PHRASES,
   NO_ANSWER_PHRASES,
   THINKING_PHRASES,
 } from "../../electron/tts/shared";
@@ -11,7 +12,7 @@ import {
 // pre-synthesize it at startup without an IPC round-trip. Re-exported here
 // because this is where the rest of the renderer expects to find it — one
 // definition, so a phrase can never drift out of the warm cache.
-export { COMPLETION_PHRASES, NO_ANSWER_PHRASES, THINKING_PHRASES };
+export { COMPLETION_PHRASES, LOOKUP_PHRASES, NO_ANSWER_PHRASES, THINKING_PHRASES };
 
 function pickRandom<T>(arr: readonly T[], avoid?: T): T {
   if (arr.length === 1) return arr[0];
@@ -24,6 +25,7 @@ function pickRandom<T>(arr: readonly T[], avoid?: T): T {
 
 let lastCompletionPhrase: string | undefined;
 let lastThinkingPhrase: string | undefined;
+let lastLookupPhrase: string | undefined;
 let lastNoAnswerPhrase: string | undefined;
 
 export function randomCompletionPhrase(): string {
@@ -34,6 +36,11 @@ export function randomCompletionPhrase(): string {
 export function randomThinkingPhrase(): string {
   lastThinkingPhrase = pickRandom(THINKING_PHRASES, lastThinkingPhrase);
   return lastThinkingPhrase;
+}
+
+export function randomLookupPhrase(): string {
+  lastLookupPhrase = pickRandom(LOOKUP_PHRASES, lastLookupPhrase);
+  return lastLookupPhrase;
 }
 
 export function randomNoAnswerPhrase(): string {

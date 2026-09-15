@@ -105,6 +105,7 @@ export function parseInstruction(
             ? (obj.expected_pace as InstructionResponse["expectedPace"])
             : "medium",
         instruction: action === "wait" ? instruction : instruction || text,
+        code: "",
         expectedResult:
           action === "instruct" ? (obj.expected_result ?? "").trim() : "",
         troubleshooting: Boolean(obj.troubleshooting),
@@ -136,6 +137,7 @@ export function parseInstruction(
     action: "instruct",
     expectedPace: "medium",
     instruction: text || "Continue with the next step.",
+    code: "",
     expectedResult: "",
     troubleshooting: false,
     completedSteps: previousSteps,

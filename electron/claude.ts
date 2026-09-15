@@ -40,11 +40,35 @@ const WEB_SEARCH_TOOL = { type: "web_search_20260209", name: "web_search", max_u
 // search round can take a while, but the SDK default of ten minutes (with
 // retries) is not a timeout anyone waiting on a spinner would recognise.
 const PLANNER_TIMEOUT_MS = 90_000;
-// The agent's mid-turn lookup is silence the user sits through — keep it short.
-const RESEARCH_TIMEOUT_MS = 20_000;
+// The agent's mid-turn lookup is silence the user sits through. It was 20 s
+// wrapping a call allowed three searches over three rounds — which routinely
+// could not finish in time, so the user got the full 20 s of silence AND no
+// answer. Now one search, one round, and the request itself is aborted at
+// the deadline (no SDK retries) rather than merely abandoned.
+const RESEARCH_TIMEOUT_MS = 10_000;
 // Server-side tool loops can return `pause_turn`; the caller continues by
 // re-sending the conversation. A couple of rounds is plenty for max_uses 3.
 const MAX_SERVER_TOOL_ROUNDS = 3;
+
+interface ServerToolLimits {
+  timeoutMs: number;
+  maxRounds: number;
+  maxSearches: number;
+  maxRetries?: number;
+}
+
+const PLANNER_LIMITS: ServerToolLimits = {
+  timeoutMs: PLANNER_TIMEOUT_MS,
+  maxRounds: MAX_SERVER_TOOL_ROUNDS,
+  maxSearches: 3,
+};
+
+const QUICK_RESEARCH_LIMITS: ServerToolLimits = {
+  timeoutMs: RESEARCH_TIMEOUT_MS,
+  maxRounds: 1,
+  maxSearches: 1,
+  maxRetries: 0,
+};
 
 /**
  * Everything the harness needs that it cannot get itself. Supplied by main.ts,
@@ -53,6 +77,9 @@ const MAX_SERVER_TOOL_ROUNDS = 3;
  */
 export interface AgentRuntime {
   captureRegion: ToolDeps["captureRegion"];
+  // Fires when the model starts a mid-turn tool, so the renderer can tell the
+  // user a lookup is happening instead of sitting on a silent spinner.
+  onToolStart?(tool: string, input: Record<string, unknown>): void;
   log(message: string): void;
 }
 
@@ -153,7 +180,7 @@ export async function getNextInstruction(
     // Bounded: the runner turns a throw into an is_error tool result, so a
     // hung search costs the agent one short wait, not the whole tick.
     research: (query) =>
-      withDeadline(runWebResearch(query), RESEARCH_TIMEOUT_MS, "research_timeout"),
+      withDeadline(runQuickWebResearch(query), RESEARCH_TIMEOUT_MS, "research_timeout"),
     planDraft: newPlanDraft(),
     log,
   };
@@ -166,6 +193,7 @@ export async function getNextInstruction(
     deps,
     toContextResolution,
     onSpeechChunk,
+    onToolStart: runtime?.onToolStart,
     log,
   });
 
@@ -257,11 +285,12 @@ async function withServerTools(
   client: Anthropic,
   params: Anthropic.Messages.MessageCreateParamsNonStreaming,
   label: string,
+  limits: ServerToolLimits = PLANNER_LIMITS,
 ): Promise<Anthropic.Messages.Message> {
   const run = async (useWebSearch: boolean) => {
     const messages = [...params.messages];
     let last: Anthropic.Messages.Message | null = null;
-    for (let round = 0; round < MAX_SERVER_TOOL_ROUNDS; round++) {
+    for (let round = 0; round < limits.maxRounds; round++) {
       const p: Anthropic.Messages.MessageCreateParamsNonStreaming = {
         ...params,
         messages,
@@ -269,9 +298,14 @@ async function withServerTools(
       if (useWebSearch) {
         // The installed SDK's types predate server-side tools; the API
         // accepts them regardless.
-        (p as { tools?: unknown }).tools = [WEB_SEARCH_TOOL];
+        (p as { tools?: unknown }).tools = [
+          { ...WEB_SEARCH_TOOL, max_uses: limits.maxSearches },
+        ];
       }
-      last = await client.messages.create(p, { timeout: PLANNER_TIMEOUT_MS });
+      last = await client.messages.create(p, {
+        timeout: limits.timeoutMs,
+        ...(limits.maxRetries !== undefined ? { maxRetries: limits.maxRetries } : {}),
+      });
       if ((last.stop_reason as string) !== "pause_turn") return last;
       logLine(`[claude:${label}] pause_turn — continuing the server tool loop`);
       messages.push({ role: "assistant", content: last.content });
@@ -560,16 +594,34 @@ Search the web, then answer the query with a tight, factual summary under 250 wo
 - Plain text only, no markdown headings, no preamble, no "based on my search".`;
 
 export async function runWebResearch(query: string): Promise<string> {
+  return research(query, PLANNER_LIMITS, 1024);
+}
+
+/**
+ * The agent's mid-turn variant: one search, one round, hard 10 s abort. The
+ * user is waiting in silence for this, so a thin answer now beats a thorough
+ * one that never arrives.
+ */
+export async function runQuickWebResearch(query: string): Promise<string> {
+  return research(query, QUICK_RESEARCH_LIMITS, 400);
+}
+
+async function research(
+  query: string,
+  limits: ServerToolLimits,
+  maxTokens: number,
+): Promise<string> {
   const client = await anthropicClient();
   const resp = await withServerTools(
     client,
     {
       model: MODEL,
-      max_tokens: 1024,
+      max_tokens: maxTokens,
       system: RESEARCH_SYSTEM_PROMPT,
       messages: [{ role: "user", content: query }],
     },
     "research",
+    limits,
   );
   const text = extractText(resp);
   if (!text) throw new Error("web research returned no text");

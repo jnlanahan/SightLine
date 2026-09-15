@@ -9,6 +9,7 @@ import { budgetStatus, cacheHitRate, formatUsd } from "../../electron/usage";
 import {
   openSpeechStream,
   randomCompletionPhrase,
+  randomLookupPhrase,
   randomNoAnswerPhrase,
   randomThinkingPhrase,
   waitForSpeechEnd,
@@ -74,6 +75,16 @@ const DIVERTED_STALL_MS = 120_000;
 export function useSessionLoop(onNeedsApiKey: () => void) {
   const inFlightRef = useRef(false);
   const captureFailuresRef = useRef(0);
+  // When the user last touched mouse or keyboard (as reported by the main
+  // process). A highlight is computed from a frame captured seconds earlier;
+  // if they've clicked or scrolled since, the box is pointing at a stale
+  // screen and is better not drawn.
+  const lastInputAtRef = useRef(0);
+  useEffect(() => {
+    return api().input.onActivity(() => {
+      lastInputAtRef.current = Date.now();
+    });
+  }, []);
   const tickRef = useRef<(reason: TickReason) => Promise<void>>(
     async () => {},
   );
@@ -96,6 +107,7 @@ export function useSessionLoop(onNeedsApiKey: () => void) {
       // because TS flow analysis can't see closure assignments to a `let`.)
       const speech: { stream: SpeechStream | null } = { stream: null };
       let unsubEarly: (() => void) | null = null;
+      let unsubTool: (() => void) | null = null;
       const ttsOn = () => Boolean(useSettings.getState().settings?.ttsEnabled);
       let supersededLogged = false;
       const speakOut = (text: string) => {
@@ -315,6 +327,19 @@ export function useSessionLoop(onNeedsApiKey: () => void) {
           speakOut(chunk.text);
           earlySpoken = true;
           useSession.getState().setLastSpokeAt(Date.now());
+        });
+
+        // A mid-turn tool is the one stretch of a turn that can run long
+        // (a web search is bounded at 10 s) with nothing streaming. Show it,
+        // and for a search say so — a silent spinner reads as a freeze.
+        unsubTool = api().claude.onToolStart((ev) => {
+          const live = useSession.getState();
+          if (live.sessionId !== sessionId || live.status !== "thinking") return;
+          log(`tool ${ev.tool} started${ev.detail ? `: "${ev.detail.slice(0, 60)}"` : ""}`);
+          useSession.getState().setActiveTool({ name: ev.tool, detail: ev.detail });
+          if (ev.tool === "search_web" && !isSpeaking() && !earlySpoken) {
+            speakOut(randomLookupPhrase());
+          }
         });
 
         // First look after session start: the model is told to give the first
@@ -554,10 +579,11 @@ export function useSessionLoop(onNeedsApiKey: () => void) {
             break;
 
           case "instruct": {
-            useSession.getState().setInstruction(result.instruction);
+            useSession.getState().setInstruction(result.instruction, result.code);
             useSession.getState().appendTurn({
               role: "assistant",
               content: result.instruction,
+              ...(result.code ? { code: result.code } : {}),
               timestamp: Date.now(),
             });
             useSession.getState().setLastSpokenInstruction(result.instruction);
@@ -570,9 +596,15 @@ export function useSessionLoop(onNeedsApiKey: () => void) {
             // they streamed — re-speaking the full text here would undo that.
             if (!earlySpoken && !suppressedRepeat) speakOut(result.instruction);
             // Point at the thing to click: flash a glow box on the screen
-            // over the element Claude identified.
+            // over the element Claude identified — unless the user has acted
+            // since the frame it was computed from, in which case the box is
+            // pointing at a screen that no longer exists.
             if (result.highlight) {
-              void api().overlay.flashHighlight(result.highlight);
+              if (lastInputAtRef.current > lookedAt) {
+                log("highlight skipped: user input since the frame was captured");
+              } else {
+                void api().overlay.flashHighlight(result.highlight);
+              }
             }
             break;
           }
@@ -594,10 +626,11 @@ export function useSessionLoop(onNeedsApiKey: () => void) {
           }
 
           case "done": {
-            useSession.getState().setInstruction(result.instruction);
+            useSession.getState().setInstruction(result.instruction, result.code);
             useSession.getState().appendTurn({
               role: "assistant",
               content: result.instruction,
+              ...(result.code ? { code: result.code } : {}),
               timestamp: Date.now(),
             });
             useSession.getState().setLastSpokenInstruction(result.instruction);
@@ -668,6 +701,10 @@ export function useSessionLoop(onNeedsApiKey: () => void) {
         }
       } finally {
         unsubEarly?.();
+        unsubTool?.();
+        if (useSession.getState().activeTool) {
+          useSession.getState().setActiveTool(null);
+        }
         // Close the stream so waitForSpeechEnd() resolves once the queued
         // audio drains. Anything already enqueued still plays to the end.
         speech.stream?.end();

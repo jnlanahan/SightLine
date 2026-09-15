@@ -217,6 +217,67 @@ describe("mid-turn tools loop before the agent speaks", () => {
     expect(JSON.stringify(second)).toContain("network down");
   });
 
+  it("withdraws a failed tool for the rest of the turn and says so", async () => {
+    // A timed-out search handed back as a bare "Tool failed" was retried
+    // verbatim — two 20 s silences back to back. The tool must vanish from
+    // the next request and the error must tell the model not to try again.
+    const research = vi.fn(async () => {
+      throw new Error("research_timeout");
+    });
+    const { client, requests } = fakeClient([
+      { tool: "search_web", inputChunks: ['{"query":"anything"}'] },
+      { tool: "say", inputChunks: ['{"action":"instruct","instruction":"Ok."}'] },
+    ]);
+
+    const opts = baseOpts(client);
+    await runAgentTurn({ ...opts, deps: deps({ research }) });
+
+    const names = (requests[1].tools as Array<{ name: string }>).map((t) => t.name);
+    expect(names).not.toContain("search_web");
+    expect(names).toContain("read_screen_region");
+    const second = requests[1].messages as Anthropic.Messages.MessageParam[];
+    expect(JSON.stringify(second)).toContain("do not call it again");
+  });
+
+  it("reports when a tool starts, with its input", async () => {
+    const started: Array<[string, Record<string, unknown>]> = [];
+    const { client } = fakeClient([
+      { tool: "search_web", inputChunks: ['{"query":"warehouse not running"}'] },
+      { tool: "say", inputChunks: ['{"action":"instruct","instruction":"Ok."}'] },
+    ]);
+
+    await runAgentTurn({
+      ...baseOpts(client),
+      onToolStart: (tool, input) => started.push([tool, input]),
+    });
+
+    expect(started).toEqual([["search_web", { query: "warehouse not running" }]]);
+  });
+
+  it("carries a code block in history text so the model can resend it", async () => {
+    const { client, requests } = fakeClient([
+      { tool: "wait", inputChunks: ["{}"] },
+    ]);
+    const opts = baseOpts(client);
+    await runAgentTurn({
+      ...opts,
+      ctx: {
+        ...opts.ctx,
+        conversation: [
+          { role: "user", content: "Goal: add a workflow", timestamp: 0 },
+          {
+            role: "assistant",
+            content: "Paste this into the editor.",
+            code: "name: CI\non: [push]",
+            timestamp: 1,
+          },
+        ],
+      },
+    });
+    const msgs = requests[0].messages as Anthropic.Messages.MessageParam[];
+    expect(msgs[1].content).toBe("Paste this into the editor.\n\nname: CI\non: [push]");
+  });
+
   it("drops the mid-turn tools on the last permitted iteration", async () => {
     // Otherwise a model that keeps reaching for tools could spend the whole
     // budget and end the turn having said nothing.

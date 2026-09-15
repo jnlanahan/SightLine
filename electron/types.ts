@@ -63,6 +63,9 @@ export interface CompletedStep {
 export interface ConversationTurn {
   role: "user" | "assistant";
   content: string;
+  // Copyable code/command text that accompanied a spoken instruction. Shown
+  // as a monospace block, never spoken.
+  code?: string;
   timestamp: number;
 }
 
@@ -110,6 +113,10 @@ export interface InstructionResponse {
   action: InstructionAction;
   expectedPace: StepPace;
   instruction: string;
+  // Code, a command, or file contents the user should paste — shown in the
+  // panel as a copyable block with line breaks intact, never read aloud.
+  // Empty on most turns.
+  code: string;
   // Visible outcome the agent expects this step to produce (verify skill).
   // Empty for non-instruct actions.
   expectedResult: string;

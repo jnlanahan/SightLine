@@ -21,6 +21,11 @@ function str(v: unknown): string {
   return typeof v === "string" ? v.trim() : "";
 }
 
+/** Like str(), but keeps interior/leading indentation — it's code. */
+function codeStr(v: unknown): string {
+  return typeof v === "string" ? v.replace(/^\n+/, "").trimEnd() : "";
+}
+
 function strArray(v: unknown, fallback: string[]): string[] {
   return Array.isArray(v) ? v.map(String) : fallback;
 }
@@ -68,6 +73,7 @@ export function parseTerminalTool(
       ? (pace as InstructionResponse["expectedPace"])
       : "medium",
     instruction: speaking ? str(input.instruction) : "",
+    code: speaking ? codeStr(input.code) : "",
     // Only an "instruct" predicts a visible outcome — that pairing is what the
     // verify skill round-trips on the next turn.
     expectedResult: action === "instruct" ? str(input.expected_result) : "",

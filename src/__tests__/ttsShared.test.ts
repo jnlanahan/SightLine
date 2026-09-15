@@ -3,6 +3,7 @@ import {
   DEFAULT_ELEVEN_VOICE_ID,
   ELEVEN_VOICE_PRESETS,
   COMPLETION_PHRASES,
+  LOOKUP_PHRASES,
   MAX_TTS_CHARS,
   NO_ANSWER_PHRASES,
   THINKING_PHRASES,
@@ -85,6 +86,7 @@ describe("WARMABLE_PHRASES", () => {
   it("covers every phrase the coach speaks verbatim", () => {
     for (const phrase of [
       ...THINKING_PHRASES,
+      ...LOOKUP_PHRASES,
       ...COMPLETION_PHRASES,
       ...NO_ANSWER_PHRASES,
     ]) {
