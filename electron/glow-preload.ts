@@ -17,6 +17,8 @@ export interface GlowFlashRect {
 export interface GlowApi {
   onSetMode(cb: (payload: GlowMode) => void): () => void;
   onFlash(cb: (rect: GlowFlashRect) => void): () => void;
+  // The user clicked somewhere — the pointer has done its job (or was wrong).
+  onFlashOff(cb: () => void): () => void;
   commit(region: CaptureRegion | null): Promise<void>;
   cancel(): Promise<void>;
 }
@@ -33,6 +35,11 @@ const glowApi: GlowApi = {
       cb(rect);
     ipcRenderer.on("glow:flash", handler);
     return () => ipcRenderer.removeListener("glow:flash", handler);
+  },
+  onFlashOff: (cb) => {
+    const handler = () => cb();
+    ipcRenderer.on("glow:flash-off", handler);
+    return () => ipcRenderer.removeListener("glow:flash-off", handler);
   },
   commit: (region) => ipcRenderer.invoke("overlay:commit-region", { region }),
   cancel: () => ipcRenderer.invoke("overlay:cancel-adjust"),

@@ -44,6 +44,10 @@ describe("tech support agent skills", () => {
     expect(prompt).toContain("Speak only for a reason");
     expect(prompt).toContain("Never re-issue the current step");
     expect(prompt).toContain("give the next one right away");
+    // Live session: the model marked a step done and called wait; the user
+    // sat waiting for the next step until they pressed "I did this".
+    expect(prompt).toContain("A finished step is never a wait");
+    expect(techSupportAgent.speakOnStepComplete).toBe(true);
   });
 
   it("speech: code and commands go in a copyable field, never in speech", () => {

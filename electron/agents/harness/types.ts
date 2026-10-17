@@ -184,6 +184,15 @@ export interface Agent {
   maxToolIterations: number;
   /** Closing instruction on every turn. */
   nextTurnPrompt: string;
+  /**
+   * When a `wait` records a newly completed step, hand it back once and ask
+   * for speech instead. The user just did what the coach asked and is waiting
+   * to hear what's next — a silent turn there reads as the coach having
+   * stopped watching, and the loop's screen-change gate then keeps it silent
+   * until they move. Off for agents whose silent turns are the point
+   * (training's activity log).
+   */
+  speakOnStepComplete?: boolean;
   guidance: AgentGuidance;
   /** Pre-session prompts. Not part of the per-tick loop. */
   clarificationPrompt: string;

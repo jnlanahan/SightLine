@@ -69,6 +69,23 @@ describe("preprocessForTts", () => {
     );
   });
 
+  it("never doubles the comma when an opener is followed by a dash", () => {
+    // Heard live: "Great — System Information is open" reached the voice as
+    // "Great,, System Information is open".
+    expect(preprocessForTts("Great — System Information is open.")).toBe(
+      "Great, System Information is open.",
+    );
+    expect(preprocessForTts("Got it — RTX 4070 confirmed.")).toBe(
+      "Got it, RTX 4070 confirmed.",
+    );
+  });
+
+  it("handles a dash with no spaces around it", () => {
+    expect(preprocessForTts("Nailed it—you're all set.")).toBe(
+      "Nailed it, you're all set.",
+    );
+  });
+
   it("adds a beat after a bare opener", () => {
     expect(preprocessForTts("Okay click the gear.")).toBe("Okay, click the gear.");
   });

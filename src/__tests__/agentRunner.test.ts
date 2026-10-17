@@ -160,6 +160,69 @@ describe("a wait turn is silent from the first event", () => {
   });
 });
 
+describe("a finished step is never answered with silence", () => {
+  // The bug this locks, from a live session: the user clicked what the coach
+  // asked, the model noticed (its step list grew) and then called wait. The
+  // user, waiting on the coach, sat still — so the screen-change gate skipped
+  // every later tick, and they had to press "I did this" to hear the next
+  // step. The runner now hands such a wait back and asks for speech in the
+  // same turn.
+  const grown = '{"completed_steps":["Downloaded the client","Installed it"]}';
+
+  it("hands a wait that recorded a new step back and speaks on the next pass", async () => {
+    const chunks: SpeechChunk[] = [];
+    const { client, requests } = fakeClient([
+      { tool: "wait", inputChunks: [grown] },
+      {
+        tool: "say",
+        inputChunks: ['{"action":"instruct","instruction":"Nice, that\'s in. Now open it."}'],
+      },
+    ]);
+
+    const result = await runAgentTurn(baseOpts(client, (c) => chunks.push(c)));
+
+    expect(result.action).toBe("instruct");
+    expect(result.instruction).toBe("Nice, that's in. Now open it.");
+    expect(chunks.map((c) => c.text)).toEqual(["Nice, that's in.", "Now open it."]);
+    expect(requests).toHaveLength(2);
+    const second = requests[1].messages as Anthropic.Messages.MessageParam[];
+    expect(JSON.stringify(second)).toContain("newly completed step");
+  });
+
+  it("accepts a wait that recorded nothing new without a second request", async () => {
+    const { client, callCount } = fakeClient([
+      {
+        tool: "wait",
+        inputChunks: ['{"completed_steps":["Downloaded the client"],"notes":"typing"}'],
+      },
+    ]);
+    const result = await runAgentTurn(baseOpts(client));
+    expect(result.action).toBe("wait");
+    expect(callCount()).toBe(1);
+  });
+
+  it("asks only once — a second wait is the model's answer", async () => {
+    const { client, callCount } = fakeClient([{ tool: "wait", inputChunks: [grown] }]);
+    const result = await runAgentTurn(baseOpts(client));
+    expect(result.action).toBe("wait");
+    expect(result.completedSteps).toEqual(["Downloaded the client", "Installed it"]);
+    expect(callCount()).toBe(2);
+  });
+
+  it("leaves training's silent activity log alone", async () => {
+    // Training coaches by not talking; its scans record steps on wait by design.
+    const { client, callCount } = fakeClient([{ tool: "wait", inputChunks: [grown] }]);
+    const opts = baseOpts(client);
+    const result = await runAgentTurn({
+      ...opts,
+      agent: getAgent("training"),
+      ctx: { ...opts.ctx, mode: "training" as const },
+    });
+    expect(result.action).toBe("wait");
+    expect(callCount()).toBe(1);
+  });
+});
+
 describe("mid-turn tools loop before the agent speaks", () => {
   it("runs the tool, feeds the result back, and speaks on the next pass", async () => {
     const research = vi.fn(async () => "The warehouse must be resumed first.");

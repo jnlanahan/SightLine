@@ -77,10 +77,13 @@ export const ar = (rgb: string, a: number) => `rgba(${rgb},${a})`;
 export function makeTheme(name: AccentName = "lime"): SightLineTheme {
   const a = ACCENTS[name] ?? ACCENTS.lime;
   return {
-    surface: "#F7F5EF",
-    glassBg: "rgba(248,246,240,0.82)",
-    glassGrad: "linear-gradient(180deg, rgba(255,255,255,0.70) 0%, rgba(243,240,232,0.35) 100%)",
-    border: lt(0.16), hi: "rgba(255,255,255,0.9)",
+    // A notch below white on purpose: docked beside a white web page or
+    // document, a near-white panel read as part of the page. Still porcelain,
+    // just with an edge.
+    surface: "#ECE9DF",
+    glassBg: "rgba(236,233,223,0.86)",
+    glassGrad: "linear-gradient(180deg, rgba(255,255,255,0.55) 0%, rgba(236,233,223,0.35) 100%)",
+    border: lt(0.22), hi: "rgba(255,255,255,0.8)",
     ink: "#23271C", ink2: "#4C5243", ink3: "#7B816D",
     // The instruction card stays deep ink — the coach's voice is the one
     // dark object on the light panel, so it's always the first thing read.

@@ -157,6 +157,14 @@ describe("agent roles stay distinct", () => {
     );
   });
 
+  it("only tech support bounces a silent finished step into speech", () => {
+    // Training's scans record steps on wait by design; bouncing them would
+    // turn the quiet coach into a running commentary.
+    expect(byId.tech_support.speakOnStepComplete).toBe(true);
+    expect(byId.training.speakOnStepComplete).toBeFalsy();
+    expect(byId.teacher.speakOnStepComplete).toBeFalsy();
+  });
+
   it("only tech support troubleshoots", () => {
     expect(systemPrompt(byId.tech_support)).toContain("Troubleshooting");
     expect(waitTool(byId.training).input_schema.properties).not.toHaveProperty(

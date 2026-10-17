@@ -136,7 +136,9 @@ export interface SightLineApi {
     flashHighlight(rect: HighlightRect): Promise<void>;
   };
   input: {
-    onActivity(cb: () => void): () => void;
+    // `at` is when the input event itself happened, which can be up to the
+    // main process's debounce earlier than this callback fires.
+    onActivity(cb: (ev: { at: number }) => void): () => void;
   };
   voice: {
     // Fires on the press and release edges of the push-to-talk key. Watched
@@ -285,7 +287,8 @@ const api: SightLineApi = {
   },
   input: {
     onActivity: (cb) => {
-      const handler = () => cb();
+      const handler = (_: Electron.IpcRendererEvent, ev?: { at: number }) =>
+        cb(ev ?? { at: Date.now() });
       ipcRenderer.on("input:activity", handler);
       return () => ipcRenderer.removeListener("input:activity", handler);
     },

@@ -154,6 +154,8 @@ async function loadKeysFromEnv() {
 
 let mainWindow: BrowserWindow | null = null;
 let glowWindow: BrowserWindow | null = null;
+// Whether a click-target glow is currently showing on the overlay.
+let flashVisible = false;
 // Collapse-to-bar state: remember the expanded size while collapsed, and
 // stop bounds persistence from saving the collapsed stub size.
 let expandedSize: { width: number; height: number } | null = null;
@@ -238,8 +240,12 @@ animation:pulse 2.8s ease-in-out infinite}
 #flash{position:fixed;display:none;pointer-events:none;border-radius:10px;
 border:4px solid ${accent.hex};
 box-shadow:0 0 0 4px rgba(${accent.rgb},0.35),0 0 44px 14px rgba(${accent.rgb},0.6),inset 0 0 26px 6px rgba(${accent.rgb},0.35)}
-#flash.on{display:block;animation:flashpulse 0.55s ease-in-out 3}
-@keyframes flashpulse{0%,100%{opacity:0.2}50%{opacity:1}}
+/* three quick pulses to catch the eye, then hold steady until the user clicks
+   or the hold timer runs out — a pointer that vanished in under two seconds
+   was gone before they'd looked up from the panel */
+#flash.on{display:block;animation:flashpulse 0.6s ease-in-out 3 forwards}
+#flash.off{display:block;opacity:0;transition:opacity 320ms ease}
+@keyframes flashpulse{0%{opacity:0.25}50%{opacity:1}100%{opacity:0.92}}
 .handle{position:absolute;width:16px;height:16px;background:#fff;
 border:2px solid rgba(${accent.rgb},1);border-radius:3px;display:none}
 #toolbar{position:fixed;left:50%;top:18px;transform:translateX(-50%);
@@ -365,17 +371,27 @@ box-shadow:0 0 0 100000px rgba(0,0,0,0.5),inset 0 0 60px 12px rgba(${accent.rgb}
 
   var flash = document.getElementById("flash");
   var flashTimer = null;
+  var FLASH_HOLD_MS = 6000;
+  function flashOff(){
+    if (!flash.classList.contains("on")) return;
+    flash.classList.remove("on");
+    flash.classList.add("off"); /* fade rather than vanish */
+    if (flashTimer) clearTimeout(flashTimer);
+    flashTimer = setTimeout(function(){ flash.classList.remove("off"); flashTimer = null; }, 350);
+  }
   if (api.onFlash) api.onFlash(function(r){
     flash.style.left = r.x + "px";
     flash.style.top = r.y + "px";
     flash.style.width = r.width + "px";
     flash.style.height = r.height + "px";
+    flash.classList.remove("off");
     flash.classList.remove("on");
     void flash.offsetWidth; /* restart the CSS animation */
     flash.classList.add("on");
     if (flashTimer) clearTimeout(flashTimer);
-    flashTimer = setTimeout(function(){ flash.classList.remove("on"); }, 1800);
+    flashTimer = setTimeout(flashOff, FLASH_HOLD_MS);
   });
+  if (api.onFlashOff) api.onFlashOff(flashOff);
   render();
 })();
 </script>
@@ -574,6 +590,29 @@ function hideGlowOverlay() {
   }
   glowWindow = null;
   glowAdjusting = false;
+  flashVisible = false;
+}
+
+// Retire the click-target glow early. Tracked here so a click can't spam the
+// overlay with hide messages when nothing is showing.
+function hideFlash() {
+  if (!flashVisible) return;
+  flashVisible = false;
+  if (glowWindow && !glowWindow.isDestroyed()) {
+    glowWindow.webContents.send("glow:flash-off");
+  }
+}
+
+// uiohook reports physical screen pixels; window bounds are DIP.
+function pointOnMainWindow(px: number, py: number): boolean {
+  if (!mainWindow || mainWindow.isDestroyed()) return false;
+  try {
+    const p = screen.screenToDipPoint({ x: px, y: py });
+    const b = mainWindow.getBounds();
+    return p.x >= b.x && p.x < b.x + b.width && p.y >= b.y && p.y < b.y + b.height;
+  } catch {
+    return false;
+  }
 }
 
 async function setGlowAdjust(adjust: boolean) {
@@ -828,15 +867,32 @@ app.whenReady().then(async () => {
   // wait on the speech provider, and a failure here is silently harmless.
   void warmPhraseCache();
 
-  // Global input listener — debounced so rapid typing/clicking doesn't spam ticks
+  // Global input listener — debounced so rapid typing/clicking doesn't spam
+  // ticks. The payload carries the time of the LAST event, not of delivery:
+  // the renderer compares it against when the frame was captured to decide
+  // whether a glow box still points at the screen the model saw, and the
+  // 750 ms delay used to make an input from before the capture look like one
+  // from after it.
+  let lastInputEventAt = 0;
   function scheduleInputTick() {
+    lastInputEventAt = Date.now();
     if (inputDebounceTimer) clearTimeout(inputDebounceTimer);
     inputDebounceTimer = setTimeout(() => {
-      mainWindow?.webContents.send("input:activity");
+      mainWindow?.webContents.send("input:activity", { at: lastInputEventAt });
       inputDebounceTimer = null;
     }, 750);
   }
-  uIOhook.on("click", scheduleInputTick);
+  uIOhook.on("click", (e) => {
+    // Any click retires the pointer — it has done its job, or it was wrong.
+    hideFlash();
+    // A click on SightLine's own panel ("I did this", the composer, Pause) is
+    // not the user acting on their screen: the panel is cut out of every
+    // frame, so nothing the model looks at changed. Counting it fired a
+    // pointless tick and, worse, dropped the highlight the coach was about to
+    // draw for the step the user had just asked for.
+    if (pointOnMainWindow(e.x, e.y)) return;
+    scheduleInputTick();
+  });
   uIOhook.on("keyup", scheduleInputTick);
 
   // Hold-to-talk. Watched globally because the user is looking at the app
@@ -1379,14 +1435,26 @@ function registerIpc() {
         .getAllDisplays()
         .find((d) => String(d.id) === geo.displayId);
       if (!display) return;
-      const PAD = 6; // breathing room so the glow doesn't sit on the element's edge
+      // The model's box is an estimate off a 1280 px downscale, typically a
+      // percent or two off — ~20 px on a 1080 px display, enough to sit
+      // beside a tree-view arrow instead of on it. Pad in proportion to the
+      // screen and enforce a floor, centred on the model's target, so a near
+      // miss still encloses the thing: "it's in here" beats a tight box next
+      // to it.
+      const pad = Math.max(10, Math.round(geo.rect.height * 0.018));
+      const MIN_SIDE = 44;
       const gb = glowWindow.getBounds();
+      const width = Math.max(MIN_SIDE, Math.round(payload.w * geo.rect.width) + pad * 2);
+      const height = Math.max(MIN_SIDE, Math.round(payload.h * geo.rect.height) + pad * 2);
+      const cx = display.bounds.x + geo.rect.x + (payload.x + payload.w / 2) * geo.rect.width - gb.x;
+      const cy = display.bounds.y + geo.rect.y + (payload.y + payload.h / 2) * geo.rect.height - gb.y;
       const rect = {
-        x: Math.round(display.bounds.x + geo.rect.x + payload.x * geo.rect.width - gb.x) - PAD,
-        y: Math.round(display.bounds.y + geo.rect.y + payload.y * geo.rect.height - gb.y) - PAD,
-        width: Math.round(payload.w * geo.rect.width) + PAD * 2,
-        height: Math.round(payload.h * geo.rect.height) + PAD * 2,
+        x: Math.round(cx - width / 2),
+        y: Math.round(cy - height / 2),
+        width,
+        height,
       };
+      flashVisible = true;
       logLine(
         `[glow] flash highlight frac=(${payload.x.toFixed(2)},${payload.y.toFixed(2)},${payload.w.toFixed(2)},${payload.h.toFixed(2)}) → rect=(${rect.x},${rect.y},${rect.width},${rect.height})`,
       );

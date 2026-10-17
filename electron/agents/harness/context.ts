@@ -39,9 +39,14 @@ function baseBlocks(ctx: TurnContext, frameCount: number): string[] {
     .reverse()
     .find((t) => t.role === "assistant");
   if (lastAssistant) {
+    // Deliberately tells the model to WAIT when the step isn't done yet. The
+    // previous wording ("give a small additional hint") had the coach
+    // rephrasing a step three seconds after finishing saying it — the user
+    // hadn't had time to move. A different hint is only right once the
+    // timing below says the screen has been still a long while.
     parts.push(
       `Your previous instruction was: "${lastAssistant.content.trim()}".\n` +
-        `If the latest screenshot shows the user has NOT acted on it yet, do not repeat the same sentence — either give a small additional hint or ask a brief clarifying question instead.`,
+        `If the latest screenshot shows the user has NOT acted on it yet, the right move is almost always wait — they're reading, looking for it, or on their way. Don't repeat or rephrase it. Only once the screen has been still a long time (see the timing below and any stall guidance) give one different, smaller hint or ask a brief question.`,
     );
   }
 

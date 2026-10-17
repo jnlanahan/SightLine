@@ -108,11 +108,22 @@ function fnv1a64(input: string): string {
  * therefore identical cache keys. Idempotent: running it twice is a no-op.
  */
 export function preprocessForTts(text: string): string {
-  return text
-    .replace(/^(Okay|Alright|Cool|Nice|Right|Great|Got it|Perfect)(\s+)/i, "$1,$2")
-    .replace(/ — /g, ", ")
-    .replace(/\.{3}$/, ".")
-    .trim();
+  return (
+    text
+      // Dashes first, then the opener comma. The other order turned
+      // "Great — it's open" into "Great,, it's open": the opener rule added
+      // its comma, then the dash rule added another right behind it. With
+      // the dash already a comma, the opener rule sees "Great," and leaves
+      // it alone.
+      .replace(/\s*—\s*|\s+–\s+/g, ", ")
+      .replace(/^(Okay|Alright|Cool|Nice|Right|Great|Got it|Perfect)(\s+)/i, "$1,$2")
+      // A dash that opened or closed the text leaves a stray comma behind.
+      .replace(/^,\s*/, "")
+      .replace(/,\s*([.!?])/g, "$1")
+      .replace(/,\s*$/, ".")
+      .replace(/\.{3}$/, ".")
+      .trim()
+  );
 }
 
 // ── The coach's fixed phrase set ──

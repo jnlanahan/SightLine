@@ -75,14 +75,17 @@ const DIVERTED_STALL_MS = 120_000;
 export function useSessionLoop(onNeedsApiKey: () => void) {
   const inFlightRef = useRef(false);
   const captureFailuresRef = useRef(0);
-  // When the user last touched mouse or keyboard (as reported by the main
-  // process). A highlight is computed from a frame captured seconds earlier;
-  // if they've clicked or scrolled since, the box is pointing at a stale
-  // screen and is better not drawn.
+  // When the user last clicked or typed on THEIR screen (as reported by the
+  // main process, which already filters out clicks on this panel). A
+  // highlight is computed from a frame captured seconds earlier; if they've
+  // acted since, the box is pointing at a stale screen and is better not
+  // drawn. The event's own timestamp is used, not arrival time — delivery is
+  // debounced, and arrival time made inputs from before the capture look like
+  // ones from after it.
   const lastInputAtRef = useRef(0);
   useEffect(() => {
-    return api().input.onActivity(() => {
-      lastInputAtRef.current = Date.now();
+    return api().input.onActivity((ev) => {
+      lastInputAtRef.current = ev.at;
     });
   }, []);
   const tickRef = useRef<(reason: TickReason) => Promise<void>>(

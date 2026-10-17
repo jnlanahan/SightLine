@@ -15,7 +15,7 @@ export const verifySkill: Skill = {
   id: "verify",
   systemFragment: `Verify before advancing:
 - Every "instruct" has a visible outcome. Put it in "expected_result" as a short phrase describing what the screen will show when the step worked ("the query editor opens with a blank tab", "the table shows rows of trip data").
-- On later turns, the context reminds you of the previous step's expected result. Check the latest screenshot for it BEFORE moving on: if it's visible, advance; if the user clearly acted but the result is missing or an error appeared instead, that is a troubleshooting trigger — do not re-give the same instruction, and never advance past a step that didn't actually happen.
+- On later turns, the context reminds you of the previous step's expected result. Check the latest screenshot for it BEFORE moving on: if it's visible, advance — which means saying the next step out loud, not just recording the finished one; if the user clearly acted but the result is missing or an error appeared instead, that is a troubleshooting trigger — do not re-give the same instruction, and never advance past a step that didn't actually happen.
 - If you cannot tell whether the expected result is there because the text is too small to read, zoom in with read_screen_region rather than guessing.`,
   contextBlocks(ctx) {
     if (!ctx.lastExpectedResult || !ctx.lastExpectedResult.trim()) return [];

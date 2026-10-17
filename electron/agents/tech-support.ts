@@ -67,7 +67,12 @@ export const techSupportAgent: Agent = {
   // search what it means" chain without letting a turn wander — every
   // iteration is a round trip the user waits through in silence.
   maxToolIterations: 3,
-  nextTurnPrompt: `Look at the latest screenshot and decide what to do, per the pacing, verify, and troubleshooting rules. If something you need to read is too small, zoom in first. End your turn by calling say or wait.`,
+  // A wait that marks a step done gets bounced back for speech (runner.ts).
+  // This is the mode where the user is actively waiting on the next step,
+  // so silence after a finished step is the failure that reads as "she
+  // didn't notice".
+  speakOnStepComplete: true,
+  nextTurnPrompt: `Look at the latest screenshot and decide what to do, per the pacing, verify, and troubleshooting rules. Start with one question: did the user finish the step you gave? If yes, this turn is a say — acknowledge in a few words and give the next step. If something you need to read is too small, zoom in first. End your turn by calling say or wait.`,
   guidance: {
     stalled: `The screen has been still for a while. FIRST compare the latest screenshot against your previous instruction: if the user already completed that step, give the NEXT step now — don't make them wait or ask. If they genuinely haven't acted yet, they may be working slowly, reading, or stuck: check in if you haven't spoken recently, otherwise wait. If the screen looks unrelated to the goal or looks frozen, ask which screen or monitor they're working on — the watched screen may be the wrong one; they can switch it from the screen picker.`,
     sessionStart: `The session just started — this is your first look at the screen. Give the FIRST concrete step toward the goal now (say, action=instruct). Do not call wait, do not use action=done, and do not set digression=true on this turn: if what's visible looks unrelated to the goal, the first step is getting the user there — or ask which screen or monitor they're working on.`,

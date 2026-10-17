@@ -66,6 +66,13 @@ const MAX_HISTORY_TURNS = 10;
 // hour with nothing in the log. A vision turn normally finishes in 5-15 s.
 const REQUEST_TIMEOUT_MS = 60_000;
 
+/**
+ * Tool result handed back for a `wait` that recorded a newly completed step
+ * (see Agent.speakOnStepComplete). Written as a situation, not a scolding:
+ * the model's step bookkeeping was right, only the silence was wrong.
+ */
+const SPEAK_ON_STEP_COMPLETE = `You recorded a newly completed step but called wait. The user just finished what you asked and is now waiting to hear from you — silence here feels like you stopped watching. Call say now: a 2-4 word acknowledgment, then the next step (action=instruct); or action=done if the goal is visibly achieved; or action=acknowledge if the screen shows something still in progress they should let finish. Only call wait again if they are already visibly working on the next step.`;
+
 export interface RunTurnOptions {
   client: Anthropic;
   model: string;
@@ -318,6 +325,10 @@ export async function runAgentTurn(opts: RunTurnOptions): Promise<TurnResult> {
   // search handed back as "Tool failed" used to be retried verbatim, doubling
   // the silence the user sat through.
   const failedTools = new Set<string>();
+  // One bounce per turn. If the model waits again after being asked to
+  // speak, that is its answer — looping would burn the whole iteration
+  // budget on the same question.
+  let bounced = false;
   let usage: TokenUsage = { ...EMPTY_USAGE };
 
   // A turn cut off by max_tokens arrives as a PARTIAL tool input. Whatever
@@ -394,14 +405,37 @@ export async function runAgentTurn(opts: RunTurnOptions): Promise<TurnResult> {
       }
 
       if (toolUse.name === SAY_TOOL || toolUse.name === WAIT_TOOL) {
-        return finish(
-          parseTerminalTool(
-            toolUse.name,
-            (toolUse.input ?? {}) as Record<string, unknown>,
-            ctx.completedSteps,
-          ),
-          truncated,
+        const parsed = parseTerminalTool(
+          toolUse.name,
+          (toolUse.input ?? {}) as Record<string, unknown>,
+          ctx.completedSteps,
         );
+        // A silent turn that just marked a step done is the one silence the
+        // user always notices: they did what was asked and are now looking at
+        // the panel for what's next. Hand the wait back once and ask for
+        // speech — same turn, no re-capture, no extra tick.
+        if (
+          toolUse.name === WAIT_TOOL &&
+          agent.speakOnStepComplete &&
+          !bounced &&
+          !lastChance &&
+          !truncated &&
+          parsed.completedSteps.length > ctx.completedSteps.length
+        ) {
+          bounced = true;
+          log(
+            `[agent:${agent.id}] wait recorded a newly completed step — asking for speech instead`,
+          );
+          messages.push({ role: "assistant", content: message.content });
+          messages.push({
+            role: "user",
+            content: [
+              toolResultBlock(toolUse.id, { text: SPEAK_ON_STEP_COMPLETE }),
+            ],
+          });
+          continue;
+        }
+        return finish(parsed, truncated);
       }
 
       // Mid-turn tool. Run it, feed the result back, go again.
