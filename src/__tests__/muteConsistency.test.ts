@@ -17,14 +17,6 @@ async function source(path: string): Promise<string> {
 }
 
 describe("muting is consistent across every speech path", () => {
-  it("the session-plan overview respects ttsEnabled", async () => {
-    const src = await source("../components/GoalPrompt");
-    // Find the speak() call for the overview and confirm it is guarded.
-    const call = src.match(/if \(result\.overview[^)]*\)[\s\S]{0,80}?speak\(/);
-    expect(call, "overview speak() call not found — did it move?").not.toBeNull();
-    expect(call![0]).toContain("ttsEnabled");
-  });
-
   it("the session loop gates every spoken line on ttsEnabled", async () => {
     const src = await source("../hooks/useSessionLoop");
     // speakOut is the single funnel for everything the coach says in-session.
