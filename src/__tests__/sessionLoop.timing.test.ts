@@ -78,7 +78,18 @@ describe("the coach never talks over itself or ignores the user", () => {
   it("a follow-up turn is exempt from repeat suppression", async () => {
     const src = await loopSource();
     expect(src).toContain("const answeringFollowUp = Boolean(followUp);");
-    expect(src).toContain("!answeringFollowUp &&");
+    // Both guards key off `prompted`, which a follow-up always sets.
+    expect(src).toContain("const prompted = answeringFollowUp || Boolean(resuming);");
+    expect(src).toContain("if (!prompted && isRepeatedSentence(");
+    expect(src).toMatch(/!prompted &&\s+action === "instruct"/);
+  });
+
+  // The greeting on reopening a chat names the step the user was on, which is
+  // exactly what the repeat guards would otherwise swallow.
+  it("the resume greeting is exempt too, and fires exactly once", async () => {
+    const src = await loopSource();
+    expect(src).toContain("const resuming = s.resumePending ?? undefined;");
+    expect(src).toContain("if (resuming) useSession.getState().setResumePending(null);");
   });
 
   it("a follow-up that returns wait is recovered into something spoken", async () => {
