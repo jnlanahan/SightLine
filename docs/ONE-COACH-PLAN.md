@@ -24,6 +24,12 @@ SightLine becomes one coach with one input box and a list of chats you can reope
 | 11 | Stop re-sending what doesn't change | Lower cost per look, same behaviour |
 | 12 | Wrap up | Docs match the app; decide whether to merge |
 
+## Progress
+
+- **Built, 9 November 2026:** steps 0 to 4. Each is its own commit on `one-coach`. Tests, type-check and build pass. None of it has been run live yet, so pacing, voice and the on-screen flow are unconfirmed.
+- **Baseline:** the step 0 commit is tagged `one-coach-baseline`. It still has the old setup flow, so one run of that build gives the "before" numbers. The `[timing]` lines land in the activity log.
+- **Next:** a live try of steps 1 to 4, then step 5.
+
 ## Calls I made
 
 1. **One coach, two stances.** It either *guides* (step by step, speaks when a step is done) or *watches* (silent until asked). The coach picks, and "just watch" or "talk me through it" switches it. Waiting is the default in both.
