@@ -83,6 +83,18 @@ export function overlapScore(fact: MemoryFact, goalWords: Set<string>): number {
   return hits / Math.min(factWords.size, goalWords.size);
 }
 
+// A fact the coach read on screen, or the user confirmed, is more likely to
+// still be right than one it was told or assumed. Modest on purpose: it
+// breaks near-ties in favour of what was seen, but cannot lift an irrelevant
+// fact over a relevant one. It only ever raises a score, so nothing that
+// cleared MIN_SCORE before verification existed is dropped now.
+export const VERIFIED_BOOST = 1.15;
+
+/** Facts saved before verification existed have no flag: missing is false. */
+export function isVerified(fact: MemoryFact): boolean {
+  return fact.verified === true;
+}
+
 export function scoreFact(
   fact: MemoryFact,
   goalWords: Set<string>,
@@ -94,7 +106,8 @@ export function scoreFact(
     relevance *
     KIND_WEIGHT[fact.kind] *
     recencyScore(fact, now) *
-    usefulnessScore(fact)
+    usefulnessScore(fact) *
+    (isVerified(fact) ? VERIFIED_BOOST : 1)
   );
 }
 
@@ -146,36 +159,53 @@ export function selectFacts(
 }
 
 /**
- * Whether a candidate fact is already known. Compares on normalized content
- * words rather than exact text, because the agent will phrase the same fact
- * differently each time it notices it.
+ * The known fact a candidate duplicates, or null. Compares on normalized
+ * content words rather than exact text, because the agent will phrase the
+ * same fact differently each time it notices it.
  */
-export function isDuplicateFact(
+export function findDuplicateFact(
   candidate: string,
   existing: readonly MemoryFact[],
-): boolean {
+): MemoryFact | null {
   const candidateWords = keywords(candidate);
-  if (candidateWords.size === 0) return true; // nothing to remember
   for (const fact of existing) {
     const factWords = keywords(fact.content);
     if (factWords.size === 0) continue;
     let hits = 0;
     for (const w of candidateWords) if (factWords.has(w)) hits++;
     const similarity = hits / Math.max(candidateWords.size, factWords.size);
-    if (similarity >= 0.7) return true;
+    if (similarity >= 0.7) return fact;
   }
-  return false;
+  return null;
+}
+
+/** Whether a candidate fact is already known (or is empty of content). */
+export function isDuplicateFact(
+  candidate: string,
+  existing: readonly MemoryFact[],
+): boolean {
+  if (keywords(candidate).size === 0) return true; // nothing to remember
+  return findDuplicateFact(candidate, existing) !== null;
 }
 
 /** Render the selected facts for the agent's context header. */
 export function formatFactsForPrompt(facts: readonly MemoryFact[]): string {
   if (facts.length === 0) return "";
-  const lines = facts.map((f) => `- (${f.kind}) ${f.content}`);
+  const lines = facts.map((f) =>
+    isVerified(f)
+      ? `- (${f.kind}) ${f.content}`
+      : `- (${f.kind}, unconfirmed) ${f.content}`,
+  );
+  const anyUnconfirmed = facts.some((f) => !isVerified(f));
   return (
     "What you already know about this user from previous sessions:\n" +
     lines.join("\n") +
     "\nUse these to skip questions you already know the answer to. Do not " +
     "recite them back at the user, and do not assume they are still true if " +
-    "the screen says otherwise."
+    "the screen says otherwise." +
+    (anyUnconfirmed
+      ? " Facts marked unconfirmed were told to you or assumed, never seen " +
+        "on screen — check before relying on one."
+      : "")
   );
 }

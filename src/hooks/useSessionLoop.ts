@@ -18,6 +18,7 @@ import {
 } from "./useTts";
 import { useQuietPeriod } from "./useQuietPeriod";
 import { ensureAgentPolicy } from "../lib/agentPolicy";
+import { liveNotes } from "../../electron/chat-notes";
 import { takeFirstWords } from "../lib/askClock";
 import type { Stance, StepPace } from "../lib/api";
 
@@ -381,7 +382,9 @@ export function useSessionLoop(onNeedsApiKey: () => void) {
           frames: s.frames.slice(-FRAMES_PER_CALL),
           followUp,
           uploadedContext: s.uploadedContext,
-          agentNotes: s.agentNotes,
+          // Only live notes: one the user forgot, or the cap retired, is gone
+          // as far as the coach is concerned.
+          agentNotes: liveNotes(s.agentNotes).map((n) => n.text),
           recalledMemory: s.recalledMemory,
           lastExpectedResult: s.lastExpectedResult ?? undefined,
           secondsSinceScreenChange: Math.round(sinceChangeMs / 1000),
@@ -392,6 +395,8 @@ export function useSessionLoop(onNeedsApiKey: () => void) {
           sessionJustStarted,
           screenChanged,
           resuming,
+          // The open chat, so a search of earlier chats leaves it out.
+          chatId: sessionId,
         });
 
         // Handle error envelope
@@ -487,7 +492,9 @@ export function useSessionLoop(onNeedsApiKey: () => void) {
         }
 
         if (result.notes && result.notes.trim().length > 0) {
-          useSession.getState().appendAgentNote(result.notes.trim());
+          useSession
+            .getState()
+            .appendAgentNote(result.notes.trim(), result.noteSeen === true, Date.now());
         }
 
         // A durable fact for FUTURE sessions. Persisted immediately rather
@@ -496,11 +503,11 @@ export function useSessionLoop(onNeedsApiKey: () => void) {
         if (result.remember?.content) {
           const fact = result.remember;
           void api()
-            .memory.add(fact.kind, fact.content, useSession.getState().sessionId)
+            .memory.add(fact.kind, fact.content, useSession.getState().sessionId, fact.seen)
             .then((res) => {
               log(
                 res.added
-                  ? `remembered (${fact.kind}): ${fact.content}`
+                  ? `remembered (${fact.kind}${fact.seen ? ", seen" : ""}): ${fact.content}`
                   : `remember skipped (${res.reason ?? "disabled"}): ${fact.content}`,
               );
             })

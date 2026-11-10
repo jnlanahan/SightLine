@@ -12,6 +12,7 @@ import type { SpeechChunk } from "./speech-chunker";
 import { getAgent } from "./agents/registry";
 import { runAgentTurn } from "./agents/harness/runner";
 import type { ToolDeps } from "./agents/harness/types";
+import type { MemorySearchHit } from "./memory-search";
 
 // Re-exported so main.ts's error handling is unaffected by the harness move.
 export { MissingApiKeyError, RateLimitError } from "./agents/harness/errors";
@@ -52,6 +53,13 @@ const QUICK_RESEARCH_LIMITS: ServerToolLimits = {
  */
 export interface AgentRuntime {
   captureRegion: ToolDeps["captureRegion"];
+  // Searches saved facts and earlier chats, leaving out the open chat and any
+  // fact already in the recalled-memory block.
+  searchMemory?(
+    query: string,
+    currentChatId: string | null,
+    alreadyLoaded: string,
+  ): Promise<MemorySearchHit[]>;
   // Fires when the model starts a mid-turn tool, so the renderer can tell the
   // user a lookup is happening instead of sitting on a silent spinner.
   onToolStart?(tool: string, input: Record<string, unknown>): void;
@@ -96,6 +104,8 @@ export interface NextInstructionArgs {
   // Set on the first look after a saved chat is reopened, so the coach greets
   // the user with where things stood instead of carrying on mid-thought.
   resuming?: { awayMinutes: number; whereWeLeftOff: string };
+  // The open chat's id, so a search of earlier chats leaves this one out.
+  chatId?: string | null;
 }
 
 // One client per key. Constructing a client per call is cheap but not free,
@@ -152,6 +162,12 @@ export async function getNextInstruction(
     // hung search costs the agent one short wait, not the whole tick.
     research: (query) =>
       withDeadline(runQuickWebResearch(query), RESEARCH_TIMEOUT_MS, "research_timeout"),
+    // Without a runtime there is nothing to search: an empty result, never a
+    // failed turn.
+    searchMemory: (query) =>
+      runtime?.searchMemory
+        ? runtime.searchMemory(query, args.chatId ?? null, args.recalledMemory ?? "")
+        : Promise.resolve([]),
     log,
   };
 

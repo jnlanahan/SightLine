@@ -1,11 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
   MAX_RECALLED_FACTS,
+  VERIFIED_BOOST,
+  findDuplicateFact,
   formatFactsForPrompt,
   isDuplicateFact,
   keywords,
   overlapScore,
   recencyScore,
+  scoreFact,
   selectFacts,
   usefulnessScore,
 } from "../../electron/memory-rank";
@@ -199,7 +202,9 @@ describe("formatFactsForPrompt", () => {
   });
 
   it("labels each fact with its kind", () => {
-    const text = formatFactsForPrompt([fact("uses the desktop app", "setup")]);
+    const text = formatFactsForPrompt([
+      fact("uses the desktop app", "setup", { verified: true }),
+    ]);
     expect(text).toContain("(setup) uses the desktop app");
   });
 
@@ -229,5 +234,101 @@ describe("selectFacts — topical facts survive the floor", () => {
   it("still drops an untopical history note", () => {
     const note = fact("last time they renamed a folder", "history");
     expect(selectFacts([note], "configure the printer", NOW)).toEqual([]);
+  });
+});
+
+describe("seen facts and unconfirmed ones", () => {
+  it("marks a fact the coach never saw as unconfirmed, and says what that means", () => {
+    const text = formatFactsForPrompt([
+      fact("prefers keyboard shortcuts", "preference"),
+      fact("uses the desktop app", "setup", { verified: true }),
+    ]);
+    expect(text).toContain("- (preference, unconfirmed) prefers keyboard shortcuts");
+    expect(text).toContain("- (setup) uses the desktop app");
+    expect(text).toContain("Facts marked unconfirmed were told to you or assumed");
+  });
+
+  it("treats a fact saved before the flag existed as unconfirmed", () => {
+    const old = fact("uses the desktop app", "setup");
+    expect(old).not.toHaveProperty("verified");
+    expect(formatFactsForPrompt([old])).toContain("(setup, unconfirmed)");
+  });
+
+  it("spends no words on the explanation when every fact was seen", () => {
+    const text = formatFactsForPrompt([
+      fact("uses the desktop app", "setup", { verified: true }),
+    ]);
+    expect(text).not.toContain("unconfirmed");
+  });
+
+  it("gives a seen fact a modest boost", () => {
+    expect(VERIFIED_BOOST).toBeGreaterThan(1);
+    expect(VERIFIED_BOOST).toBeLessThanOrEqual(1.25);
+    const goal = keywords("set up the VPN");
+    const told = fact("uses the desktop app", "setup", { id: "a" });
+    const seen = { ...told, verified: true };
+    expect(scoreFact(seen, goal, NOW)).toBeCloseTo(scoreFact(told, goal, NOW) * VERIFIED_BOOST);
+  });
+
+  it("puts the seen fact first when two are otherwise equal", () => {
+    const told = fact("uses the desktop app", "setup", { id: "fact_a" });
+    const seen = fact("works on a Surface laptop", "setup", { id: "fact_b", verified: true });
+    const picked = selectFacts([told, seen], "configure the printer", NOW);
+    expect(picked.map((f) => f.id)).toEqual(["fact_b", "fact_a"]);
+  });
+
+  it("does not let the boost lift an irrelevant fact over a relevant one", () => {
+    const relevant = fact("their VPN blocks the sync port", "obstacle");
+    const irrelevant = fact("last time they renamed a folder", "history", { verified: true });
+    const picked = selectFacts([irrelevant, relevant], "fix VPN sync failures", NOW);
+    expect(picked[0].id).toBe(relevant.id);
+  });
+
+  it("does not lift a stale, untopical note past the floor", () => {
+    const note = fact("last time they renamed a folder", "history", {
+      verified: true,
+      lastUsedAt: NOW - 120 * DAY,
+    });
+    expect(selectFacts([note], "configure the printer", NOW)).toEqual([]);
+  });
+
+  it("never drops a fact that was recalled before the flag existed", () => {
+    // The boost only ever raises a score, so MIN_SCORE lets through at least
+    // what it did before. Checked across kinds, ages and topics.
+    const goals = ["set up the VPN", "configure the printer", "fix VPN sync failures"];
+    const kinds: MemoryKind[] = ["setup", "preference", "obstacle", "history"];
+    for (const goal of goals) {
+      for (const kind of kinds) {
+        for (const age of [0, 30, 90, 365]) {
+          const told = fact("their VPN blocks the sync port", kind, {
+            lastUsedAt: NOW - age * DAY,
+          });
+          const seen = { ...told, verified: true };
+          if (selectFacts([told], goal, NOW).length === 1) {
+            expect(selectFacts([seen], goal, NOW)).toHaveLength(1);
+          }
+        }
+      }
+    }
+  });
+});
+
+describe("a forgotten fact", () => {
+  it("is never recalled, however relevant, seen or used", () => {
+    const forgotten = fact("their VPN blocks the sync port", "setup", {
+      archived: true,
+      verified: true,
+      useCount: 10,
+      lastUsedAt: NOW,
+    });
+    expect(selectFacts([forgotten], "fix the VPN sync port", NOW)).toEqual([]);
+  });
+
+  it("still counts as known, so it is not learned again", () => {
+    const forgotten = fact("their VPN blocks the sync port", "obstacle", { archived: true });
+    expect(isDuplicateFact("the VPN blocks their sync port", [forgotten])).toBe(true);
+    expect(findDuplicateFact("the VPN blocks their sync port", [forgotten])?.id).toBe(
+      forgotten.id,
+    );
   });
 });

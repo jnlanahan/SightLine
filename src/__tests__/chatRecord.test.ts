@@ -10,6 +10,7 @@ import {
   chatToSession,
   isChatId,
   isWorthSaving,
+  normalizeChatRecord,
   summarizeChat,
   titleFromGoal,
   type ChatSnapshot,
@@ -34,7 +35,10 @@ function snapshot(overrides: Partial<ChatSnapshot> = {}): ChatSnapshot {
     currentCode: "",
     expectedResult: "the sign-in screen is showing",
     upcomingSteps: ["Sign in", "Connect to a server"],
-    notes: ["They're on Windows 11"],
+    notes: [
+      { id: "note_a", text: "They're on Windows 11", seen: true, at: 3_000, retiredAt: null },
+      { id: "note_b", text: "Their old VPN client was removed", seen: false, at: 4_000, retiredAt: 6_000 },
+    ],
     conversation: [
       { role: "user", content: "Goal: Set up a VPN on this laptop", timestamp: 1_000 },
       { role: "assistant", content: "Run this in a terminal.", code: "winget install vpn", timestamp: 1_500 },
@@ -258,7 +262,12 @@ describe("reopening a chat", () => {
     expect(restored.upcomingSteps).toEqual(["Sign in", "Connect to a server"]);
     expect(restored.currentInstruction).toContain("open the app");
     expect(restored.lastExpectedResult).toBe("the sign-in screen is showing");
-    expect(restored.agentNotes).toEqual(["They're on Windows 11"]);
+    // Note ids, flags, times and retired notes all come back: a retired note
+    // is what keeps a forgotten one from being written straight back.
+    expect(restored.agentNotes).toEqual([
+      { id: "note_a", text: "They're on Windows 11", seen: true, at: 3_000, retiredAt: null },
+      { id: "note_b", text: "Their old VPN client was removed", seen: false, at: 4_000, retiredAt: 6_000 },
+    ]);
     expect(restored.conversation[1]).toMatchObject({
       role: "assistant",
       code: "winget install vpn",
@@ -286,5 +295,75 @@ describe("reopening a chat", () => {
     expect(s.stepLog).toHaveLength(2);
     expect(s.conversation).toHaveLength(2);
     useSession.getState().reset();
+  });
+});
+
+describe("chats saved before notes had ids", () => {
+  // The exact shape step 3 wrote: notes as plain strings.
+  function oldShape() {
+    const record = buildChatRecord(snapshot()) as unknown as Record<string, unknown>;
+    return { ...record, notes: ["They're on Windows 11", "  ", "Uses the work account"] };
+  }
+
+  it("convert on read, marked not seen, with stable ids", () => {
+    const read = normalizeChatRecord(oldShape() as never);
+    expect(read.notes).toEqual([
+      { id: "note_old0", text: "They're on Windows 11", seen: false, at: 1_000, retiredAt: null },
+      { id: "note_old2", text: "Uses the work account", seen: false, at: 1_000, retiredAt: null },
+    ]);
+    // The same old file always converts the same way, so an edit made by id
+    // in one sitting still finds its note.
+    expect(normalizeChatRecord(oldShape() as never).notes).toEqual(read.notes);
+  });
+
+  it("reopen into the live session with notes the screen can edit", () => {
+    const restored = chatToSession(oldShape() as never);
+    expect(restored.agentNotes.map((n) => n.text)).toEqual([
+      "They're on Windows 11",
+      "Uses the work account",
+    ]);
+    expect(restored.agentNotes.every((n) => n.seen === false && n.retiredAt === null)).toBe(true);
+    // Everything else about the chat is untouched.
+    expect(restored.stepLog).toHaveLength(2);
+  });
+
+  it("save back in the new shape", () => {
+    const restored = chatToSession(oldShape() as never);
+    const saved = buildChatRecord(snapshot({ notes: restored.agentNotes }));
+    expect(saved.notes[0]).toMatchObject({ id: "note_old0", seen: false });
+  });
+
+  it("survive a notes field that is missing or junk", () => {
+    const record = buildChatRecord(snapshot()) as unknown as Record<string, unknown>;
+    expect(normalizeChatRecord({ ...record, notes: undefined } as never).notes).toEqual([]);
+    expect(normalizeChatRecord({ ...record, notes: [42, null, {}] } as never).notes).toEqual([]);
+  });
+});
+
+describe("the user's note edits and the next autosave", () => {
+  beforeEach(() => useSession.getState().reset());
+
+  it("a forgotten note is saved as retired, and the coach cannot write it back", () => {
+    useSession.getState().loadChat(chatToSession(buildChatRecord(snapshot())));
+    useSession.getState().forgetAgentNote("note_a", 7_000);
+    // The coach notices the same thing again on its next look.
+    useSession.getState().appendAgentNote("They're on Windows 11", true, 8_000);
+    const s = useSession.getState();
+    const saved = buildChatRecord(snapshot({ notes: s.agentNotes }));
+    const note = saved.notes.find((n) => n.id === "note_a")!;
+    expect(note.retiredAt).toBe(7_000);
+    expect(saved.notes.filter((n) => n.retiredAt === null)).toHaveLength(0);
+  });
+
+  it("an edited note is what the next save writes", () => {
+    useSession.getState().loadChat(chatToSession(buildChatRecord(snapshot())));
+    useSession.getState().editAgentNote("note_a", "They're on Windows 10, not 11");
+    // A later note from the coach must not bring the old wording back.
+    useSession.getState().appendAgentNote("They use the work VPN", false, 8_000);
+    const saved = buildChatRecord(snapshot({ notes: useSession.getState().agentNotes }));
+    expect(saved.notes.find((n) => n.id === "note_a")!.text).toBe(
+      "They're on Windows 10, not 11",
+    );
+    expect(saved.notes.find((n) => n.id === "note_a")!.seen).toBe(true);
   });
 });

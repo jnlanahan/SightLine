@@ -154,6 +154,7 @@ function opts(client: Anthropic, completedSteps: string[]) {
     deps: {
       captureRegion: async () => null,
       research: async () => "findings",
+      searchMemory: async () => [],
         log: () => {},
     },
     toContextResolution: (d: string) => d,

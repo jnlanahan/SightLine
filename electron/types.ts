@@ -49,6 +49,8 @@ export interface AgentDescriptor {
 export interface RememberedFact {
   kind: MemoryKind;
   content: string;
+  // The coach read it on screen, rather than being told or assuming it.
+  seen: boolean;
 }
 
 export type SessionStatus =
@@ -134,6 +136,8 @@ export interface InstructionResponse {
   stance?: Stance | null;
   done: boolean;
   notes: string;
+  // The note records something the coach read on screen this turn.
+  noteSeen: boolean;
   highlight: HighlightRect | null;
   // A fact worth carrying into FUTURE sessions, distinct from "notes" (which
   // is a scratchpad for this session only). Null on most turns.

@@ -38,6 +38,29 @@ export interface MemoryFact {
   // Facts the user explicitly removed. Kept rather than deleted so the same
   // fact isn't immediately re-learned and re-surfaced.
   archived: boolean;
+  // True when the coach read the fact on the user's screen, or the user
+  // confirmed it. False when it was only told or assumed. Optional because
+  // facts saved before this existed have no such field: missing means false.
+  verified?: boolean;
+}
+
+/**
+ * One thing the coach noted to itself in a chat — the chat's own memory.
+ *
+ * Notes are never deleted: one the user forgets, or one pushed out by the
+ * cap, gets a retired time and is no longer shown to the coach. Keeping it
+ * stops the coach writing the same note straight back.
+ */
+export interface ChatNote {
+  id: string;
+  text: string;
+  // True when the coach read this on screen the turn it wrote it; false when
+  // it was told, inferred or assumed.
+  seen: boolean;
+  // When the note was written.
+  at: number;
+  // When it was forgotten or pushed out by the cap. Null while live.
+  retiredAt: number | null;
 }
 
 /** One finished step and when it was done. The step log only ever grows. */
@@ -82,8 +105,10 @@ export interface ChatRecord {
   upcomingSteps: string[];
   // One or two sentences, rebuilt on every save with no model call.
   whereWeLeftOff: string;
-  // What the coach noted to itself in this chat.
-  notes: string[];
+  // What the coach noted to itself in this chat, live and retired. Chats
+  // saved before notes had ids hold plain strings here; chat-record.ts
+  // converts them on read.
+  notes: ChatNote[];
   turns: ChatTurnRecord[];
   // Reference files the user attached, kept so a reopened chat still has them.
   uploadedContext: string;
@@ -136,7 +161,8 @@ create table if not exists memory_facts (
   created_at         timestamptz not null default now(),
   last_used_at       timestamptz not null default now(),
   use_count          integer not null default 0,
-  archived           boolean not null default false
+  archived           boolean not null default false,
+  verified           boolean not null default false
 );
 create index if not exists memory_facts_user_idx
   on memory_facts (user_id, archived, last_used_at desc);
@@ -158,6 +184,7 @@ create table if not exists chats (
   expected_result      text,
   upcoming_steps       jsonb not null default '[]'::jsonb,
   where_we_left_off    text not null default '',
+  -- [{ id, text, seen, at, retiredAt }], live and retired alike
   notes                jsonb not null default '[]'::jsonb,
   turns                jsonb not null default '[]'::jsonb,
   uploaded_context     text not null default '',

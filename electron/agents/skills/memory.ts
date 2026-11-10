@@ -14,7 +14,8 @@ const BASE_RULES = `Memory across sessions — you meet this user again. "notes"
 - Do NOT remember anything transient: what's on screen right now, which step they're on, or how this session is going.
 - Do NOT remember anything sensitive: passwords, card numbers, security answers, or personal details they didn't volunteer as relevant to the task.
 - Keep it under 20 words and write it as a standalone fact — future-you sees the sentence with none of this session's context.
-- The context header shows what you already remember. Never re-record something already there, and never read the list back to the user — just quietly use it. If the screen contradicts a remembered fact, believe the screen.`;
+- The context header shows what you already remember. Never re-record something already there, and never read the list back to the user — just quietly use it. If the screen contradicts a remembered fact, believe the screen.
+- Set "seen" inside "remember" to true only when you read the fact on the screen; leave it out when the user told you or you assumed it. Facts marked unconfirmed in the header were never seen.`;
 
 const REMEMBER_FIELD = {
   name: "remember",
@@ -33,6 +34,10 @@ const REMEMBER_FIELD = {
         enum: ["setup", "preference", "history", "obstacle"],
       },
       content: { type: "string", description: "The fact, under 20 words." },
+      seen: {
+        type: "boolean",
+        description: "True only if you read this fact on screen. Omit otherwise.",
+      },
     },
     required: ["kind", "content"],
   },

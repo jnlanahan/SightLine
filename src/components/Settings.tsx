@@ -14,6 +14,7 @@ import type {
 import type { MemoryFact } from "../../electron/db/schema";
 import { useTts, getTtsMode } from "../hooks/useTts";
 import { ScreenPicker } from "./ScreenPicker";
+import { SeenMark } from "./AboutChat";
 
 const ACCENT_OPTIONS: { name: AccentName; label: string; color: string; rgb: string }[] = [
   { name: "lime",   label: "Lime",   color: "#C2E84B", rgb: "194,232,75"  },
@@ -671,8 +672,10 @@ function VoicePicker({
 }
 
 /**
- * What the coach remembers about you, and a way to make it forget. Memory the
- * user can't see or delete is memory they can't trust.
+ * About you: what the coach remembers about you across chats. Each fact is
+ * marked seen on screen (or confirmed by you) versus not yet confirmed, and
+ * can be corrected, confirmed or forgotten. Memory the user can't see,
+ * correct or delete is memory they can't trust.
  */
 function MemoryList({ ghostBtnStyle }: { ghostBtnStyle: React.CSSProperties }) {
   const T = useTheme();
@@ -690,6 +693,16 @@ function MemoryList({ ghostBtnStyle }: { ghostBtnStyle: React.CSSProperties }) {
   async function forget(id: string) {
     await api().memory.forget(id);
     setFacts((prev) => prev?.filter((f) => f.id !== id) ?? null);
+  }
+
+  // Only what the main process actually saved is shown, so the list never
+  // claims a change that did not land.
+  async function update(id: string, change: { content?: string; verified?: true }) {
+    const res = await api().memory.update(id, change);
+    const saved = res.fact;
+    if (res.updated && saved) {
+      setFacts((prev) => prev?.map((f) => (f.id === id ? saved : f)) ?? null);
+    }
   }
 
   if (!open) {
@@ -711,57 +724,140 @@ function MemoryList({ ghostBtnStyle }: { ghostBtnStyle: React.CSSProperties }) {
         </p>
       )}
       {facts?.map((f) => (
-        <div
+        <FactRow
           key={f.id}
-          style={{
-            display: "flex",
-            alignItems: "flex-start",
-            gap: 8,
-            padding: "6px 10px",
-            borderRadius: 9,
-            background: lt(0.04),
-            border: `1px solid ${lt(0.07)}`,
-          }}
-        >
-          <span
-            style={{
-              fontSize: 9,
-              fontWeight: 700,
-              textTransform: "uppercase",
-              letterSpacing: "0.08em",
-              color: T.ink3,
-              flexShrink: 0,
-              marginTop: 2,
-              width: 62,
-            }}
-          >
-            {f.kind}
-          </span>
-          <span style={{ flex: 1, fontSize: 11.5, lineHeight: 1.45, color: T.ink2 }}>
-            {f.content}
-          </span>
-          <button
-            type="button"
-            onClick={() => void forget(f.id)}
-            title="Forget this"
-            style={{
-              flexShrink: 0,
-              border: 0,
-              background: "transparent",
-              color: T.ink3,
-              cursor: "pointer",
-              fontSize: 14,
-              lineHeight: 1,
-              padding: 0,
-            }}
-          >
-            ×
-          </button>
-        </div>
+          fact={f}
+          onForget={() => void forget(f.id)}
+          onEdit={(content) => void update(f.id, { content })}
+          onConfirm={() => void update(f.id, { verified: true })}
+        />
       ))}
       <button type="button" onClick={() => setOpen(false)} style={ghostBtnStyle}>
         Done
       </button>
+    </div>
+  );
+}
+
+function FactRow({
+  fact,
+  onForget,
+  onEdit,
+  onConfirm,
+}: {
+  fact: MemoryFact;
+  onForget(): void;
+  onEdit(content: string): void;
+  onConfirm(): void;
+}) {
+  const T = useTheme();
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(fact.content);
+  const verified = fact.verified === true;
+  const linkBtn: React.CSSProperties = {
+    border: 0, background: "transparent", padding: 0, cursor: "pointer",
+    fontSize: 10.5, color: T.ink3, fontFamily: "inherit",
+  };
+
+  return (
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        gap: 4,
+        padding: "6px 10px",
+        borderRadius: 9,
+        background: lt(0.04),
+        border: `1px solid ${lt(0.07)}`,
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+        <span
+          style={{
+            fontSize: 9,
+            fontWeight: 700,
+            textTransform: "uppercase",
+            letterSpacing: "0.08em",
+            color: T.ink3,
+            flexShrink: 0,
+            marginTop: 2,
+            width: 62,
+          }}
+        >
+          {fact.kind}
+        </span>
+        {editing ? (
+          <textarea
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            rows={2}
+            maxLength={200}
+            autoFocus
+            style={{
+              flex: 1, resize: "vertical", fontSize: 11.5, lineHeight: 1.45,
+              fontFamily: "inherit", color: T.ink, background: "transparent",
+              border: `1px solid ${lt(0.12)}`, borderRadius: 6, padding: "4px 6px",
+            }}
+          />
+        ) : (
+          <span style={{ flex: 1, fontSize: 11.5, lineHeight: 1.45, color: T.ink2 }}>
+            {fact.content}
+          </span>
+        )}
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, paddingLeft: 70 }}>
+        <SeenMark
+          seen={verified}
+          seenLabel="Seen or confirmed"
+          seenTitle="The coach read this on your screen, or you confirmed it"
+        />
+        <span style={{ flex: 1 }} />
+        {editing ? (
+          <>
+            <button
+              type="button"
+              style={{ ...linkBtn, color: T.accentText }}
+              onClick={() => {
+                if (draft.trim()) onEdit(draft);
+                setEditing(false);
+              }}
+            >
+              Save
+            </button>
+            <button
+              type="button"
+              style={linkBtn}
+              onClick={() => {
+                setDraft(fact.content);
+                setEditing(false);
+              }}
+            >
+              Cancel
+            </button>
+          </>
+        ) : (
+          <>
+            {!verified && (
+              <button type="button" style={linkBtn} onClick={onConfirm} title="This is right">
+                Confirm
+              </button>
+            )}
+            <button
+              type="button"
+              style={linkBtn}
+              onClick={() => {
+                setDraft(fact.content);
+                setEditing(true);
+              }}
+            >
+              Edit
+            </button>
+            <button type="button" style={linkBtn} onClick={onForget} title="Forget this">
+              Forget
+            </button>
+          </>
+        )}
+      </div>
     </div>
   );
 }

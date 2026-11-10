@@ -91,6 +91,9 @@ export function parseTerminalTool(
       : null,
     done: action === "done",
     notes: str(input.notes),
+    // Strictly true: a string "true" or a missing field reads as not seen,
+    // so a note is never shown as seen on screen by accident.
+    noteSeen: input.note_seen === true,
     highlight: action === "instruct" ? parseHighlight(input.highlight) : null,
     remember: parseRemember(input.remember),
   };
