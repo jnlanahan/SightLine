@@ -28,8 +28,10 @@ SightLine becomes one coach with one input box and a list of chats you can reope
 
 - **Built, 9 November 2026:** steps 0 to 4. Each is its own commit on `one-coach`. Tests, type-check and build pass. None of it has been run live yet, so pacing, voice and the on-screen flow are unconfirmed.
 - **Baseline:** the step 0 commit is tagged `one-coach-baseline`. It still has the old setup flow, so one run of that build gives the "before" numbers. The `[timing]` lines land in the activity log.
-- **Overnight, 9 to 10 November:** four cloud jobs are scheduled: a read-only review of steps 0 to 4, then steps 5, 6 and 8. Each works on its own branch with a pull request against `one-coach`, so `one-coach` itself does not change overnight. Briefs and, by morning, reports are in [overnight/2026-11-09](overnight/2026-11-09/README.md). Nothing from them is merged until it has been read.
-- **Next:** a live try of steps 1 to 4 on `one-coach`; read the review and the three job reports; merge what holds up. Then steps 7 and 9 to 12, which need a live run or a decision.
+- **Overnight, 9 to 10 November:** three cloud jobs built steps 5, 6 and 8, each on its own branch. Briefs and reports are in [overnight/2026-11-09](overnight/2026-11-09/README.md). A fourth job, a read-only review of steps 0 to 4, never ran: it started while the account was over its usage limit and was refused. No independent review has been done yet.
+- **Merged, 10 November:** pull requests 6, 7 and 8 are merged into `one-coach`, at the owner's request, after the reports were read, the main integration points were checked, and tests (429), type-check and build passed on the combined result. The state before the merge (steps 0 to 4 only) is tagged `one-coach-steps-0-4`.
+- **Built so far:** steps 0 to 6 and step 8. **None of it has been run live.**
+- **Next:** a live try of everything built. Then steps 7 and 9 to 12, which need a live run or a decision.
 
 ## Calls I made
 
