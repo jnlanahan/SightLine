@@ -53,9 +53,11 @@ export function Instruction({ instruction, code = "", status, done, error, activ
   const busyLabel =
     activeTool?.name === "search_web"
       ? "Looking that up…"
-      : activeTool?.name === "read_screen_region"
-        ? "Taking a closer look…"
-        : "One sec…";
+      : activeTool?.name === "search_memory"
+        ? "Checking earlier chats…"
+        : activeTool?.name === "read_screen_region"
+          ? "Taking a closer look…"
+          : "One sec…";
 
   if (error) {
     return (

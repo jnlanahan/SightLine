@@ -71,6 +71,7 @@ function deps(overrides: Partial<ToolDeps> = {}): ToolDeps {
   return {
     captureRegion: async () => null,
     research: async () => "findings",
+    searchMemory: async () => [],
     log: () => {},
     ...overrides,
   };
@@ -263,6 +264,94 @@ describe("a silent look does not erase the plan", () => {
       ctx: { ...opts.ctx, upcomingSteps: ["Install it", "Connect to a server"] },
     });
     expect(result.upcomingSteps).toEqual(["Install it", "Connect to a server"]);
+  });
+});
+
+describe("search_memory looks back through earlier chats mid-turn", () => {
+  const hit = {
+    source: "chat" as const,
+    chatId: "chat_march",
+    title: "Fix VPN uploads",
+    lastActiveAt: Date.now() - 3 * 24 * 60 * 60 * 1000,
+    field: "note" as const,
+    snippet: "VPN blocks the sync port; turning it off fixes uploads",
+    score: 0.9,
+  };
+
+  it("runs the search through deps and hands the snippets back", async () => {
+    const searchMemory = vi.fn(async () => [hit]);
+    const { client, requests } = fakeClient([
+      { tool: "search_memory", inputChunks: ['{"query":"vpn uploads"}'] },
+      {
+        tool: "say",
+        inputChunks: ['{"action":"instruct","instruction":"Last time, turning off the VPN fixed this."}'],
+      },
+    ]);
+
+    const result = await runAgentTurn({ ...baseOpts(client), deps: deps({ searchMemory }) });
+
+    expect(searchMemory).toHaveBeenCalledWith("vpn uploads");
+    expect(result.toolsUsed).toEqual(["search_memory"]);
+    expect(result.instruction).toBe("Last time, turning off the VPN fixed this.");
+    const second = JSON.stringify(requests[1].messages);
+    expect(second).toContain("Fix VPN uploads");
+    expect(second).toContain("VPN blocks the sync port");
+  });
+
+  it("tells the coach plainly when nothing matched", async () => {
+    const { client, requests } = fakeClient([
+      { tool: "search_memory", inputChunks: ['{"query":"kubernetes"}'] },
+      { tool: "say", inputChunks: ['{"action":"instruct","instruction":"Ok."}'] },
+    ]);
+
+    await runAgentTurn(baseOpts(client));
+
+    expect(JSON.stringify(requests[1].messages)).toContain("Nothing in earlier chats");
+  });
+
+  it("a failing search does not fail the look", async () => {
+    const searchMemory = vi.fn(async () => {
+      throw new Error("disk unreadable");
+    });
+    const { client, requests } = fakeClient([
+      { tool: "search_memory", inputChunks: ['{"query":"vpn"}'] },
+      { tool: "say", inputChunks: ['{"action":"instruct","instruction":"Open Settings."}'] },
+    ]);
+
+    const result = await runAgentTurn({ ...baseOpts(client), deps: deps({ searchMemory }) });
+
+    expect(result.instruction).toBe("Open Settings.");
+    const second = JSON.stringify(requests[1].messages);
+    expect(second).toContain("disk unreadable");
+    // Withdrawn for the rest of the look, like any failed tool.
+    const names = (requests[1].tools as Array<{ name: string }>).map((t) => t.name);
+    expect(names).not.toContain("search_memory");
+    expect(names).toContain("search_web");
+  });
+
+  it("an empty query is refused without searching", async () => {
+    const searchMemory = vi.fn(async () => [hit]);
+    const { client, requests } = fakeClient([
+      { tool: "search_memory", inputChunks: ['{"query":"  "}'] },
+      { tool: "say", inputChunks: ['{"action":"instruct","instruction":"Ok."}'] },
+    ]);
+
+    await runAgentTurn({ ...baseOpts(client), deps: deps({ searchMemory }) });
+
+    expect(searchMemory).not.toHaveBeenCalled();
+    expect(JSON.stringify(requests[1].messages)).toContain("No query given.");
+  });
+
+  it("reports when it starts, so the status line can say so", async () => {
+    const started: string[] = [];
+    const { client } = fakeClient([
+      { tool: "search_memory", inputChunks: ['{"query":"printer"}'] },
+      { tool: "say", inputChunks: ['{"action":"instruct","instruction":"Ok."}'] },
+    ]);
+
+    await runAgentTurn({ ...baseOpts(client), onToolStart: (tool) => started.push(tool) });
+
+    expect(started).toEqual(["search_memory"]);
   });
 });
 

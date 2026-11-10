@@ -467,7 +467,9 @@ export default function App() {
     status === "thinking" && activeTool
       ? activeTool.name === "search_web"
         ? "Looking that up…"
-        : "Taking a closer look…"
+        : activeTool.name === "search_memory"
+          ? "Checking earlier chats…"
+          : "Taking a closer look…"
       : null;
   const statusText = toolText ?? (fixing ? "Troubleshooting…" : STATUS_TEXT[status]);
   const statusDot  = fixing ? "#C07C10" : STATUS_DOT[status];
