@@ -71,6 +71,9 @@ export interface SessionState {
   // How the coach is helping right now: guiding step by step, or watching
   // quietly. Set by the coach; picks the loop cadence and the bounce rule.
   stance: Stance;
+  // Set when a saved chat is reopened and consumed by the first look, which
+  // greets the user with where things stood.
+  resumePending: { awayMinutes: number; whereWeLeftOff: string } | null;
   // True while the agent is diagnosing/fixing a visible failure — drives the
   // "Troubleshooting…" UI state.
   troubleshooting: boolean;
@@ -140,6 +143,7 @@ export interface SessionState {
   setLastCheckInAt(t: number | null): void;
   setCurrentPace(p: StepPace): void;
   setStance(s: Stance): void;
+  setResumePending(r: { awayMinutes: number; whereWeLeftOff: string } | null): void;
   setTroubleshooting(v: boolean): void;
   setLastExpectedResult(s: string | null): void;
   setLastTtsEngine(e: TtsPlaybackEngine | null): void;
@@ -186,6 +190,7 @@ const initial = {
   lastCheckInAt: null as number | null,
   currentPace: "medium" as StepPace,
   stance: "guide" as Stance,
+  resumePending: null as { awayMinutes: number; whereWeLeftOff: string } | null,
   troubleshooting: false,
   lastExpectedResult: null as string | null,
   lastTtsEngine: null as TtsPlaybackEngine | null,
@@ -262,6 +267,7 @@ export const useSession = create<SessionState>((set) => ({
   setLastCheckInAt: (t) => set({ lastCheckInAt: t }),
   setCurrentPace: (p) => set({ currentPace: p }),
   setStance: (s) => set({ stance: s }),
+  setResumePending: (r) => set({ resumePending: r }),
   setTroubleshooting: (v) => set({ troubleshooting: v }),
   setLastExpectedResult: (s) => set({ lastExpectedResult: s }),
   setLastTtsEngine: (e) => set({ lastTtsEngine: e }),

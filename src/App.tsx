@@ -311,6 +311,14 @@ export default function App() {
         `last active ${Math.round((now - record.lastActiveAt) / 60_000)} min ago)`,
     );
     recallMemoryFor(record.goal, record.id);
+    // The first look greets them with where things stood. A finished chat
+    // opens at rest instead, so there is no look to greet on.
+    if (record.state !== "done") {
+      useSession.getState().setResumePending({
+        awayMinutes: (now - record.lastActiveAt) / 60_000,
+        whereWeLeftOff: record.whereWeLeftOff,
+      });
+    }
     useSession.getState().setLastSpokeAt(now);
     useSession.getState().setLastScreenChangeAt(now);
     // A finished chat opens at rest; saying anything to it wakes it up.

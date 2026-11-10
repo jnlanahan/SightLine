@@ -129,6 +129,9 @@ export interface NextInstructionArgs {
   // The coach's current stance (guide or watch), kept by the renderer and
   // shown to the coach in the context header each look.
   stance?: Stance;
+  // Set on the first look after a saved chat is reopened, so the coach greets
+  // the user with where things stood instead of carrying on mid-thought.
+  resuming?: { awayMinutes: number; whereWeLeftOff: string };
 }
 
 // One client per key. Constructing a client per call is cheap but not free,

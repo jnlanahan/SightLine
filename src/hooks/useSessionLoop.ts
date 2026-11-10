@@ -290,6 +290,15 @@ export function useSessionLoop(onNeedsApiKey: () => void) {
         // is correct, and going quiet leaves their question hanging.
         const answeringFollowUp = Boolean(followUp);
 
+        // A reopened chat: this look greets the user with where things stood.
+        // Consumed here so it happens exactly once.
+        const resuming = s.resumePending ?? undefined;
+        if (resuming) useSession.getState().setResumePending(null);
+        // Turns the user is waiting on. The two anti-repetition guards below
+        // exist to stop UNPROMPTED repeats; a greeting that mentions the step
+        // they were on is not one.
+        const prompted = answeringFollowUp || Boolean(resuming);
+
         // First look after session start: the model is told to give the first
         // step immediately (never "wait", never a false "digression").
         const sessionJustStarted = !s.conversation.some(
@@ -340,10 +349,7 @@ export function useSessionLoop(onNeedsApiKey: () => void) {
           // While the user is off on a digression, stay quiet — the full
           // response handler below decides if there's something new to say.
           if (live.diverted) return;
-          if (
-            !answeringFollowUp &&
-            isRepeatedSentence(chunk.text, previousInstruction)
-          ) {
+          if (!prompted && isRepeatedSentence(chunk.text, previousInstruction)) {
             log(`repeat sentence suppressed: "${chunk.text.slice(0, 40)}"`);
             suppressedRepeat = true;
             return;
@@ -368,7 +374,7 @@ export function useSessionLoop(onNeedsApiKey: () => void) {
         });
 
         log(
-          `tick(${reason}) → Claude: ${gate.why} followUp=${followUp ? `"${followUp.slice(0, 40)}"` : "no"} stalled=${stalled} justStarted=${sessionJustStarted} stance=${s.stance}`,
+          `tick(${reason}) → Claude: ${gate.why} followUp=${followUp ? `"${followUp.slice(0, 40)}"` : "no"} stalled=${stalled} justStarted=${sessionJustStarted} stance=${s.stance}${resuming ? " resuming" : ""}`,
         );
 
         // Training: the plan context rides every tick (byte-stable while the
@@ -411,6 +417,7 @@ export function useSessionLoop(onNeedsApiKey: () => void) {
           stalled,
           sessionJustStarted,
           screenChanged,
+          resuming,
         });
 
         // Handle error envelope
@@ -575,7 +582,7 @@ export function useSessionLoop(onNeedsApiKey: () => void) {
         // call spacing are already stamped, so this can never wedge the loop.
         let action = result.action;
         if (
-          !answeringFollowUp &&
+          !prompted &&
           action === "instruct" &&
           result.instruction &&
           instructionsAreSimilar(

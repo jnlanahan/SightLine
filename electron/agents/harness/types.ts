@@ -131,6 +131,9 @@ export interface TurnContext {
   // The coach's current stance. Per-tick data: it belongs in the context
   // header, never in the cached prompt.
   stance?: Stance;
+  // The first look after a saved chat is reopened: how long the user was
+  // away, and the where-we-left-off line saved with the chat.
+  resuming?: { awayMinutes: number; whereWeLeftOff: string };
 }
 
 /**
@@ -161,6 +164,8 @@ export interface AgentGuidance {
   stalled: string;
   sessionStart: string;
   followUp: string;
+  /** The first look after a saved chat is reopened. Only the coach has chats. */
+  resume?: string;
 }
 
 export interface Agent {

@@ -13,6 +13,16 @@
 
 import type { Agent, TurnContext } from "./types";
 
+/** "about 20 minutes", "about 3 hours", "about 2 days" — for the resume block. */
+export function describeAway(minutes: number): string {
+  const m = Math.max(0, Math.round(minutes));
+  if (m < 2) return "a moment";
+  if (m < 90) return `about ${m} minutes`;
+  const hours = Math.round(m / 60);
+  if (hours < 36) return `about ${hours} hours`;
+  return `about ${Math.round(hours / 24)} days`;
+}
+
 /** Blocks every agent gets, before any skill contributes. */
 function baseBlocks(ctx: TurnContext, frameCount: number): string[] {
   const stepsList =
@@ -25,6 +35,14 @@ function baseBlocks(ctx: TurnContext, frameCount: number): string[] {
     `Steps already completed:\n${stepsList}`,
     `Attached screenshots: ${frameCount} (oldest to newest).`,
   ];
+
+  if (ctx.resuming) {
+    const left = ctx.resuming.whereWeLeftOff.trim();
+    parts.push(
+      `The user has just come back to this chat after ${describeAway(ctx.resuming.awayMinutes)} away.` +
+        (left ? ` Where it was left: ${left}` : ""),
+    );
+  }
 
   if (ctx.clarificationContext && ctx.clarificationContext.trim().length > 0) {
     parts.push(`Answers to clarifying questions:\n${ctx.clarificationContext}`);
@@ -95,6 +113,7 @@ export function buildContextHeader(
   // it exists to override the agent's default pacing for this one turn.
   if (ctx.stalled) parts.push(agent.guidance.stalled);
   if (ctx.sessionJustStarted) parts.push(agent.guidance.sessionStart);
+  if (ctx.resuming && agent.guidance.resume) parts.push(agent.guidance.resume);
   if (ctx.followUp && ctx.followUp.trim().length > 0) {
     parts.push(agent.guidance.followUp);
   }

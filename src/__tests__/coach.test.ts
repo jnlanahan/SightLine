@@ -12,7 +12,7 @@ import {
   terminalTools,
   toolDefinitions,
 } from "../../electron/agents/harness/schema";
-import { buildContextHeader } from "../../electron/agents/harness/context";
+import { buildContextHeader, describeAway } from "../../electron/agents/harness/context";
 import { parseTerminalTool } from "../../electron/agents/harness/parse-turn";
 import type { TurnContext } from "../../electron/agents/harness/types";
 import { policyFor } from "../lib/agentPolicy";
@@ -238,6 +238,39 @@ describe("the per-look context", () => {
     expect(watch).not.toContain("smaller hint");
     const guide = buildContextHeader(coachAgent, ctx({ stance: "guide", conversation }), 1);
     expect(guide).toContain("smaller hint");
+  });
+});
+
+describe("coming back to a chat", () => {
+  const resuming = {
+    awayMinutes: 26 * 60,
+    whereWeLeftOff: "Done so far: Built the pivot table. Next: Group the dates by month.",
+  };
+
+  it("tells the coach how long it has been and where things were left", () => {
+    const header = buildContextHeader(coachAgent, ctx({ stance: "watch", resuming }), 1);
+    expect(header).toContain("come back to this chat after about 26 hours away");
+    expect(header).toContain("Where it was left: Done so far: Built the pivot table.");
+  });
+
+  it("asks for a spoken greeting, not a silent look", () => {
+    const header = buildContextHeader(coachAgent, ctx({ stance: "watch", resuming }), 1);
+    expect(header).toContain("The user just reopened this chat");
+    expect(coachAgent.guidance.resume).toContain("never wait");
+    expect(coachAgent.guidance.resume).toContain("an offer to pick up from there");
+  });
+
+  it("says nothing about returning on an ordinary look", () => {
+    const header = buildContextHeader(coachAgent, ctx({ stance: "watch" }), 1);
+    expect(header).not.toContain("reopened this chat");
+    expect(header).not.toContain("come back to this chat");
+  });
+
+  it("describes the gap in plain words", () => {
+    expect(describeAway(0.5)).toBe("a moment");
+    expect(describeAway(20)).toBe("about 20 minutes");
+    expect(describeAway(3 * 60)).toBe("about 3 hours");
+    expect(describeAway(3 * 24 * 60)).toBe("about 3 days");
   });
 });
 
