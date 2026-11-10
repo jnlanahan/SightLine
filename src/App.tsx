@@ -8,8 +8,7 @@ import { api } from "./lib/api";
 import { markAsk, sinceAsk } from "./lib/askClock";
 import { Composer } from "./components/Composer";
 import { ProgressRail, PlanList } from "./components/ProgressRail";
-import { GoalPrompt } from "./components/GoalPrompt";
-import { ModeSelect } from "./components/ModeSelect";
+import { Home } from "./components/Home";
 import type { AppMode, CaptureTarget, Clarification, DockSide, SessionStatus } from "./lib/api";
 import { Instruction } from "./components/Instruction";
 import { PrivacyNotice } from "./components/PrivacyNotice";
@@ -252,9 +251,10 @@ export default function App() {
       .filter((c) => c.answer.trim())
       .map((c) => `Q: ${c.question}\nA: ${c.answer}`)
       .join("\n\n");
-    const activeMode = useSession.getState().mode;
     reset();
-    if (activeMode) setMode(activeMode);
+    // One front door: there is no mode to pick any more. Every goal goes to
+    // the same coach, which decides for itself how to help.
+    setMode("tech_support");
     if (ctx) useSession.getState().setClarificationContext(ctx);
     if (planSteps.length > 0) useSession.getState().setUpcomingSteps(planSteps);
     setGoal(g);
@@ -627,16 +627,7 @@ export default function App() {
       {/* Content area */}
       {(!mode || !goal) ? (
         <div className="flex flex-1 flex-col gap-2.5 overflow-y-auto p-3 pt-2 sl-scroll">
-          {!mode ? (
-            <ModeSelect onSelect={setMode} onSettings={openSettings} />
-          ) : (
-            <GoalPrompt
-              mode={mode}
-              onStart={startSession}
-              onStartPlan={startTrainingSession}
-              onBack={() => { reset(); }}
-            />
-          )}
+          <Home onStart={(g) => startSession(g)} />
         </div>
       ) : (
         /* Session layout, top to bottom: progress rail, optional plan list,
