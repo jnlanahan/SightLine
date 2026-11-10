@@ -3,6 +3,7 @@ import { useVoice } from "../hooks/useVoice";
 import { useTts } from "../hooks/useTts";
 import { useSettings } from "../store/settings";
 import { api } from "../lib/api";
+import { markAsk } from "../lib/askClock";
 import { useTheme } from "../design/ThemeProvider";
 import { Eyebrow } from "../design/primitives";
 import { ar, lt } from "../design/theme";
@@ -116,8 +117,11 @@ export function GoalPrompt({ mode, onStart, onStartPlan, onBack }: Props) {
     // plans with different ids.
     if (loadingClarify || loadingPlan) return;
     setLoadingClarify(true);
+    markAsk("goal", Date.now());
     try {
+      const askedAt = Date.now();
       const result = await api().claude.getClarifications({ mode, goal: t });
+      api().log(`[timing] setup questions call took ${Date.now() - askedAt}ms`);
       if ("questions" in result && result.questions.length > 0) {
         setQuestions(result.questions);
         setAnswers(new Array(result.questions.length).fill(""));
@@ -153,7 +157,9 @@ export function GoalPrompt({ mode, onStart, onStartPlan, onBack }: Props) {
       // no screenshot — plan from text only
     }
     try {
+      const askedAt = Date.now();
       const result = await api().claude.getSessionPlan({ mode, goal, clarifications, screenshot });
+      api().log(`[timing] setup plan call took ${Date.now() - askedAt}ms`);
       if ("overview" in result) {
         setPlan(result);
         // Respect the mute. This used to speak unconditionally, which made a

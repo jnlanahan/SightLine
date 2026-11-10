@@ -5,6 +5,7 @@ import { useSessionLoop } from "./hooks/useSessionLoop";
 import { useRateLimitCountdown } from "./hooks/useRateLimitCountdown";
 import { useTts } from "./hooks/useTts";
 import { api } from "./lib/api";
+import { markAsk, sinceAsk } from "./lib/askClock";
 import { Composer } from "./components/Composer";
 import { ProgressRail, PlanList } from "./components/ProgressRail";
 import { GoalPrompt } from "./components/GoalPrompt";
@@ -262,6 +263,12 @@ export default function App() {
     const id = `sess_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
     useSession.getState().setSessionId(id);
     sessionStartedAtRef.current = Date.now();
+    // Everything between submitting the goal and this line is setup the user
+    // sat through (questions, plan building) before the coach could start.
+    const setup = sinceAsk(Date.now());
+    if (setup?.kind === "goal") {
+      api().log(`[timing] session started ${setup.ms}ms after goal`);
+    }
 
     // Recall what we know about this user before the first look at the screen.
     // Fire-and-forget: memory is an enhancement, and waiting on disk I/O here
@@ -462,6 +469,7 @@ export default function App() {
 
   function submitFollowUp(text: string) {
     cancelTts();
+    markAsk("followup", Date.now());
     setEvalResult(null);
     appendTurn({ role: "user", content: text, timestamp: Date.now() });
     useSession.getState().setPendingFollowUp(text);

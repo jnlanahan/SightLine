@@ -18,6 +18,7 @@ import {
 } from "./useTts";
 import { useQuietPeriod } from "./useQuietPeriod";
 import { ensureAgentPolicy } from "../lib/agentPolicy";
+import { takeFirstWords } from "../lib/askClock";
 import { applyTrainingTurn, loadReferenceFrame } from "../lib/trainingProgress";
 import { trainingContextBlock } from "../../electron/training-plan";
 import { CHECK_MY_WORK_FOLLOW_UP } from "../../electron/types";
@@ -289,6 +290,26 @@ export function useSessionLoop(onNeedsApiKey: () => void) {
         // is correct, and going quiet leaves their question hanging.
         const answeringFollowUp = Boolean(followUp);
 
+        // First look after session start: the model is told to give the first
+        // step immediately (never "wait", never a false "digression").
+        const sessionJustStarted = !s.conversation.some(
+          (t) => t.role === "assistant",
+        );
+
+        // Speed baseline: how long the user waited for the first words of the
+        // answer to what they submitted — their goal (first look) or a
+        // follow-up. Unprompted turns answer nothing and report nothing.
+        const answersAsk = answeringFollowUp || sessionJustStarted;
+        const noteFirstWords = (via: "stream" | "result") => {
+          if (!answersAsk) return;
+          const waited = takeFirstWords(Date.now());
+          if (waited) {
+            api().log(
+              `[timing] first words ${waited.ms}ms after ${waited.kind} (${via})`,
+            );
+          }
+        };
+
         // The user asked a direct question and is now waiting on a multi-second
         // vision call. A short spoken filler ("Let me take a look.") bridges the
         // gap; the answer queues behind it in the same stream. Skipped while
@@ -329,6 +350,7 @@ export function useSessionLoop(onNeedsApiKey: () => void) {
           }
           speakOut(chunk.text);
           earlySpoken = true;
+          noteFirstWords("stream");
           useSession.getState().setLastSpokeAt(Date.now());
         });
 
@@ -344,12 +366,6 @@ export function useSessionLoop(onNeedsApiKey: () => void) {
             speakOut(randomLookupPhrase());
           }
         });
-
-        // First look after session start: the model is told to give the first
-        // step immediately (never "wait", never a false "digression").
-        const sessionJustStarted = !s.conversation.some(
-          (t) => t.role === "assistant",
-        );
 
         log(
           `tick(${reason}) → Claude: ${gate.why} followUp=${followUp ? `"${followUp.slice(0, 40)}"` : "no"} stalled=${stalled} justStarted=${sessionJustStarted}`,
@@ -576,6 +592,9 @@ export function useSessionLoop(onNeedsApiKey: () => void) {
           );
           action = "acknowledge";
         }
+
+        // Muted, or a reply that did not stream: the words exist from here.
+        if (action !== "wait") noteFirstWords("result");
 
         switch (action) {
           case "wait":

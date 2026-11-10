@@ -1,4 +1,5 @@
 import { api } from "../lib/api";
+import { takeAudioStart } from "../lib/askClock";
 import { useSession } from "../store/session";
 import {
   preprocessForTts,
@@ -242,7 +243,13 @@ function playAudioBuffer(
     audio.onabort = () => finish("abort");
 
     audio.play().then(
-      () => recordTtsMode(engine),
+      () => {
+        recordTtsMode(engine);
+        const heard = takeAudioStart(Date.now());
+        if (heard) {
+          api().log(`[timing] audio started ${heard.ms}ms after ${heard.kind}`);
+        }
+      },
       (playErr) => {
         if (settled) return;
         settled = true;
