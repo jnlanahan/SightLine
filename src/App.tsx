@@ -9,6 +9,7 @@ import { markAsk, sinceAsk } from "./lib/askClock";
 import { Composer } from "./components/Composer";
 import { ProgressRail, PlanList } from "./components/ProgressRail";
 import { Home } from "./components/Home";
+import { AboutChat } from "./components/AboutChat";
 import { liveNotes } from "../electron/chat-notes";
 import type {
   CaptureTarget,
@@ -23,6 +24,7 @@ import { DockRail } from "./components/DockRail";
 import { ConversationHistory } from "./components/ConversationHistory";
 import {
   buildChatRecord,
+  buildWhereWeLeftOff,
   chatToSession,
   isWorthSaving,
   titleFromGoal,
@@ -102,6 +104,7 @@ export default function App() {
   const [collapsed, setCollapsed]         = useState(false);
   const [docked, setDocked]               = useState(false);
   const [planOpen, setPlanOpen]           = useState(false);
+  const [aboutOpen, setAboutOpen]         = useState(false);
   const chatEndRef = useRef<HTMLDivElement | null>(null);
   // What the open chat had already run up before this sitting, and when it
   // began. The store counts one sitting — that is what the spending cap
@@ -387,8 +390,37 @@ export default function App() {
     chatBaseRef.current = null;
     setShowPeek(false);
     setPlanOpen(false);
+    setAboutOpen(false);
     // Stay docked — the sidebar is the persistent home, not a per-chat
     // takeover. The user leaves docked mode via the header/Settings toggle.
+  }
+
+  /** About this chat → Mark done. The same resting state the coach's own "done" leaves. */
+  function markChatDone() {
+    cancelTts();
+    useSession.getState().setDone(true);
+    setStatus("waiting");
+  }
+
+  /**
+   * About this chat → Delete, after the panel's own confirmation. The session
+   * is cleared first, so no autosave can write the chat back after it goes.
+   */
+  async function deleteOpenChat() {
+    const id = useSession.getState().sessionId;
+    cancelTts();
+    reset();
+    chatBaseRef.current = null;
+    setShowPeek(false);
+    setPlanOpen(false);
+    setAboutOpen(false);
+    if (!id) return;
+    try {
+      await api().chats.delete(id);
+      api().log(`[chats] deleted ${id} from About this chat`);
+    } catch {
+      // Nothing to recover: the chat is closed either way.
+    }
   }
 
   function submitFollowUp(text: string) {
@@ -567,13 +599,34 @@ export default function App() {
               <div style={{ flexShrink: 0, padding: "8px 16px 10px", borderBottom: `1px solid ${lt(0.08)}` }}>
                 <ContextPanel
                   fileNames={attachedFileNames}
-                  notes={liveNotes(agentNotes).map((n) => n.text)}
                   onAttach={attachContext}
+                  onAbout={() => setAboutOpen(true)}
                 />
               </div>
             </>
           )}
 
+          {aboutOpen ? (
+            <div className="flex-1 overflow-y-auto sl-scroll" style={{ minHeight: 0 }}>
+              <AboutChat
+                goal={goal}
+                whereWeLeftOff={buildWhereWeLeftOff({
+                  stepLog,
+                  currentStep: instruction,
+                  done,
+                })}
+                notes={liveNotes(agentNotes)}
+                fileNames={attachedFileNames}
+                done={done}
+                onEditNote={(id, text) => useSession.getState().editAgentNote(id, text)}
+                onForgetNote={(id) => useSession.getState().forgetAgentNote(id, Date.now())}
+                onMarkDone={markChatDone}
+                onDelete={() => void deleteOpenChat()}
+                onClose={() => setAboutOpen(false)}
+              />
+            </div>
+          ) : (
+          <>
           {/* Conversation — the one region that grows and scrolls */}
           <div
             className="flex-1 overflow-y-auto sl-scroll"
@@ -625,6 +678,8 @@ export default function App() {
               onStopTalking={stopTalking}
             />
           </div>
+          </>
+          )}
         </div>
       )}
 
@@ -644,6 +699,8 @@ export default function App() {
             onToggleVoice={toggleVoice}
             onAttach={attachContext}
             onPeek={() => setShowPeek((v) => !v)}
+            aboutOpen={aboutOpen}
+            onAbout={() => setAboutOpen((v) => !v)}
           />
         </>
       )}
@@ -1127,6 +1184,8 @@ function ControlBar({
   onToggleVoice,
   onAttach,
   onPeek,
+  aboutOpen,
+  onAbout,
 }: {
   status: SessionStatus;
   ttsEnabled: boolean;
@@ -1140,6 +1199,8 @@ function ControlBar({
   onToggleVoice(): void;
   onAttach(): void;
   onPeek(): void;
+  aboutOpen: boolean;
+  onAbout(): void;
 }) {
   const T   = useTheme();
   const isPaused = status === "paused";
@@ -1194,6 +1255,14 @@ function ControlBar({
         color={attachedCount > 0 ? T.ink : undefined}
       >
         <AttachIcon />
+      </CtrlBtn>
+
+      <CtrlBtn
+        title={aboutOpen ? "Back to the chat" : "About this chat — what the coach remembers here"}
+        onClick={onAbout}
+        color={aboutOpen ? T.accentText : undefined}
+      >
+        <InfoIcon c={aboutOpen ? T.accentText : "currentColor"} />
       </CtrlBtn>
 
       {hasPeek && (
@@ -1450,63 +1519,50 @@ function CollapsedBar({
   );
 }
 
-/* ── Context panel (files + agent notes) ── */
+/* ── Context panel (attached files, and the way into About this chat) ── */
 
 function ContextPanel({
   fileNames,
-  notes,
   onAttach,
+  onAbout,
 }: {
   fileNames: string[];
-  notes: string[];
   onAttach(): void;
+  onAbout(): void;
 }) {
   const T = useTheme();
-  const [notesOpen, setNotesOpen] = useState(false);
-  const hasContent = fileNames.length > 0 || notes.length > 0;
+  const smallBtn: React.CSSProperties = {
+    borderRadius: 8, border: `1px solid ${lt(0.08)}`,
+    background: lt(0.04), padding: "3px 10px",
+    fontFamily: "ui-monospace, monospace", fontSize: 10, color: T.ink2,
+    cursor: "pointer", transition: "background 150ms",
+  };
 
-  if (!hasContent) {
-    return (
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.13em", textTransform: "uppercase", color: T.ink3 }}>
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        <span style={{ flex: 1, fontSize: 10, fontWeight: 700, letterSpacing: "0.13em", textTransform: "uppercase", color: T.ink3 }}>
           Context
         </span>
+        {/* The coach's notes used to be listed here. They live in About
+            this chat now, where each can be read, corrected or forgotten. */}
+        <button
+          type="button"
+          onClick={onAbout}
+          className="no-drag"
+          title="What the coach remembers about this chat"
+          style={smallBtn}
+        >
+          About this chat
+        </button>
         <button
           type="button"
           onClick={onAttach}
           className="no-drag"
           title="Attach text or markdown files"
-          style={{
-            borderRadius: 8, border: `1px solid ${lt(0.08)}`,
-            background: lt(0.04), padding: "3px 10px",
-            fontFamily: "ui-monospace, monospace", fontSize: 10, color: T.ink2,
-            cursor: "pointer", transition: "background 150ms",
-          }}
+          style={smallBtn}
         >
-          + Attach file
-        </button>
-      </div>
-    );
-  }
-
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.13em", textTransform: "uppercase", color: T.ink3 }}>
-          Context
-        </span>
-        <button
-          type="button"
-          onClick={onAttach}
-          className="no-drag"
-          style={{
-            borderRadius: 8, border: `1px solid ${lt(0.08)}`,
-            background: lt(0.04), padding: "3px 10px",
-            fontFamily: "ui-monospace, monospace", fontSize: 10, color: T.ink2,
-            cursor: "pointer",
-          }}
-        >
-          + Attach
+          {fileNames.length > 0 ? "+ Attach" : "+ Attach file"}
         </button>
       </div>
       {fileNames.length > 0 && (
@@ -1526,45 +1582,22 @@ function ContextPanel({
           ))}
         </div>
       )}
-      {notes.length > 0 && (
-        <div>
-          <button
-            type="button"
-            onClick={() => setNotesOpen((v) => !v)}
-            style={{
-              fontFamily: "ui-monospace, monospace", fontSize: 9,
-              textTransform: "uppercase", letterSpacing: "0.1em",
-              color: T.ink3, background: "transparent", border: 0, cursor: "pointer",
-              transition: "color 150ms",
-            }}
-          >
-            {notesOpen ? "▼" : "▶"} Notes ({notes.length})
-          </button>
-          {notesOpen && (
-            <ul className="sl-selectable sl-scroll" style={{
-              marginTop: 6, display: "flex", flexDirection: "column", gap: 4,
-              maxHeight: 128, overflowY: "auto", paddingRight: 2,
-            }}>
-              {notes.map((note, i) => (
-                <li
-                  key={i}
-                  style={{
-                    borderRadius: 8, background: ar("194,232,75", 0.06),
-                    padding: "6px 10px", fontSize: 11, lineHeight: 1.4, color: T.ink2,
-                  }}
-                >
-                  {note}
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      )}
     </div>
   );
 }
 
 /* ── Local SVG icons (not in the design icon set) ── */
+
+// A circled "i" — About this chat.
+function InfoIcon({ c }: { c: string }) {
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+      <circle cx="7" cy="7" r="5.6" stroke={c} strokeWidth="1.4" />
+      <path d="M7 6.2v3.6" stroke={c} strokeWidth="1.5" strokeLinecap="round" />
+      <circle cx="7" cy="4.3" r="0.85" fill={c} />
+    </svg>
+  );
+}
 
 function SpeakerOnIcon() {
   const T = useTheme();
