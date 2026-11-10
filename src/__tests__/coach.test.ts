@@ -45,6 +45,9 @@ describe("the coach's cached prefix", () => {
       "troubleshoot",
       "research",
       "screenReading",
+      // Added for plan step 8 (search past chats). Directly after the zoom
+      // lens, on purpose; it moved the cache prefix once.
+      "pastChats",
       "plan",
       "pointing",
       "notes",
@@ -52,15 +55,23 @@ describe("the coach's cached prefix", () => {
     ]);
   });
 
-  it("offers exactly four tools, terminal tools first", () => {
+  it("offers exactly five tools, terminal tools first", () => {
     expect(toolDefinitions(coachAgent).map((t) => t.name)).toEqual([
       "say",
       "wait",
       "search_web",
       "read_screen_region",
+      "search_memory",
     ]);
     // No plan-edit tools: each one is a round trip the user waits through.
     expect(midTurnTools(coachAgent).map((t) => t.name)).not.toContain("plan_add_step");
+  });
+
+  it("searches earlier chats only when it helps, and never reads results out", () => {
+    const prompt = systemPrompt(coachAgent);
+    expect(prompt).toContain("search_memory");
+    expect(prompt).toContain("Don't use it on every look");
+    expect(prompt).toContain("never read the results back as a list");
   });
 
   it("is byte-identical from one look to the next", () => {

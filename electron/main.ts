@@ -78,6 +78,7 @@ import {
   isDuplicateFact,
   selectFacts,
 } from "./memory-rank";
+import { chatsToSearch, searchMemory } from "./memory-search";
 import { applyFactUpdate, type FactUpdate } from "./memory-edit";
 
 const DEV_URL = process.env.VITE_DEV_SERVER_URL || "http://localhost:5173";
@@ -1100,6 +1101,32 @@ function registerIpc() {
                 logLine(`[agent] read_screen_region capture failed: ${msg}`);
                 return null;
               }
+            },
+            // search_memory: read the index, then only the most recently
+            // active chat files, and rank them. Local, no AI call. Off with
+            // "Remember me", like the rest of cross-chat memory.
+            async searchMemory(query, currentChatId, alreadyLoaded) {
+              if (!loadSettings().memoryEnabled) {
+                logLine("[memory] search skipped: memory is off");
+                return [];
+              }
+              const chats: ChatRecord[] = [];
+              for (const id of chatsToSearch(listChats(), currentChatId)) {
+                const chat = getChat(id);
+                if (chat) chats.push(chat);
+              }
+              const hits = searchMemory({
+                query,
+                facts: listFacts(),
+                chats,
+                currentChatId,
+                now: Date.now(),
+                alreadyLoaded,
+              });
+              logLine(
+                `[memory] search "${query.slice(0, 60)}" over ${chats.length} chat(s): ${hits.length} hit(s)`,
+              );
+              return hits;
             },
             onToolStart(tool, input) {
               if (e.sender.isDestroyed()) return;

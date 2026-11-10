@@ -12,6 +12,7 @@
 //   troubleshoot  → diagnose one hypothesis at a time, escalate to research
 //   research      → search_web, mid-turn
 //   screenReading → read_screen_region, the zoom lens
+//   pastChats     → search_memory, earlier chats and saved facts
 //   plan          → completed/upcoming steps, replanning, digression
 //   pointing      → highlight box → glow on the real screen
 //   notes         → scratchpad for this chat
@@ -30,6 +31,7 @@ import { checkSkill } from "./skills/check";
 import { troubleshootSkill } from "./skills/troubleshoot";
 import { researchSkill } from "./skills/research";
 import { screenReadingSkill } from "./skills/screen-reading";
+import { pastChatsSkill } from "./skills/past-chats";
 import { planSkill } from "./skills/plan";
 import { pointingSkill } from "./skills/pointing";
 import { notesSkill } from "./skills/notes";
@@ -86,6 +88,7 @@ export const coachAgent: Agent = {
     troubleshootSkill,
     researchSkill,
     screenReadingSkill,
+    pastChatsSkill,
     planSkill({
       completedMeaning:
         "the running list of steps the user has actually done, in order — the steps you gave them in guide, what you saw them do in watch.",

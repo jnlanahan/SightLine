@@ -395,6 +395,8 @@ export function useSessionLoop(onNeedsApiKey: () => void) {
           sessionJustStarted,
           screenChanged,
           resuming,
+          // The open chat, so a search of earlier chats leaves it out.
+          chatId: sessionId,
         });
 
         // Handle error envelope

@@ -17,6 +17,7 @@
 //
 // Pure module — no Electron imports, so the whole harness is unit-testable.
 
+import type { MemorySearchHit } from "../../memory-search";
 import type {
   CaptureFrame,
   ConversationTurn,
@@ -47,6 +48,12 @@ export interface ToolDeps {
   captureRegion(rect: HighlightRect): Promise<CaptureFrame | null>;
   /** Live web lookup. Throws on failure; the runner turns that into is_error. */
   research(query: string): Promise<string>;
+  /**
+   * Keyword search over saved facts and earlier chats, the open chat left
+   * out. Local and quick, no AI call. Throws on failure; the runner turns
+   * that into is_error.
+   */
+  searchMemory(query: string): Promise<MemorySearchHit[]>;
   log(message: string): void;
 }
 
