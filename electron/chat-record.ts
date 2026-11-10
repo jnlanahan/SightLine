@@ -8,7 +8,9 @@
 // Pure module — no Electron, no fs, no clock of its own (callers pass `now`) —
 // so it is unit-testable and importable from the renderer.
 
+import { normalizeNotes } from "./chat-notes";
 import type {
+  ChatNote,
   ChatRecord,
   ChatSummary,
   ChatTurnRecord,
@@ -110,7 +112,9 @@ export interface ChatSnapshot {
   currentCode: string;
   expectedResult: string | null;
   upcomingSteps: readonly string[];
-  notes: readonly string[];
+  // Live and retired alike: a retired note is what stops the coach writing a
+  // forgotten one straight back.
+  notes: readonly ChatNote[];
   conversation: readonly ConversationTurn[];
   uploadedContext: string;
   attachedFileNames: readonly string[];
@@ -147,7 +151,7 @@ export function buildChatRecord(snapshot: ChatSnapshot): ChatRecord {
       currentStep: snapshot.currentStep,
       done: snapshot.done,
     }),
-    notes: [...snapshot.notes],
+    notes: snapshot.notes.map((n) => ({ ...n })),
     turns,
     uploadedContext: snapshot.uploadedContext,
     attachedFileNames: [...snapshot.attachedFileNames],
@@ -181,6 +185,16 @@ export function summarizeChat(record: ChatRecord): ChatSummary {
 
 // ── Saved record → live session ──
 
+/**
+ * A chat as read from disk, in today's shape. Chats saved before notes had
+ * ids hold them as plain strings; those are converted here, marked not seen.
+ * Nothing is written back — the file changes only when the chat is next
+ * saved in the ordinary way.
+ */
+export function normalizeChatRecord(record: ChatRecord): ChatRecord {
+  return { ...record, notes: normalizeNotes(record.notes, record.createdAt) };
+}
+
 /** The session-store fields a reopened chat restores. */
 export interface RestoredSession {
   goal: string;
@@ -192,7 +206,7 @@ export interface RestoredSession {
   currentCode: string;
   lastExpectedResult: string | null;
   lastSpokenInstruction: string | null;
-  agentNotes: string[];
+  agentNotes: ChatNote[];
   conversation: ConversationTurn[];
   uploadedContext: string;
   attachedFileNames: string[];
@@ -219,7 +233,9 @@ export function chatToSession(record: ChatRecord): RestoredSession {
     lastExpectedResult: record.expectedResult,
     // So the repeat guard knows what was already said before the break.
     lastSpokenInstruction: lastSaid?.content ?? null,
-    agentNotes: [...record.notes],
+    // Converted again here as well as on read, so a record from anywhere
+    // (an older file, a test) restores with ids and flags intact.
+    agentNotes: normalizeNotes(record.notes, record.createdAt),
     conversation,
     uploadedContext: record.uploadedContext,
     attachedFileNames: [...record.attachedFileNames],

@@ -15,7 +15,7 @@ import { app } from "electron";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { logLine } from "../log";
-import { isChatId, summarizeChat } from "../chat-record";
+import { isChatId, normalizeChatRecord, summarizeChat } from "../chat-record";
 import type {
   ChatRecord,
   ChatSummary,
@@ -112,7 +112,8 @@ export function listChats(): ChatSummary[] {
 
 export function getChat(id: string): ChatRecord | null {
   const file = chatFile(id);
-  return file ? readJson<ChatRecord | null>(file, null) : null;
+  const record = file ? readJson<ChatRecord | null>(file, null) : null;
+  return record ? normalizeChatRecord(record) : null;
 }
 
 export function saveChat(record: ChatRecord): boolean {

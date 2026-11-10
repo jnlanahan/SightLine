@@ -60,6 +60,7 @@ import {
   forgetFact,
   listFacts,
   newId,
+  saveFacts,
   touchFacts,
   deleteChat,
   getChat,
@@ -72,10 +73,12 @@ import type {
   MemoryKind,
 } from "./db/schema";
 import {
+  findDuplicateFact,
   formatFactsForPrompt,
   isDuplicateFact,
   selectFacts,
 } from "./memory-rank";
+import { applyFactUpdate, type FactUpdate } from "./memory-edit";
 
 const DEV_URL = process.env.VITE_DEV_SERVER_URL || "http://localhost:5173";
 const isDev = !app.isPackaged;
@@ -1430,13 +1433,28 @@ function registerIpc() {
     "memory:add",
     (
       _e,
-      payload: { kind: MemoryKind; content: string; sessionId: string | null },
+      payload: {
+        kind: MemoryKind;
+        content: string;
+        sessionId: string | null;
+        seen?: boolean;
+      },
     ) => {
       if (!loadSettings().memoryEnabled) return { added: false };
       const existing = listFacts();
+      const seen = payload.seen === true;
       // The agent re-notices the same fact across turns and sessions; storing
-      // each phrasing separately would crowd out everything else.
+      // each phrasing separately would crowd out everything else. Seeing on
+      // screen something it was only told confirms it — unless the user
+      // forgot it, which stays forgotten.
       if (isDuplicateFact(payload.content, existing)) {
+        const match = findDuplicateFact(payload.content, existing);
+        if (seen && match && !match.archived && match.verified !== true) {
+          saveFacts(
+            existing.map((f) => (f.id === match.id ? { ...f, verified: true } : f)),
+          );
+          logLine(`[memory] confirmed on screen: ${match.content}`);
+        }
         return { added: false, reason: "duplicate" as const };
       }
       const now = Date.now();
@@ -1450,9 +1468,12 @@ function registerIpc() {
         lastUsedAt: now,
         useCount: 0,
         archived: false,
+        verified: seen,
       };
       addFact(fact);
-      logLine(`[memory] learned (${fact.kind}): ${fact.content}`);
+      logLine(
+        `[memory] learned (${fact.kind}${seen ? ", seen" : ", unconfirmed"}): ${fact.content}`,
+      );
       return { added: true, fact };
     },
   );
@@ -1464,4 +1485,14 @@ function registerIpc() {
   ipcMain.handle("memory:forget", (_e, payload: { id: string }) => ({
     forgotten: forgetFact(payload.id),
   }));
+
+  // The user corrected a fact's wording, or confirmed it. The rules live in
+  // memory-edit.ts; this only reads and writes the file around them.
+  ipcMain.handle("memory:update", (_e, payload: FactUpdate) => {
+    const result = applyFactUpdate(listFacts(), payload);
+    if (!result.ok) return { updated: false, reason: result.reason };
+    if (!saveFacts(result.facts)) return { updated: false, reason: "write_failed" };
+    logLine(`[memory] user updated ${result.fact.id}${payload.verified ? " (confirmed)" : ""}`);
+    return { updated: true, fact: result.fact };
+  });
 }

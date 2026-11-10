@@ -14,7 +14,7 @@ const VALID_MEMORY_KINDS = new Set([
 // A cross-session fact must be short and substantive. Anything longer is the
 // agent narrating rather than recording, and would cost tokens on every tick
 // of every future session.
-const MAX_MEMORY_CHARS = 200;
+export const MAX_MEMORY_CHARS = 200;
 
 export function parseRemember(raw: unknown): RememberedFact | null {
   if (typeof raw !== "object" || raw === null) return null;
@@ -25,7 +25,7 @@ export function parseRemember(raw: unknown): RememberedFact | null {
     typeof o.kind === "string" && VALID_MEMORY_KINDS.has(o.kind)
       ? (o.kind as RememberedFact["kind"])
       : "history";
-  return { kind, content };
+  return { kind, content, seen: o.seen === true };
 }
 
 const VALID_ACTIONS = new Set([
@@ -118,6 +118,7 @@ export function parseInstruction(
         digression: Boolean(obj.digression),
         done: action === "done" || Boolean(obj.done),
         notes: (obj.notes ?? "").trim(),
+        noteSeen: false,
         highlight: action === "instruct" ? parseHighlight(obj.highlight) : null,
         remember: parseRemember(obj.remember),
       };
@@ -138,6 +139,7 @@ export function parseInstruction(
     digression: false,
     done: false,
     notes: "",
+    noteSeen: false,
     highlight: null,
     remember: null,
   };

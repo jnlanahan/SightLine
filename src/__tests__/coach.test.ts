@@ -96,6 +96,48 @@ describe("what the coach fills in each turn", () => {
     expect(waitFields).not.toContain("instruction");
   });
 
+  it("fills exactly these fields, in this order", () => {
+    // Pinned on purpose: these schemas sit in the cached prefix, so any change
+    // re-writes the cache once. Step 6 added note_seen (and "seen" inside
+    // remember) — the deliberate change that last moved this pin.
+    expect(sayFields).toEqual([
+      "action",
+      "instruction",
+      "code",
+      "expected_pace",
+      "stance",
+      "expected_result",
+      "troubleshooting",
+      "completed_steps",
+      "upcoming_steps",
+      "digression",
+      "highlight",
+      "notes",
+      "note_seen",
+      "remember",
+    ]);
+    expect(waitFields).toEqual([
+      "stance",
+      "troubleshooting",
+      "completed_steps",
+      "upcoming_steps",
+      "digression",
+      "notes",
+      "note_seen",
+      "remember",
+    ]);
+  });
+
+  it("can say whether a note or a fact was seen on screen, on either turn", () => {
+    for (const tool of [say, wait]) {
+      const props = tool.input_schema.properties as Record<string, { type: string; properties?: Record<string, { type: string }> }>;
+      expect(props.note_seen.type).toBe("boolean");
+      expect(props.remember.properties!.seen.type).toBe("boolean");
+    }
+    // Optional everywhere: leaving it out means "not seen".
+    expect(say.input_schema.required).not.toContain("note_seen");
+  });
+
   it("has dropped the training-only and teacher-only fields", () => {
     for (const gone of ["task_verdict", "mistake_pattern", "needsResearch", "researchQuery"]) {
       expect(sayFields).not.toContain(gone);

@@ -143,3 +143,32 @@ describe("a silent turn stays silent end to end", () => {
     expect(parsed.instruction).toBe("");
   });
 });
+
+describe("what the coach saw, versus what it was told", () => {
+  it("reads note_seen only when it is exactly true", () => {
+    expect(parseTerminalTool("wait", { notes: "Excel 365", note_seen: true }, []).noteSeen).toBe(true);
+    expect(parseTerminalTool("wait", { notes: "Excel 365", note_seen: "true" }, []).noteSeen).toBe(false);
+    expect(parseTerminalTool("wait", { notes: "Excel 365" }, []).noteSeen).toBe(false);
+  });
+
+  it("reads remember.seen the same way", () => {
+    const seen = parseTerminalTool(
+      "say",
+      { action: "instruct", instruction: "Ok.", remember: { kind: "setup", content: "Uses Excel 365", seen: true } },
+      [],
+    );
+    expect(seen.remember).toEqual({ kind: "setup", content: "Uses Excel 365", seen: true });
+    const told = parseTerminalTool(
+      "say",
+      { action: "instruct", instruction: "Ok.", remember: { kind: "preference", content: "Likes shortcuts" } },
+      [],
+    );
+    expect(told.remember?.seen).toBe(false);
+  });
+
+  it("tells the coach when to set each flag", () => {
+    const prompt = systemPrompt(coachAgent);
+    expect(prompt).toContain('Set "note_seen" to true only when the note records something you read on the screen');
+    expect(prompt).toContain('Set "seen" inside "remember" to true only when you read the fact on the screen');
+  });
+});

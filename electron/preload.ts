@@ -126,13 +126,20 @@ export interface SightLineApi {
     // Rank what's known against this goal. Returns the prompt text to hand
     // the agent plus the facts themselves, so the UI can show what it recalled.
     recall(goal: string): Promise<{ text: string; facts: MemoryFact[] }>;
+    // `seen`: the coach read the fact on screen rather than being told it.
     add(
       kind: MemoryKind,
       content: string,
       sessionId: string | null,
+      seen?: boolean,
     ): Promise<{ added: boolean; reason?: "duplicate"; fact?: MemoryFact }>;
     list(): Promise<MemoryFact[]>;
     forget(id: string): Promise<{ forgotten: boolean }>;
+    // The user changed a fact's wording or marked it confirmed.
+    update(
+      id: string,
+      change: { content?: string; verified?: true },
+    ): Promise<{ updated: boolean; reason?: string; fact?: MemoryFact }>;
   };
   app: {
     quit(): Promise<void>;
@@ -250,10 +257,12 @@ const api: SightLineApi = {
   },
   memory: {
     recall: (goal) => ipcRenderer.invoke("memory:recall", { goal }),
-    add: (kind, content, sessionId) =>
-      ipcRenderer.invoke("memory:add", { kind, content, sessionId }),
+    add: (kind, content, sessionId, seen) =>
+      ipcRenderer.invoke("memory:add", { kind, content, sessionId, seen }),
     list: () => ipcRenderer.invoke("memory:list"),
     forget: (id) => ipcRenderer.invoke("memory:forget", { id }),
+    update: (id, change) =>
+      ipcRenderer.invoke("memory:update", { ...change, id }),
   },
   app: {
     quit: () => ipcRenderer.invoke("app:quit"),

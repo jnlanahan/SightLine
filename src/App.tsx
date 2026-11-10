@@ -9,6 +9,7 @@ import { markAsk, sinceAsk } from "./lib/askClock";
 import { Composer } from "./components/Composer";
 import { ProgressRail, PlanList } from "./components/ProgressRail";
 import { Home } from "./components/Home";
+import { liveNotes } from "../electron/chat-notes";
 import type {
   CaptureTarget,
   DockSide,
@@ -370,12 +371,13 @@ export default function App() {
   // or a note without adding to the conversation, so those count too.
   const conversationLength = conversation.length;
   const stepLogLength = stepLog.length;
-  const notesLength = agentNotes.length;
+  // Keyed on the notes array itself, not its length: the user editing or
+  // forgetting a note changes no length, and must still be saved.
   useEffect(() => {
     if (conversationLength === 0) return;
     if (!useSession.getState().sessionId) return;
     void persistChat();
-  }, [conversationLength, stepLogLength, notesLength, stance, done, persistChat]);
+  }, [conversationLength, stepLogLength, agentNotes, stance, done, persistChat]);
 
   /** Back to the chat list. Nothing is lost: the chat is saved as it stands. */
   function leaveChat() {
@@ -565,7 +567,7 @@ export default function App() {
               <div style={{ flexShrink: 0, padding: "8px 16px 10px", borderBottom: `1px solid ${lt(0.08)}` }}>
                 <ContextPanel
                   fileNames={attachedFileNames}
-                  notes={agentNotes}
+                  notes={liveNotes(agentNotes).map((n) => n.text)}
                   onAttach={attachContext}
                 />
               </div>

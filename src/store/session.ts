@@ -1,6 +1,8 @@
 import { create } from "zustand";
 import { EMPTY_USAGE, addUsage } from "../../electron/usage";
 import { appendToStepLog, type RestoredSession } from "../../electron/chat-record";
+import { addNote, editNote, forgetNote, newNoteId } from "../../electron/chat-notes";
+import type { ChatNote } from "../../electron/db/schema";
 import type {
   CaptureFrame,
   ConversationTurn,
@@ -37,8 +39,11 @@ export interface SessionState {
   // User-attached reference material (text/markdown), in-session only.
   uploadedContext: string;
   attachedFileNames: string[];
-  // Durable notes the agent recorded this session, oldest to newest.
-  agentNotes: string[];
+  // The chat's notes, oldest to newest — live and retired. Only live ones
+  // are shown to the coach and the user (chat-notes.ts → liveNotes). The
+  // live session is the one copy autosave writes from, so the user's edits
+  // and forgets are made here, never to the saved file behind its back.
+  agentNotes: ChatNote[];
   lastProcessedHash: string | null;
   pendingFollowUp: string | null;
 
@@ -109,7 +114,11 @@ export interface SessionState {
   setRateLimit(until: number | null): void;
   setDone(done: boolean): void;
   addUploadedContext(files: UploadedContext[]): void;
-  appendAgentNote(note: string): void;
+  // The coach wrote a note; `seen` is whether it read it on screen.
+  appendAgentNote(note: string, seen: boolean, now: number): void;
+  // The user corrected or forgot a note in About this chat.
+  editAgentNote(id: string, text: string): void;
+  forgetAgentNote(id: string, now: number): void;
   setLastProcessedHash(h: string | null): void;
   setPendingFollowUp(text: string | null): void;
   setLastSpokenInstruction(s: string | null): void;
@@ -150,7 +159,7 @@ const initial = {
   done: false,
   uploadedContext: "",
   attachedFileNames: [] as string[],
-  agentNotes: [] as string[],
+  agentNotes: [] as ChatNote[],
   lastProcessedHash: null as string | null,
   pendingFollowUp: null as string | null,
   lastSpokenInstruction: null as string | null,
@@ -216,12 +225,21 @@ export const useSession = create<SessionState>((set) => ({
         ],
       };
     }),
-  appendAgentNote: (note) =>
-    set((state) =>
-      state.agentNotes.includes(note)
-        ? state
-        : { agentNotes: [...state.agentNotes, note] },
-    ),
+  appendAgentNote: (note, seen, now) =>
+    set((state) => {
+      const agentNotes = addNote(state.agentNotes, note, seen, now, newNoteId(now));
+      return agentNotes === state.agentNotes ? state : { agentNotes };
+    }),
+  editAgentNote: (id, text) =>
+    set((state) => {
+      const agentNotes = editNote(state.agentNotes, id, text);
+      return agentNotes === state.agentNotes ? state : { agentNotes };
+    }),
+  forgetAgentNote: (id, now) =>
+    set((state) => {
+      const agentNotes = forgetNote(state.agentNotes, id, now);
+      return agentNotes === state.agentNotes ? state : { agentNotes };
+    }),
   setLastProcessedHash: (h) => set({ lastProcessedHash: h }),
   setPendingFollowUp: (text) => set({ pendingFollowUp: text }),
   setLastSpokenInstruction: (s) => set({ lastSpokenInstruction: s }),
