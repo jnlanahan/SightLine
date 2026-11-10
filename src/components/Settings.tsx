@@ -134,6 +134,14 @@ export function Settings({ onClose }: Props) {
       {/* Scrollable body */}
       <div className="sl-scroll" style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: 20, padding: "16px 16px 20px" }}>
 
+        {/* Starting a chat with no Anthropic key lands here, so say where it goes. */}
+        {!keyStatus.anthropic && (
+          <p style={{ margin: 0, fontSize: 12, lineHeight: 1.5, color: "#C22F2F" }}>
+            SightLine needs an Anthropic API key to start. Put <code>ANTHROPIC_API_KEY</code> in
+            the .env file, then restart SightLine.
+          </p>
+        )}
+
         {/* Capture */}
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           <span style={sectionLabel}>Capture</span>
@@ -254,7 +262,7 @@ export function Settings({ onClose }: Props) {
           <span style={sectionLabel}>Docking</span>
           <ToggleRow
             T={T}
-            label="Dock to the side during sessions"
+            label="Dock to the side"
             hint="Reserves a strip of the watched monitor — your other windows resize to fit beside the coach"
             checked={settings.dockEnabled}
             onChange={(v) => patch({ dockEnabled: v })}
@@ -281,9 +289,9 @@ export function Settings({ onClose }: Props) {
           </div>
         </div>
 
-        {/* Window */}
+        {/* Voice */}
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          <span style={sectionLabel}>Window</span>
+          <span style={sectionLabel}>Voice</span>
           <ToggleRow
             T={T}
             label="Read instructions aloud"
@@ -301,11 +309,6 @@ export function Settings({ onClose }: Props) {
             accentRGB={T.accentRGB}
             accent={T.accent}
           />
-        </div>
-
-        {/* Voice */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          <span style={sectionLabel}>Voice</span>
           <VoicePicker
             disabled={
               !settings.ttsEnabled ||
@@ -353,7 +356,8 @@ export function Settings({ onClose }: Props) {
           />
           {!keyStatus.openai && (
             <p style={{ margin: 0, fontSize: 10, color: T.ink3 }}>
-              Speaking needs an OpenAI key for transcription — add one above.
+              Speaking needs an OpenAI key for transcription. Put <code>OPENAI_API_KEY</code> in
+              the .env file, then restart SightLine.
             </p>
           )}
         </div>

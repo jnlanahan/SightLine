@@ -24,7 +24,7 @@ export function PrivacyNotice({ onAccept }: Props) {
           <>Screenshots are kept in memory only — <strong style={{ color: T.ink, fontWeight: 600 }}>never written to disk</strong>.</>,
           <>Voice input is sent to the <strong style={{ color: T.ink, fontWeight: 600 }}>OpenAI Whisper API</strong> for transcription.</>,
           <>Hit <strong style={{ color: T.ink, fontWeight: 600 }}>Pause</strong> or <strong style={{ color: T.ink, fontWeight: 600 }}>Stop</strong> at any time to halt capture and API calls.</>,
-          <>API keys are stored in the <strong style={{ color: T.ink, fontWeight: 600 }}>Windows Credential Manager</strong> — not in plain-text files.</>,
+          <>API keys are stored <strong style={{ color: T.ink, fontWeight: 600 }}>encrypted on this PC</strong>.</>,
         ].map((item, i) => (
           <li key={i} style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
             <span

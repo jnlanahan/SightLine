@@ -179,7 +179,7 @@ export function usePushToTalk(onTranscript: (text: string) => void) {
             .getState()
             .setError(
               err.__error === "missing_openai_key"
-                ? "Voice input needs an OpenAI key (Whisper). Add one in Settings."
+                ? "Voice input needs an OpenAI key. Put OPENAI_API_KEY in the .env file, then restart SightLine."
                 : "Couldn't transcribe that — try again or type it instead.",
             );
           return;

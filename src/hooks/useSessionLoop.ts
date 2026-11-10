@@ -410,7 +410,7 @@ export function useSessionLoop(onNeedsApiKey: () => void) {
           if (err.__error === "missing_api_key") {
             useSession.getState().setStatus("paused");
             useSession.getState().setError(
-              "Anthropic API key is not configured.",
+              "No Anthropic API key. Put ANTHROPIC_API_KEY in the .env file, then restart SightLine.",
             );
             onNeedsApiKey();
             return;

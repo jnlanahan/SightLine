@@ -6,17 +6,16 @@ What's ready, what's deliberately deferred, and the order to do the rest in.
 
 ## Where things stand
 
-The app runs end-to-end with **no backend**. Sessions, memory, and saved plans
-persist to disk on the user's machine; API keys live in Windows Credential
-Manager. That is a real, shippable configuration — not a stub — and it is what
+The app runs end-to-end with **no backend**. Chats and memory persist to disk
+on the user's machine; API keys are stored encrypted on the same machine. That is a real, shippable configuration — not a stub — and it is what
 the Neon and AWS steps below build on rather than replace.
 
 | Area | Status |
 |---|---|
-| Coaching loop, voice, memory, history | Working, local |
+| Coaching loop, voice, memory, saved chats | Working, local |
 | Screenshots | In memory only, never written to disk |
-| Session history + memory + plans | JSON files under `%APPDATA%/SightLine/data` |
-| API keys | Windows Credential Manager (via `keytar`/`safeStorage`) |
+| Chats + memory | JSON files under `%APPDATA%/SightLine/data-v2` (the older `data` folder is left untouched) |
+| API keys | Encrypted with Electron `safeStorage` (Windows DPAPI) in `%APPDATA%/SightLine/keys.json`, copied in from `.env` at startup |
 | Accounts / sign-in | **Not built** — every record already carries a `user_id` column, currently null |
 | Neon Postgres | **Not connected** — schema written and ready to apply |
 | AWS S3 | **Not needed yet** — see "Do you actually need S3?" below |
@@ -48,8 +47,7 @@ The schema is already written, as SQL, in
 `POSTGRES_SCHEMA` and kept in the same file as the TypeScript types it mirrors,
 so the two can't drift unnoticed.
 
-**Tables:** `users`, `sessions`, `session_steps`, `session_turns`,
-`memory_facts`, `training_plans`.
+**Tables:** `users`, `memory_facts`, `chats`.
 
 ### Applying it
 
@@ -64,7 +62,7 @@ psql "$DATABASE_URL" -f schema.sql
 
 Every read and write already goes through one module:
 [`electron/db/store.ts`](../electron/db/store.ts). It exports plain functions —
-`saveSession`, `listSessions`, `listFacts`, `saveFacts`, `listPlans`, and so on.
+`saveChat`, `listChats`, `getChat`, `listFacts`, `saveFacts`, and so on.
 Nothing above that file knows how persistence works.
 
 To move to Neon: write `electron/db/store-postgres.ts` exporting the same
@@ -84,11 +82,11 @@ Probably not, and it's worth being clear about why.
 
 Screenshots are the only large artifact this app produces, and they are
 **deliberately never persisted** — they exist in memory for the length of a
-session and are gone when it ends. That's a privacy property worth keeping: the
+chat and are gone when it ends. That's a privacy property worth keeping: the
 app watches your screen, and the strongest promise it can make is that it
 doesn't keep what it saw.
 
-Everything that *is* stored is text: transcripts, step lists, memory facts. A
+Everything that *is* stored is text: chat transcripts, step logs, memory facts. A
 heavy user generates a few megabytes a year. That belongs in Postgres, not
 object storage.
 
@@ -96,7 +94,7 @@ Add S3 (or Cloudflare R2) only if you later decide to support:
 
 - **Session recordings** — replaying what the screen looked like. This reverses
   the privacy property above; make it opt-in and per-session, never a default.
-- **Exported training plans** as PDF or video.
+- **Exported chats or plans** as PDF or video.
 - **Uploaded reference material** larger than the current text-file limit.
 
 If you do: `AWS_REGION` and `AWS_S3_BUCKET` are already reserved in
@@ -115,11 +113,11 @@ What's already in place:
 
 - `user_id` on every table, nullable, with the foreign keys defined.
 - A `users` table with `email` and `display_name`.
-- `SessionRecord.userId` and `MemoryFact.userId` plumbed through the app, set
+- `ChatRecord.userId` and `MemoryFact.userId` plumbed through the app, set
   to `null` today.
 
-What to do when you add it: populate those fields at session start, filter
-`listSessions()` and `listFacts()` by the signed-in user, and backfill existing
+What to do when you add it: populate those fields when a chat starts, filter
+`listChats()` and `listFacts()` by the signed-in user, and backfill existing
 local rows to the first account on first sign-in.
 
 ---
@@ -140,11 +138,11 @@ tests cover the pure logic, not how it feels.
 
 ### Manual pass
 
-- [ ] Start a Tech Support session and confirm the first step arrives and is spoken
+- [ ] Type a goal on Home and confirm the first step arrives and is spoken
 - [ ] Hold the push-to-talk key mid-sentence — the coach should stop *immediately*
 - [ ] Open the plan; confirm it pushes the conversation down rather than covering it
 - [ ] Check the cost pill moves, and that Settings → Spend can cap a session
-- [ ] Complete a session, then start a new one and confirm it remembers something
+- [ ] Finish a chat, then start a new one and confirm it remembers something
 - [ ] Settings → Memory → "Review what it remembers" → forget a fact
 - [ ] Unplug/replug a monitor while docked; the sidebar should recover
 - [ ] Settings → Diagnostics → Open log file, and confirm `[loop]` lines explain the pacing
@@ -153,7 +151,7 @@ tests cover the pure logic, not how it feels.
 
 - [ ] `build/icon.ico` exists (referenced by `package.json` → `build.win.icon`)
 - [ ] Bump `version` in `package.json`
-- [ ] Confirm `.env` is **not** in the build — keys come from Credential Manager
+- [ ] Confirm `.env` is **not** in the build — keys come from the encrypted store
 - [ ] `npm run dist` and install the output on a clean machine
 - [ ] Code-sign the installer, or Windows SmartScreen will warn every user
 
@@ -193,6 +191,6 @@ Three things keep this down, and all three are worth preserving:
   port needs a different mechanism for both.
 - **Push-to-talk needs an OpenAI key** for Whisper transcription. Typed
   follow-ups work without it.
-- **History caps at 500 sessions** and memory at 400 facts, pruned
-  oldest-unused-first.
+- **The chat list caps at 500 chats** and memory at 400 facts, pruned
+  oldest-first (chats by last active, facts by last used).
 - **No multi-device sync** until Neon and auth are wired.
