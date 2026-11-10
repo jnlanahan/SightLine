@@ -22,7 +22,7 @@ import { takeFirstWords } from "../lib/askClock";
 import { applyTrainingTurn, loadReferenceFrame } from "../lib/trainingProgress";
 import { trainingContextBlock } from "../../electron/training-plan";
 import { CHECK_MY_WORK_FOLLOW_UP } from "../../electron/types";
-import type { AppMode, StepPace } from "../lib/api";
+import type { AppMode, Stance, StepPace } from "../lib/api";
 
 const RETRY_DELAY_MS = 10_000;
 
@@ -172,7 +172,7 @@ export function useSessionLoop(onNeedsApiKey: () => void) {
 
         // The agent's cadence, fetched once per session. Without it we have no
         // basis for any timing decision below, so skip rather than guess.
-        const cfg = await ensureAgentPolicy(state.mode ?? "tech_support");
+        const cfg = await ensureAgentPolicy(state.mode ?? "coach", state.stance);
         if (!cfg) {
           log(`tick(${reason}) skipped: agent policy unavailable`);
           return;
@@ -368,7 +368,7 @@ export function useSessionLoop(onNeedsApiKey: () => void) {
         });
 
         log(
-          `tick(${reason}) → Claude: ${gate.why} followUp=${followUp ? `"${followUp.slice(0, 40)}"` : "no"} stalled=${stalled} justStarted=${sessionJustStarted}`,
+          `tick(${reason}) → Claude: ${gate.why} followUp=${followUp ? `"${followUp.slice(0, 40)}"` : "no"} stalled=${stalled} justStarted=${sessionJustStarted} stance=${s.stance}`,
         );
 
         // Training: the plan context rides every tick (byte-stable while the
@@ -389,7 +389,8 @@ export function useSessionLoop(onNeedsApiKey: () => void) {
         const callStartedAt = Date.now();
 
         const result = await api().claude.nextInstruction({
-          mode: s.mode ?? "tech_support",
+          mode: s.mode ?? "coach",
+          stance: s.stance,
           goal: s.goal!,
           completedSteps: s.completedSteps,
           upcomingSteps: s.upcomingSteps,
@@ -494,6 +495,13 @@ export function useSessionLoop(onNeedsApiKey: () => void) {
         useSession.getState().setCompletedSteps(result.completedSteps);
         useSession.getState().setUpcomingSteps(result.upcomingSteps ?? []);
         useSession.getState().setTroubleshooting(Boolean(result.troubleshooting));
+        // The coach changed how it is helping. Takes effect from the next
+        // look: the cadence, the input trigger, and the finished-step bounce
+        // all read the stance from the store.
+        if (result.stance && result.stance !== useSession.getState().stance) {
+          log(`stance ${useSession.getState().stance} → ${result.stance}`);
+          useSession.getState().setStance(result.stance);
+        }
 
         if (result.notes && result.notes.trim().length > 0) {
           useSession.getState().appendAgentNote(result.notes.trim());
@@ -800,7 +808,7 @@ export function useSessionLoop(onNeedsApiKey: () => void) {
 
           const s = useSession.getState();
           if (s.status !== "watching") break;
-          const cfg = await ensureAgentPolicy(s.mode ?? "tech_support");
+          const cfg = await ensureAgentPolicy(s.mode ?? "coach", s.stance);
           if (!cfg) {
             await sleep(POLICY_RETRY_MS);
             continue;
@@ -872,11 +880,12 @@ export function useSessionLoop(onNeedsApiKey: () => void) {
 
   // The input trigger's debounce is the agent's, so it has to become state:
   // useQuietPeriod re-subscribes when the value changes, and it starts at 0
-  // (disabled) until the agent has been described.
+  // (disabled) until the agent has been described. It follows the stance too:
+  // guiding reacts to the user's clicks, watching quietly does not.
   const [quietPeriodMs, setQuietPeriodMs] = useState(0);
   useEffect(() => {
     let cancelled = false;
-    const load = (mode: AppMode | null) => {
+    const load = (mode: AppMode | null, stance: Stance) => {
       // No mode means no session (reset() clears it on every stop/start).
       // Describing a default agent here used to fire a spurious tech-support
       // fetch on every session start and briefly arm its 1.5 s input trigger
@@ -885,16 +894,19 @@ export function useSessionLoop(onNeedsApiKey: () => void) {
         setQuietPeriodMs(0);
         return;
       }
-      void ensureAgentPolicy(mode).then((policy) => {
+      void ensureAgentPolicy(mode, stance).then((policy) => {
         if (cancelled) return;
-        // A slower describe for a previous mode must not win the race.
-        if (useSession.getState().mode !== mode) return;
+        // A slower describe for a previous mode or stance must not win the race.
+        const live = useSession.getState();
+        if (live.mode !== mode || live.stance !== stance) return;
         setQuietPeriodMs(policy?.quietPeriodMs ?? 0);
       });
     };
-    load(useSession.getState().mode);
+    load(useSession.getState().mode, useSession.getState().stance);
     const unsub = useSession.subscribe((state, prev) => {
-      if (state.mode !== prev.mode) load(state.mode);
+      if (state.mode !== prev.mode || state.stance !== prev.stance) {
+        load(state.mode, state.stance);
+      }
     });
     return () => {
       cancelled = true;

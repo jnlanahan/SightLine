@@ -16,6 +16,7 @@ import { SAY_TOOL } from "./types";
 const VALID_ACTIONS = new Set(["instruct", "acknowledge", "check_in", "done"]);
 const VALID_PACES = new Set(["quick", "medium", "long"]);
 const VALID_VERDICTS = new Set(["pass", "not_yet"]);
+const VALID_STANCES = new Set(["guide", "watch"]);
 
 function str(v: unknown): string {
   return typeof v === "string" ? v.trim() : "";
@@ -52,6 +53,11 @@ export function parseTerminalTool(
   toolName: string,
   input: Record<string, unknown>,
   previousSteps: string[],
+  // The plan as the agent last reported it. A turn that leaves
+  // `upcoming_steps` out — routine on a wait, where every field is optional —
+  // keeps this plan; only an explicit list (including []) replaces it. Parsing
+  // an omission as [] used to wipe the plan on any silent look.
+  previousUpcoming: string[] = [],
 ): InstructionResponse {
   const speaking = toolName === SAY_TOOL;
 
@@ -79,8 +85,11 @@ export function parseTerminalTool(
     expectedResult: action === "instruct" ? str(input.expected_result) : "",
     troubleshooting: Boolean(input.troubleshooting),
     completedSteps: stepsArray(input.completed_steps, previousSteps),
-    upcomingSteps: strArray(input.upcoming_steps, []),
+    upcomingSteps: strArray(input.upcoming_steps, previousUpcoming),
     digression: Boolean(input.digression),
+    stance: VALID_STANCES.has(str(input.stance))
+      ? (str(input.stance) as InstructionResponse["stance"])
+      : null,
     done: action === "done",
     // Research is a real tool now. These two fields survive only so the
     // renderer's legacy research path stays a working fallback for an agent

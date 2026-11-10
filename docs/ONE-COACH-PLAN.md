@@ -95,7 +95,7 @@ Read `CLAUDE.md` first. It describes the app before this work; where the two dis
 **Outcome.** One agent handles a quick answer, a walkthrough and silent watching, and chooses between them.
 
 **Changes.**
-- New `electron/agents/coach.ts`; `registry.ts` returns it for every mode. The `mode` plumbing is left in place and removed in step 5.
+- New `electron/agents/coach.ts`, registered as a fourth mode value, `coach`, which is the only one the app uses. The three old agents and their tests are left untouched and deleted in step 5, along with the `mode` plumbing. (Changed while building: adding the coach beside the old agents kept this step additive, instead of rewriting their tests here and deleting them later.)
 - **Stance.** An optional `stance: "guide" | "watch"` field on `say` and `wait`, owned by a rewritten pacing skill, kept in the session store and shown to the coach in the context header each look.
 - **Merged rules.** The two coaches contradict each other today, so each rule becomes stance-aware in one place:
   - *When to speak.* Guide: the step is visibly done, the user is stuck, they are heading wrong, or they asked. Watch: only when asked, at the start to set the task, or when the goal is reached. Never correct unprompted while watching.
@@ -111,8 +111,8 @@ Read `CLAUDE.md` first. It describes the app before this work; where the two dis
 - **Screen.** The mode label goes. In watch, two one-tap replies ("Check my work", "I'm stuck") appear above the composer. In guide, the existing "I did this, next step" button stays.
 
 **Check.**
-- Rewrite the per-mode pins in `agentHarness.test.ts`, `techSupportSkills.test.ts`, `agentPrompts.test.ts`, `agentRunner.test.ts` and `claude.prompt.test.ts` as pins on the one coach and its two presets.
-- New tests: stance parsing, preset selection by stance, bounce only in guide, omitted `upcoming_steps` keeps the plan.
+- New `coach.test.ts` pins the coach: skill and tool order, the two presets, the rules that separate the stances, stance parsing, preset selection by stance, and that an omitted `upcoming_steps` keeps the plan. `agentRunner.test.ts` gains the bounce cases (guide bounces, watch does not).
+- The old per-mode tests keep passing against the old agents until step 5 removes both.
 - Live: a quick question gets a short answer then quiet; a walkthrough advances when a step is done; "just watch" goes silent; "check my work" gets feedback; "talk me through it" resumes guiding. Confirm the cache hit rate in the log is unchanged.
 
 **Risk.** This is the step most likely to need tuning. Stance is logged on every look, so talking too much or too little can be traced to a rule and adjusted.

@@ -45,6 +45,8 @@ const PROMPT_COPY: Record<AppMode, { label: string; placeholder: string }> = {
     label:       "What do you want to learn?",
     placeholder: 'e.g. "This machine-learning paper" or "Chapter 4 of my statistics textbook"',
   },
+  // Unused: the coach starts from Home, not from this legacy setup flow.
+  coach: { label: "What do you want to do?", placeholder: "" },
 };
 
 export function GoalPrompt({ mode, onStart, onStartPlan, onBack }: Props) {

@@ -5,6 +5,7 @@ import type {
   CaptureFrame,
   ConversationTurn,
   SessionStatus,
+  Stance,
   StepPace,
   TrainingPlan,
   TtsPlaybackEngine,
@@ -61,6 +62,9 @@ export interface SessionState {
   lastCheckInAt: number | null;
   // Expected pace of the current step, from Claude — scales stall patience.
   currentPace: StepPace;
+  // How the coach is helping right now: guiding step by step, or watching
+  // quietly. Set by the coach; picks the loop cadence and the bounce rule.
+  stance: Stance;
   // True while the agent is diagnosing/fixing a visible failure — drives the
   // "Troubleshooting…" UI state.
   troubleshooting: boolean;
@@ -124,6 +128,7 @@ export interface SessionState {
   setLastScreenChangeAt(t: number | null): void;
   setLastCheckInAt(t: number | null): void;
   setCurrentPace(p: StepPace): void;
+  setStance(s: Stance): void;
   setTroubleshooting(v: boolean): void;
   setLastExpectedResult(s: string | null): void;
   setLastTtsEngine(e: TtsPlaybackEngine | null): void;
@@ -168,6 +173,7 @@ const initial = {
   lastScreenChangeAt: null as number | null,
   lastCheckInAt: null as number | null,
   currentPace: "medium" as StepPace,
+  stance: "guide" as Stance,
   troubleshooting: false,
   lastExpectedResult: null as string | null,
   lastTtsEngine: null as TtsPlaybackEngine | null,
@@ -234,6 +240,7 @@ export const useSession = create<SessionState>((set) => ({
   setLastScreenChangeAt: (t) => set({ lastScreenChangeAt: t }),
   setLastCheckInAt: (t) => set({ lastCheckInAt: t }),
   setCurrentPace: (p) => set({ currentPace: p }),
+  setStance: (s) => set({ stance: s }),
   setTroubleshooting: (v) => set({ troubleshooting: v }),
   setLastExpectedResult: (s) => set({ lastExpectedResult: s }),
   setLastTtsEngine: (e) => set({ lastTtsEngine: e }),

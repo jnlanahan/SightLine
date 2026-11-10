@@ -38,7 +38,13 @@ function baseBlocks(ctx: TurnContext, frameCount: number): string[] {
   const lastAssistant = [...ctx.conversation]
     .reverse()
     .find((t) => t.role === "assistant");
-  if (lastAssistant) {
+  if (lastAssistant && ctx.stance === "watch") {
+    // Watching quietly: there is no "smaller hint after a long stillness" —
+    // the user asks when they want something.
+    parts.push(
+      `The last thing you said was: "${lastAssistant.content.trim()}". Don't repeat or rephrase it.`,
+    );
+  } else if (lastAssistant) {
     // Deliberately tells the model to WAIT when the step isn't done yet. The
     // previous wording ("give a small additional hint") had the coach
     // rephrasing a step three seconds after finishing saying it — the user

@@ -221,6 +221,51 @@ describe("a finished step is never answered with silence", () => {
     expect(result.action).toBe("wait");
     expect(callCount()).toBe(1);
   });
+
+  it("the coach speaks up after a finished step while guiding", async () => {
+    const { client, callCount } = fakeClient([
+      { tool: "wait", inputChunks: [grown] },
+      {
+        tool: "say",
+        inputChunks: ['{"action":"instruct","instruction":"That\'s in. Now open it."}'],
+      },
+    ]);
+    const opts = baseOpts(client);
+    const result = await runAgentTurn({
+      ...opts,
+      agent: getAgent("coach"),
+      ctx: { ...opts.ctx, mode: "coach" as const, stance: "guide" as const },
+    });
+    expect(result.action).toBe("instruct");
+    expect(callCount()).toBe(2);
+  });
+
+  it("the coach records a finished step in silence while watching", async () => {
+    // Same agent, same wait — the stance is what decides. Watching quietly, a
+    // step logged without a word is exactly what the user asked for.
+    const { client, callCount } = fakeClient([{ tool: "wait", inputChunks: [grown] }]);
+    const opts = baseOpts(client);
+    const result = await runAgentTurn({
+      ...opts,
+      agent: getAgent("coach"),
+      ctx: { ...opts.ctx, mode: "coach" as const, stance: "watch" as const },
+    });
+    expect(result.action).toBe("wait");
+    expect(result.completedSteps).toEqual(["Downloaded the client", "Installed it"]);
+    expect(callCount()).toBe(1);
+  });
+});
+
+describe("a silent look does not erase the plan", () => {
+  it("keeps upcoming steps when the turn leaves them out", async () => {
+    const { client } = fakeClient([{ tool: "wait", inputChunks: ['{"notes":"typing"}'] }]);
+    const opts = baseOpts(client);
+    const result = await runAgentTurn({
+      ...opts,
+      ctx: { ...opts.ctx, upcomingSteps: ["Install it", "Connect to a server"] },
+    });
+    expect(result.upcomingSteps).toEqual(["Install it", "Connect to a server"]);
+  });
 });
 
 describe("mid-turn tools loop before the agent speaks", () => {

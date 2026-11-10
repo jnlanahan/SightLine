@@ -9,17 +9,23 @@ import { midTurnTools } from "./harness/schema";
 import { techSupportAgent } from "./tech-support";
 import { trainingAgent } from "./training";
 import { teacherAgent } from "./teacher";
+import { coachAgent } from "./coach";
 
+// The coach is the agent the app runs. The other three are the pre-merge
+// agents: unreachable from the UI, kept (with their tests) until the removal
+// step of docs/ONE-COACH-PLAN.md.
 const AGENTS: Record<AppMode, Agent> = {
   tech_support: techSupportAgent,
   training: trainingAgent,
   teacher: teacherAgent,
+  coach: coachAgent,
 };
 
 export function getAgent(mode: AppMode | null | undefined): Agent {
-  return AGENTS[(mode ?? "tech_support") as AppMode] ?? techSupportAgent;
+  return AGENTS[(mode ?? "coach") as AppMode] ?? coachAgent;
 }
 
+/** The three pre-merge agents. Exists for their tests; see the note above. */
 export function allAgents(): Agent[] {
   return [techSupportAgent, trainingAgent, teacherAgent];
 }
@@ -33,6 +39,7 @@ export function describeAgent(mode: AppMode): AgentDescriptor {
   return {
     id: agent.id,
     loop: agent.loop,
+    ...(agent.loopByStance ? { loopByStance: agent.loopByStance } : {}),
     skills: agent.skills.map((s) => s.id),
     tools: midTurnTools(agent).map((t) => t.name),
   };

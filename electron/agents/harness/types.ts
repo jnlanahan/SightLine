@@ -23,6 +23,7 @@ import type {
   ConversationTurn,
   HighlightRect,
   LoopPolicy,
+  Stance,
 } from "../../types";
 
 // ---------------------------------------------------------------------------
@@ -127,6 +128,9 @@ export interface TurnContext {
   stalled?: boolean;
   sessionJustStarted?: boolean;
   screenChanged?: boolean;
+  // The coach's current stance. Per-tick data: it belongs in the context
+  // header, never in the cached prompt.
+  stance?: Stance;
 }
 
 /**
@@ -177,6 +181,12 @@ export interface Agent {
   /** When this agent wants to be ticked. Executed by the renderer. */
   loop: LoopPolicy;
   /**
+   * Cadence per stance, for an agent whose pacing depends on how it is
+   * helping (the coach). The renderer picks by the current stance; `loop` is
+   * the fallback and the default before a stance is known.
+   */
+  loopByStance?: Record<Stance, LoopPolicy>;
+  /**
    * How many times the model may call a mid-turn tool before the harness
    * forces it to finish. Each iteration is a round trip the user waits
    * through, so this is a latency budget, not just a safety valve.
@@ -190,13 +200,14 @@ export interface Agent {
    * to hear what's next — a silent turn there reads as the coach having
    * stopped watching, and the loop's screen-change gate then keeps it silent
    * until they move. Off for agents whose silent turns are the point
-   * (training's activity log).
+   * (training's activity log), and skipped on any turn whose stance is
+   * "watch" — there a silently recorded step is exactly what was asked for.
    */
   speakOnStepComplete?: boolean;
   guidance: AgentGuidance;
-  /** Pre-session prompts. Not part of the per-tick loop. */
-  clarificationPrompt: string;
-  planPrompt: string;
+  /** Pre-session prompts. Not part of the per-tick loop; the coach has none. */
+  clarificationPrompt?: string;
+  planPrompt?: string;
   /** How many intake questions the pre-session call may keep. Default 3. */
   maxClarifications?: number;
 }

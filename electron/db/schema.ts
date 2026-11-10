@@ -17,7 +17,7 @@ export interface SessionRecord {
   // Null until auth exists. Every row carries it now so the migration is a
   // backfill rather than a schema change.
   userId: string | null;
-  mode: "tech_support" | "training" | "teacher";
+  mode: "tech_support" | "training" | "teacher" | "coach";
   goal: string;
   startedAt: number;
   endedAt: number | null;
@@ -191,7 +191,7 @@ create table if not exists users (
 create table if not exists sessions (
   id                  uuid primary key default gen_random_uuid(),
   user_id             uuid references users(id) on delete cascade,
-  mode                text not null check (mode in ('tech_support','training','teacher')),
+  mode                text not null check (mode in ('tech_support','training','teacher','coach')),
   goal                text not null,
   started_at          timestamptz not null,
   ended_at            timestamptz,

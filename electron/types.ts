@@ -1,7 +1,18 @@
 import type { TokenUsage } from "./usage";
 import type { MemoryKind } from "./db/schema";
 
-export type AppMode = "tech_support" | "training" | "teacher";
+// "coach" is the one agent the app actually runs (electron/agents/coach.ts).
+// The other three are the pre-merge agents, unreachable from the UI and kept
+// only until the removal step of docs/ONE-COACH-PLAN.md.
+export type AppMode = "tech_support" | "training" | "teacher" | "coach";
+
+/**
+ * How the coach is helping right now. "guide" walks the user through one step
+ * at a time and speaks when a step is done; "watch" stays silent while they
+ * work and speaks only when asked. The coach picks and can switch mid-chat;
+ * the renderer picks the loop cadence to match.
+ */
+export type Stance = "guide" | "watch";
 
 /**
  * When an agent wants to be ticked. Declared by the agent (electron/agents/),
@@ -33,6 +44,8 @@ export interface LoopPolicy {
 export interface AgentDescriptor {
   id: AppMode;
   loop: LoopPolicy;
+  /** Per-stance cadence, for an agent that has stances. Falls back to `loop`. */
+  loopByStance?: Record<Stance, LoopPolicy>;
   skills: string[];
   tools: string[];
 }
@@ -125,6 +138,8 @@ export interface InstructionResponse {
   completedSteps: string[];
   upcomingSteps: string[];
   digression: boolean;
+  // The stance the coach asked to be in from now on. Null/absent = unchanged.
+  stance?: Stance | null;
   done: boolean;
   needsResearch: boolean;
   researchQuery: string;

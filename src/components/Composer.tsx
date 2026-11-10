@@ -10,6 +10,7 @@ const PLACEHOLDER: Record<AppMode, string> = {
   tech_support: "Ask a question, or just talk",
   training: "Ask your coach anything — or use the buttons above",
   teacher: "Ask a question or say what to explore next",
+  coach: "Ask a question, or just talk",
 };
 
 const KEY_LABEL: Record<string, string> = {

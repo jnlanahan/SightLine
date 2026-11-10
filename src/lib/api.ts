@@ -32,6 +32,7 @@ export type {
   SessionPlan,
   Settings,
   SessionStatus,
+  Stance,
   StepPace,
   TtsEngine,
   TtsPlaybackEngine,

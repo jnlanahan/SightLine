@@ -26,7 +26,6 @@ import {
   currentModule,
   currentTask,
 } from "../electron/training-plan";
-import { CHECK_MY_WORK_FOLLOW_UP, STUCK_FOLLOW_UP } from "../electron/types";
 import type { TrainingPlan } from "./lib/api";
 import { usePushToTalk } from "./hooks/usePushToTalk";
 import { useTheme } from "./design/ThemeProvider";
@@ -46,16 +45,11 @@ import { budgetStatus, formatUsd } from "../electron/usage";
 
 type View = "panel" | "settings" | "privacy";
 
-const MODE_LABELS: Record<AppMode, string> = {
-  tech_support: "Tech Support",
-  training:     "Training",
-  teacher:      "Teacher",
-};
-
 const MODE_META: Record<AppMode, { goalLabel: string; stepNoun: string }> = {
   tech_support: { goalLabel: "Goal", stepNoun: "step" },
   training:     { goalLabel: "Training plan for", stepNoun: "plan step" },
   teacher:      { goalLabel: "Learning", stepNoun: "topic" },
+  coach:        { goalLabel: "Goal", stepNoun: "step" },
 };
 
 const STATUS_TEXT: Record<SessionStatus, string> = {
@@ -109,6 +103,7 @@ export default function App() {
   const agentNotes     = useSession((s) => s.agentNotes);
   const troubleshooting = useSession((s) => s.troubleshooting);
   const activePlan     = useSession((s) => s.activePlan);
+  const stance         = useSession((s) => s.stance);
 
   const settings      = useSettings((s) => s.settings);
   const keyStatus     = useSettings((s) => s.keyStatus);
@@ -254,7 +249,7 @@ export default function App() {
     reset();
     // One front door: there is no mode to pick any more. Every goal goes to
     // the same coach, which decides for itself how to help.
-    setMode("tech_support");
+    setMode("coach");
     if (ctx) useSession.getState().setClarificationContext(ctx);
     if (planSteps.length > 0) useSession.getState().setUpcomingSteps(planSteps);
     setGoal(g);
@@ -590,7 +585,6 @@ export default function App() {
         status={status}
         statusText={statusText}
         dotColor={statusDot}
-        mode={mode}
         showSpinner={showSpinner}
         docked={docked}
         ttsEnabled={settings?.ttsEnabled ?? false}
@@ -684,23 +678,23 @@ export default function App() {
                 activeTool={activeTool}
                 troubleshooting={troubleshooting}
                 onStepDone={
-                  mode === "tech_support"
+                  stance === "guide"
                     ? () => submitFollowUp("Done — what's next?")
                     : undefined
                 }
               />
             </div>
-            {/* Training: the two explicit speech triggers. The coach watches
-                silently; these buttons are how the user asks for its voice.
-                Always available while a plan is active — hiding them on
+            {/* Watching quietly: the two one-tap ways to ask for the coach's
+                voice. They send plain words, the same as typing or saying
+                them. Always available while it watches — hiding them on
                 `done` left the user with no way to talk to the coach after
                 one premature done. */}
-            {mode === "training" && activePlan && (
+            {stance === "watch" && (
               <div style={{ marginTop: 8 }}>
                 <TrainingActions
                   busy={status === "thinking" || status === "evaluating"}
-                  onCheckWork={() => submitFollowUp(CHECK_MY_WORK_FOLLOW_UP)}
-                  onStuck={() => submitFollowUp(STUCK_FOLLOW_UP)}
+                  onCheckWork={() => submitFollowUp("Check my work")}
+                  onStuck={() => submitFollowUp("I'm stuck")}
                 />
               </div>
             )}
@@ -1052,7 +1046,6 @@ function PanelHeader({
   status,
   statusText,
   dotColor,
-  mode,
   showSpinner,
   docked,
   ttsEnabled,
@@ -1067,7 +1060,6 @@ function PanelHeader({
   status: SessionStatus;
   statusText: string;
   dotColor: string;
-  mode: AppMode | null;
   showSpinner: boolean;
   docked: boolean;
   ttsEnabled: boolean;
@@ -1160,11 +1152,6 @@ function PanelHeader({
           <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>
             {statusText}
           </span>
-          {mode && !docked && (
-            <span style={{ color: T.ink3, flexShrink: 0 }}>
-              ·&nbsp;<span style={{ color: T.accentText, fontWeight: 600 }}>{MODE_LABELS[mode]}</span>
-            </span>
-          )}
         </div>
       </div>
 

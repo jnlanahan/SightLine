@@ -399,7 +399,7 @@ export async function runAgentTurn(opts: RunTurnOptions): Promise<TurnResult> {
         return finish(
           extractJson(text)
             ? parseInstruction(text, ctx.completedSteps)
-            : parseTerminalTool(WAIT_TOOL, {}, ctx.completedSteps),
+            : parseTerminalTool(WAIT_TOOL, {}, ctx.completedSteps, ctx.upcomingSteps),
           truncated,
         );
       }
@@ -409,6 +409,7 @@ export async function runAgentTurn(opts: RunTurnOptions): Promise<TurnResult> {
           toolUse.name,
           (toolUse.input ?? {}) as Record<string, unknown>,
           ctx.completedSteps,
+          ctx.upcomingSteps,
         );
         // A silent turn that just marked a step done is the one silence the
         // user always notices: they did what was asked and are now looking at
@@ -417,6 +418,8 @@ export async function runAgentTurn(opts: RunTurnOptions): Promise<TurnResult> {
         if (
           toolUse.name === WAIT_TOOL &&
           agent.speakOnStepComplete &&
+          // Watching quietly: a step recorded in silence is the point.
+          ctx.stance !== "watch" &&
           !bounced &&
           !lastChance &&
           !truncated &&

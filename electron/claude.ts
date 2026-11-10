@@ -8,6 +8,7 @@ import type {
   GoalEvaluation,
   InstructionResponse,
   SessionPlan,
+  Stance,
 } from "./types";
 import { getKey } from "./credentials";
 import { toContextResolution } from "./capture";
@@ -125,6 +126,9 @@ export interface NextInstructionArgs {
   // Whether the frame comparator saw a change since the last processed frame.
   // False means the history frame would be a duplicate, so it is dropped.
   screenChanged?: boolean;
+  // The coach's current stance (guide or watch), kept by the renderer and
+  // shown to the coach in the context header each look.
+  stance?: Stance;
 }
 
 // One client per key. Constructing a client per call is cheap but not free,
