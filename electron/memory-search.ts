@@ -133,7 +133,10 @@ export function snippetAround(text: string, matched: readonly string[]): string 
   );
 }
 
-/** The best match anywhere in one chat, or null if nothing matched. */
+/**
+ * The best match anywhere in one chat, or null if nothing matched. The score
+ * is the best field's; the text and field are what the snippet is cut from.
+ */
 function bestChatMatch(
   chat: ChatRecord,
   query: Set<string>,
@@ -159,12 +162,28 @@ function bestChatMatch(
   }
 
   let best: { field: ChatField; text: string; match: Match } | null = null;
+  // The snippet comes from the best match OUTSIDE the title: the title is
+  // already shown with the result, so repeating it tells the coach nothing.
+  let bestBody: { field: ChatField; text: string; match: Match } | null = null;
   for (const c of candidates) {
     const match = matchText(c.text, query, FIELD_WEIGHT[c.field]);
+    if (!match) continue;
     // Strictly greater: on a tie the earlier, more summary-like field wins.
-    if (match && (!best || match.score > best.match.score)) best = { ...c, match };
+    if (!best || match.score > best.match.score) best = { ...c, match };
+    if (c.field !== "title" && (!bestBody || match.score > bestBody.match.score)) {
+      bestBody = { ...c, match };
+    }
   }
-  return best;
+  if (!best) return null;
+  if (bestBody) {
+    return { ...bestBody, match: { ...bestBody.match, score: best.match.score } };
+  }
+  // Only the title matched: show where the chat was left, or its goal.
+  const context = [
+    { field: "whereWeLeftOff" as const, text: chat.whereWeLeftOff ?? "" },
+    { field: "goal" as const, text: chat.goal ?? "" },
+  ].find((c) => c.text.trim());
+  return context ? { ...context, match: best.match } : best;
 }
 
 export interface MemorySearchInput {

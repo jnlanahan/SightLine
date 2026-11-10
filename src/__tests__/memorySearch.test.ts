@@ -161,7 +161,7 @@ describe("ranking", () => {
     expect(hits[0]).toMatchObject({ source: "fact", factKind: "obstacle" });
   });
 
-  it("returns one result per chat, from its best field", () => {
+  it("returns one result per chat, its snippet from the best match outside the title", () => {
     const hits = search("outlook", [
       chat("chat_a", {
         title: "Outlook rules",
@@ -170,7 +170,31 @@ describe("ranking", () => {
       }),
     ]);
     expect(hits).toHaveLength(1);
-    expect(hits[0]).toMatchObject({ source: "chat", field: "title" });
+    // The title is shown with every result already; the note says more.
+    expect(hits[0]).toMatchObject({
+      source: "chat",
+      title: "Outlook rules",
+      field: "note",
+      snippet: "Outlook is the classic desktop app",
+    });
+  });
+
+  it("scores a chat by its title match even when the snippet comes from elsewhere", () => {
+    const hits = search("outlook rules", [
+      chat("chat_title", {
+        title: "Outlook rules",
+        notes: [note("Outlook is the classic desktop app")],
+      }),
+      chat("chat_note", { notes: [note("Outlook rules need the desktop app")] }),
+    ]);
+    expect(ids(hits)).toEqual(["chat_title", "chat_note"]);
+  });
+
+  it("when only the title matched, shows where the chat was left instead", () => {
+    const [hit] = search("teams", [
+      chat("chat_t", { title: "Teams audio", whereWeLeftOff: "Headset picked; mic test next." }),
+    ]);
+    expect(hit).toMatchObject({ field: "whereWeLeftOff", snippet: "Headset picked; mic test next." });
   });
 
   it("says where each chat result came from: title and last active", () => {
