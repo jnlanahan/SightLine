@@ -44,6 +44,9 @@ export type {
 export type { TokenUsage } from "../../electron/usage";
 
 export type {
+  ChatRecord,
+  ChatSummary,
+  StepLogEntry,
   TaskFeedback,
   TrainingModule,
   TrainingPlan,

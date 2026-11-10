@@ -1,11 +1,13 @@
 import { create } from "zustand";
 import { EMPTY_USAGE, addUsage } from "../../electron/usage";
+import { appendToStepLog, type RestoredSession } from "../../electron/chat-record";
 import type {
   AppMode,
   CaptureFrame,
   ConversationTurn,
   SessionStatus,
   Stance,
+  StepLogEntry,
   StepPace,
   TrainingPlan,
   TtsPlaybackEngine,
@@ -31,6 +33,10 @@ export interface SessionState {
   // read), so the UI can say "Looking that up…" instead of a bare spinner.
   activeTool: { name: string; detail: string } | null;
   completedSteps: string[];
+  // The audit trail behind completedSteps: each finished step with the time
+  // it was done. Append-only, saved with the chat, and what the user scrolls
+  // back through to see exactly what was done.
+  stepLog: StepLogEntry[];
   upcomingSteps: string[];
   diverted: boolean;
   conversation: ConversationTurn[];
@@ -108,6 +114,11 @@ export interface SessionState {
   setInstruction(text: string, code?: string): void;
   setActiveTool(tool: { name: string; detail: string } | null): void;
   setCompletedSteps(steps: string[]): void;
+  // The coach reported its list of finished steps. New ones are appended to
+  // the step log with the time; nothing already logged is changed.
+  applyCompletedSteps(steps: string[], now: number): void;
+  // Restore a saved chat into the live session.
+  loadChat(chat: RestoredSession): void;
   setUpcomingSteps(steps: string[]): void;
   setDiverted(val: boolean): void;
   pushFrame(frame: CaptureFrame): void;
@@ -152,6 +163,7 @@ const initial = {
   currentCode: "",
   activeTool: null as { name: string; detail: string } | null,
   completedSteps: [] as string[],
+  stepLog: [] as StepLogEntry[],
   upcomingSteps: [] as string[],
   diverted: false,
   conversation: [] as ConversationTurn[],
@@ -197,6 +209,15 @@ export const useSession = create<SessionState>((set) => ({
     set({ currentInstruction: text, currentCode: code }),
   setActiveTool: (tool) => set({ activeTool: tool }),
   setCompletedSteps: (steps) => set({ completedSteps: steps }),
+  applyCompletedSteps: (steps, now) =>
+    set((state) => {
+      const stepLog = appendToStepLog(state.stepLog, steps, now);
+      if (stepLog === state.stepLog) return state;
+      // The coach is shown the log's own wording next look, so its list and
+      // the log cannot drift apart.
+      return { stepLog, completedSteps: stepLog.map((e) => e.text) };
+    }),
+  loadChat: (chat) => set({ ...chat }),
   setUpcomingSteps: (steps) => set({ upcomingSteps: steps }),
   setDiverted: (val) => set({ diverted: val }),
   pushFrame: (frame) =>

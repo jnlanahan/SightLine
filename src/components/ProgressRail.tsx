@@ -1,10 +1,14 @@
+import { Fragment } from "react";
 import { useTheme } from "../design/ThemeProvider";
 import { ar, lt } from "../design/theme";
 import { IChevron } from "../design/icons";
+import { clockTime, dayLabel } from "../lib/when";
 
 export interface PlanStep {
   description: string;
   state: "completed" | "current" | "upcoming";
+  // When a completed step was done, from the chat's step log.
+  at?: number;
 }
 
 interface Props {
@@ -160,6 +164,7 @@ export function ProgressRail({ label, goal, steps, open, docked, onToggle }: Pro
  */
 export function PlanList({ steps }: { steps: PlanStep[] }) {
   const T = useTheme();
+  const now = Date.now();
   if (steps.length === 0) {
     return (
       <div
@@ -195,36 +200,74 @@ export function PlanList({ steps }: { steps: PlanStep[] }) {
         borderBottom: `1px solid ${lt(0.08)}`,
       }}
     >
-      {steps.map((step, i) => (
-        <li
-          key={`${step.state}-${i}`}
-          style={{
-            display: "flex",
-            alignItems: "flex-start",
-            gap: 9,
-            padding: "5px 0",
-          }}
-        >
-          <StepMarker state={step.state} />
-          <span
-            style={{
-              fontSize: 12,
-              lineHeight: 1.45,
-              color:
-                step.state === "current"
-                  ? T.ink
-                  : step.state === "completed"
-                    ? T.ink3
-                    : T.ink2,
-              fontWeight: step.state === "current" ? 600 : 400,
-              textDecoration: step.state === "completed" ? "line-through" : "none",
-              opacity: step.state === "upcoming" ? 0.75 : 1,
-            }}
-          >
-            {step.description}
-          </span>
-        </li>
-      ))}
+      {steps.map((step, i) => {
+        // The step log: each finished step carries its time, and a day
+        // heading marks where one sitting's work ends and the next begins.
+        const day = step.at !== undefined ? dayLabel(step.at, now) : null;
+        const prevAt = steps[i - 1]?.at;
+        const newDay =
+          day !== null && (prevAt === undefined || dayLabel(prevAt, now) !== day);
+        return (
+          <Fragment key={`${step.state}-${i}`}>
+            {newDay && (
+              <li
+                style={{
+                  padding: i === 0 ? "0 0 2px" : "8px 0 2px",
+                  fontSize: 10,
+                  fontWeight: 700,
+                  letterSpacing: "0.06em",
+                  textTransform: "uppercase",
+                  color: T.ink3,
+                }}
+              >
+                {day}
+              </li>
+            )}
+            <li
+              style={{
+                display: "flex",
+                alignItems: "flex-start",
+                gap: 9,
+                padding: "5px 0",
+              }}
+            >
+              <StepMarker state={step.state} />
+              <span
+                style={{
+                  flex: 1,
+                  minWidth: 0,
+                  fontSize: 12,
+                  lineHeight: 1.45,
+                  color:
+                    step.state === "current"
+                      ? T.ink
+                      : step.state === "completed"
+                        ? T.ink3
+                        : T.ink2,
+                  fontWeight: step.state === "current" ? 600 : 400,
+                  textDecoration: step.state === "completed" ? "line-through" : "none",
+                  opacity: step.state === "upcoming" ? 0.75 : 1,
+                }}
+              >
+                {step.description}
+              </span>
+              {step.at !== undefined && (
+                <span
+                  style={{
+                    flexShrink: 0,
+                    fontSize: 10.5,
+                    lineHeight: 1.6,
+                    color: T.ink3,
+                    fontVariantNumeric: "tabular-nums",
+                  }}
+                >
+                  {clockTime(step.at)}
+                </span>
+              )}
+            </li>
+          </Fragment>
+        );
+      })}
     </ol>
   );
 }

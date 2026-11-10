@@ -10,10 +10,15 @@ export type PlanStepState = "completed" | "current" | "upcoming";
 export interface PlanStep {
   description: string;
   state: PlanStepState;
+  // When a completed step was done, from the chat's step log.
+  at?: number;
 }
 
 export interface PlanInput {
   completedSteps: string[];
+  // Parallel to completedSteps: when each was done. Optional — a list with no
+  // log behind it simply shows no times.
+  completedAt?: number[];
   // The instruction currently in flight. This is a spoken sentence rather
   // than a short phrase, so it gets shortened for list display.
   currentInstruction: string;
@@ -45,9 +50,12 @@ export function toStepPhrase(instruction: string): string {
 /** The full ordered plan: what's done, what's happening, what's next. */
 export function toPlanSteps(input: PlanInput): PlanStep[] {
   const steps: PlanStep[] = input.completedSteps
-    .map((d) => d.trim())
-    .filter((d) => d.length > 0)
-    .map((description) => ({ description, state: "completed" as const }));
+    .map((d, i) => ({
+      description: d.trim(),
+      state: "completed" as const,
+      ...(input.completedAt?.[i] !== undefined ? { at: input.completedAt[i] } : {}),
+    }))
+    .filter((s) => s.description.length > 0);
 
   const current = input.currentInstruction.trim();
   if (current && !input.done) {

@@ -9,13 +9,25 @@ import { markAsk, sinceAsk } from "./lib/askClock";
 import { Composer } from "./components/Composer";
 import { ProgressRail, PlanList } from "./components/ProgressRail";
 import { Home } from "./components/Home";
-import type { AppMode, CaptureTarget, Clarification, DockSide, SessionStatus } from "./lib/api";
+import type {
+  AppMode,
+  CaptureTarget,
+  Clarification,
+  DockSide,
+  SessionStatus,
+  TokenUsage,
+} from "./lib/api";
 import { Instruction } from "./components/Instruction";
 import { PrivacyNotice } from "./components/PrivacyNotice";
 import { Settings as SettingsView } from "./components/Settings";
 import { DockRail } from "./components/DockRail";
 import { ConversationHistory } from "./components/ConversationHistory";
-import { buildSessionRecord, isWorthSaving } from "./lib/sessionRecord";
+import {
+  buildChatRecord,
+  chatToSession,
+  isWorthSaving,
+  titleFromGoal,
+} from "../electron/chat-record";
 import { toPlanSteps, curriculumSteps } from "./lib/planSteps";
 import { CurriculumOutline } from "./components/CurriculumOutline";
 import { detailModuleInBackground } from "./lib/trainingProgress";
@@ -41,7 +53,7 @@ import {
   ISpeakerOff,
 } from "./design/icons";
 import { ar, lt } from "./design/theme";
-import { budgetStatus, formatUsd } from "../electron/usage";
+import { EMPTY_USAGE, addUsage, budgetStatus, formatUsd } from "../electron/usage";
 
 type View = "panel" | "settings" | "privacy";
 
@@ -104,6 +116,7 @@ export default function App() {
   const troubleshooting = useSession((s) => s.troubleshooting);
   const activePlan     = useSession((s) => s.activePlan);
   const stance         = useSession((s) => s.stance);
+  const stepLog        = useSession((s) => s.stepLog);
 
   const settings      = useSettings((s) => s.settings);
   const keyStatus     = useSettings((s) => s.keyStatus);
@@ -113,7 +126,6 @@ export default function App() {
   const [view, setView]                   = useState<View>("panel");
   const [focused, setFocused]             = useState(false);
   const [showPeek, setShowPeek]           = useState(false);
-  const [showStopConfirm, setShowStopConfirm] = useState(false);
   const [showQuitConfirm, setShowQuitConfirm] = useState(false);
   const [collapsed, setCollapsed]         = useState(false);
   const [docked, setDocked]               = useState(false);
@@ -123,6 +135,16 @@ export default function App() {
   // When the current session began — the store holds progress, not wall-clock
   // start, and history needs a real duration.
   const sessionStartedAtRef = useRef<number | null>(null);
+  // What the open chat had already run up before this sitting, and when it
+  // began. The store counts one sitting — that is what the spending cap
+  // applies to — while the saved chat carries the running total.
+  const chatBaseRef = useRef<{
+    createdAt: number;
+    title: string;
+    usage: TokenUsage;
+    costUsd: number;
+    claudeCalls: number;
+  } | null>(null);
 
   // Keep the newest message (usually the current instruction) in view. Not
   // keyed on status: every Claude call flips watching → thinking → watching,
@@ -153,6 +175,8 @@ export default function App() {
     ? curriculumSteps(activePlan)
     : toPlanSteps({
         completedSteps,
+        // The step log runs parallel to completedSteps and carries the times.
+        completedAt: stepLog.map((e) => e.at),
         currentInstruction: instruction,
         upcomingSteps,
         done,
@@ -240,6 +264,59 @@ export default function App() {
     }
   }
 
+  // Recall what we know about this user before the first look at the screen.
+  // Fire-and-forget: memory is an enhancement, and waiting on disk I/O here
+  // would delay the first instruction for no good reason. Worst case the
+  // first tick goes out without it and every tick after has it.
+  function recallMemoryFor(goalText: string, chatId: string) {
+    void api()
+      .memory.recall(goalText)
+      .then(({ text, facts }) => {
+        if (!text) return;
+        if (useSession.getState().sessionId !== chatId) return; // chat changed
+        useSession.getState().setRecalledMemory(text);
+        api().log(`[memory] applied ${facts.length} recalled fact(s)`);
+      })
+      .catch(() => {
+        // Memory is never load-bearing.
+      });
+  }
+
+  /**
+   * Reopen a saved chat: the conversation, the step log, the plan and the
+   * coach's notes all come back, and the coach starts watching again.
+   */
+  async function openChat(id: string) {
+    if (!keyStatus.anthropic) { setView("settings"); return; }
+    const record = await api().chats.get(id);
+    if (!record) {
+      api().log(`[chats] could not open ${id}: no saved record`);
+      return;
+    }
+    reset();
+    setMode("coach");
+    useSession.getState().loadChat(chatToSession(record));
+    useSession.getState().setSessionId(record.id);
+    const now = Date.now();
+    sessionStartedAtRef.current = now;
+    chatBaseRef.current = {
+      createdAt: record.createdAt,
+      title: record.title,
+      usage: record.usage,
+      costUsd: record.costUsd,
+      claudeCalls: record.claudeCalls,
+    };
+    api().log(
+      `[chats] opened ${record.id} (${record.turns.length} turns, ${record.stepLog.length} steps logged, ` +
+        `last active ${Math.round((now - record.lastActiveAt) / 60_000)} min ago)`,
+    );
+    recallMemoryFor(record.goal, record.id);
+    useSession.getState().setLastSpokeAt(now);
+    useSession.getState().setLastScreenChangeAt(now);
+    // A finished chat opens at rest; saying anything to it wakes it up.
+    setStatus(record.state === "done" ? "waiting" : "watching");
+  }
+
   function startSession(g: string, clarifications: Clarification[] = [], planSteps: string[] = []) {
     if (!keyStatus.anthropic) { setView("settings"); return; }
     const ctx = clarifications
@@ -253,11 +330,19 @@ export default function App() {
     if (ctx) useSession.getState().setClarificationContext(ctx);
     if (planSteps.length > 0) useSession.getState().setUpcomingSteps(planSteps);
     setGoal(g);
-    // Mint the id up front so anything the coach learns mid-session can be
-    // attributed to it, even if the session never gets cleanly ended.
-    const id = `sess_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+    // Every goal is a chat. Mint its id up front so the first autosave, and
+    // anything the coach learns along the way, can be attributed to it even
+    // if the chat is never cleanly left.
+    const id = `chat_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
     useSession.getState().setSessionId(id);
     sessionStartedAtRef.current = Date.now();
+    chatBaseRef.current = {
+      createdAt: Date.now(),
+      title: titleFromGoal(g),
+      usage: { ...EMPTY_USAGE },
+      costUsd: 0,
+      claudeCalls: 0,
+    };
     // Everything between submitting the goal and this line is setup the user
     // sat through (questions, plan building) before the coach could start.
     const setup = sinceAsk(Date.now());
@@ -265,21 +350,7 @@ export default function App() {
       api().log(`[timing] session started ${setup.ms}ms after goal`);
     }
 
-    // Recall what we know about this user before the first look at the screen.
-    // Fire-and-forget: memory is an enhancement, and waiting on disk I/O here
-    // would delay the first instruction for no good reason. Worst case the
-    // first tick goes out without it and every tick after has it.
-    void api()
-      .memory.recall(g)
-      .then(({ text, facts }) => {
-        if (!text) return;
-        if (useSession.getState().sessionId !== id) return; // session changed
-        useSession.getState().setRecalledMemory(text);
-        api().log(`[memory] applied ${facts.length} recalled fact(s)`);
-      })
-      .catch(() => {
-        // Memory is never load-bearing.
-      });
+    recallMemoryFor(g, id);
     appendTurn({ role: "user", content: `Goal: ${g}`, timestamp: Date.now() });
     // Arm the pacing clocks: the plan overview just spoke, and "now" is the
     // baseline for screen stillness. Without these the stall check-in ladder
@@ -377,59 +448,66 @@ export default function App() {
     setStatus("watching");
   }
   /**
-   * Persist the finished session to local history. Called on stop and on quit
-   * so a session is recorded however the user leaves it — the common case is
-   * closing the window, not pressing Stop.
+   * Save the open chat. The record is built synchronously from the store, so
+   * a caller can reset the session straight after without losing anything.
    */
-  const persistSession = useCallback(async (verdict: string | null) => {
+  const persistChat = useCallback(async () => {
     const s = useSession.getState();
-    if (!s.sessionId || !s.goal || !s.mode) return;
-    const record = buildSessionRecord({
+    const base = chatBaseRef.current;
+    if (!s.sessionId || !s.goal || !base) return;
+    const record = buildChatRecord({
       id: s.sessionId,
-      mode: s.mode,
+      title: base.title,
       goal: s.goal,
-      startedAt: sessionStartedAtRef.current ?? Date.now(),
-      endedAt: Date.now(),
+      createdAt: base.createdAt,
+      now: Date.now(),
       done: s.done,
-      verdict,
-      completedSteps: s.completedSteps,
-      currentInstruction: s.currentInstruction,
+      stance: s.stance,
+      stepLog: s.stepLog,
+      currentStep: s.currentInstruction,
+      currentCode: s.currentCode,
+      expectedResult: s.lastExpectedResult,
       upcomingSteps: s.upcomingSteps,
+      notes: s.agentNotes,
       conversation: s.conversation,
-      usage: s.usage,
-      costUsd: s.costUsd,
-      claudeCalls: s.claudeCalls,
+      uploadedContext: s.uploadedContext,
+      attachedFileNames: s.attachedFileNames,
+      usage: addUsage(base.usage, s.usage),
+      costUsd: base.costUsd + s.costUsd,
+      claudeCalls: base.claudeCalls + s.claudeCalls,
     });
     if (!isWorthSaving(record)) return;
     try {
-      await api().history.save(record);
+      await api().chats.save(record);
     } catch {
-      // History is never allowed to block ending a session.
+      // Saving is never allowed to block leaving a chat.
     }
   }, []);
 
-  // Autosave after every turn. History used to be written once, at the end, so
-  // a renderer crash mid-session left no record of it at all — the session that
-  // crashed on 7/29 lost 6 turns of transcript. Same session id, so this
-  // overwrites in place instead of accumulating rows, and the save on stop/quit
-  // still has the last word (it carries the verdict and the real outcome).
+  // Autosave as the chat moves. Saved once at the end, a renderer crash
+  // mid-chat would lose the whole thing — and closing the window, not a tidy
+  // exit, is how most chats are actually left. A silent look can log a step
+  // or a note without adding to the conversation, so those count too.
   const conversationLength = conversation.length;
+  const stepLogLength = stepLog.length;
+  const notesLength = agentNotes.length;
   useEffect(() => {
     if (conversationLength === 0) return;
     if (!useSession.getState().sessionId) return;
-    void persistSession(null);
-  }, [conversationLength, persistSession]);
+    void persistChat();
+  }, [conversationLength, stepLogLength, notesLength, stance, done, persistChat]);
 
-  function stop() {
+  /** Back to the chat list. Nothing is lost: the chat is saved as it stands. */
+  function leaveChat() {
     cancelTts();
     finalizeTrainingPlan();
-    void persistSession(evalResult?.verdict ?? null);
+    void persistChat();
     reset();
+    chatBaseRef.current = null;
     setShowPeek(false);
-    setShowStopConfirm(false);
     setEvalResult(null);
     setPlanOpen(false);
-    // Stay docked — the sidebar is the persistent home, not a per-session
+    // Stay docked — the sidebar is the persistent home, not a per-chat
     // takeover. The user leaves docked mode via the header/Settings toggle.
   }
 
@@ -607,7 +685,7 @@ export default function App() {
             // Save before the process goes away — quitting mid-session is the
             // most common way a session actually ends.
             finalizeTrainingPlan();
-            void persistSession(evalResult?.verdict ?? null).finally(() => {
+            void persistChat().finally(() => {
               void api().app.quit();
             });
           }}
@@ -621,7 +699,10 @@ export default function App() {
       {/* Content area */}
       {(!mode || !goal) ? (
         <div className="flex flex-1 flex-col gap-2.5 overflow-y-auto p-3 pt-2 sl-scroll">
-          <Home onStart={(g) => startSession(g)} />
+          <Home
+            onStart={(g) => startSession(g)}
+            onOpen={(id) => void openChat(id)}
+          />
         </div>
       ) : (
         /* Session layout, top to bottom: progress rail, optional plan list,
@@ -725,12 +806,6 @@ export default function App() {
       {/* Control bar */}
       {goal && (
         <>
-          {showStopConfirm && (
-            <StopConfirmBanner
-              onConfirm={stop}
-              onCancel={() => setShowStopConfirm(false)}
-            />
-          )}
           <ControlBar
             status={status}
             ttsEnabled={settings?.ttsEnabled ?? false}
@@ -740,7 +815,7 @@ export default function App() {
             rateLimitCountdown={rateLimitCountdown}
             onPause={pause}
             onResume={resume}
-            onStop={() => setShowStopConfirm(true)}
+            onStop={leaveChat}
             onToggleVoice={toggleVoice}
             onAttach={attachContext}
             onPeek={() => setShowPeek((v) => !v)}
@@ -1409,10 +1484,22 @@ function ControlBar({
         </button>
       )}
 
-      {/* Stop */}
-      <CtrlBtn title="Stop session" onClick={onStop} color="#ef4444">
-        <StopIcon />
-      </CtrlBtn>
+      {/* Leave. Not a stop: the chat is saved as it stands and can be
+          reopened from the list, so there is nothing to confirm. */}
+      <button
+        className="no-drag"
+        onClick={onStop}
+        title="Back to your chats — this one is saved"
+        style={{
+          height: 30, border: `1px solid ${lt(0.12)}`,
+          borderRadius: 9, cursor: "pointer",
+          background: "transparent", color: T.ink2,
+          fontSize: 10.5, fontWeight: 600, padding: "0 10px",
+          letterSpacing: "0.02em", flexShrink: 0,
+        }}
+      >
+        ← Chats
+      </button>
     </div>
   );
 }
@@ -1479,50 +1566,6 @@ function CostPill() {
       />
       {formatUsd(costUsd)}
     </span>
-  );
-}
-
-/* ── Stop confirmation banner ── */
-
-function StopConfirmBanner({ onConfirm, onCancel }: { onConfirm(): void; onCancel(): void }) {
-  const T = useTheme();
-  return (
-    <div
-      className="no-drag"
-      style={{
-        display: "flex", alignItems: "center", gap: 10,
-        padding: "10px 14px",
-        borderTop: `1px solid ${lt(0.07)}`,
-        background: "rgba(239,68,68,0.07)",
-        flexShrink: 0,
-      }}
-    >
-      <span style={{ fontSize: 12, color: T.ink2, flex: 1 }}>
-        End session? Your progress will be cleared.
-      </span>
-      <button
-        type="button"
-        onClick={onCancel}
-        style={{
-          borderRadius: 8, border: `1px solid ${lt(0.12)}`,
-          background: "transparent", color: T.ink2,
-          fontSize: 11, padding: "5px 12px", cursor: "pointer",
-        }}
-      >
-        Cancel
-      </button>
-      <button
-        type="button"
-        onClick={onConfirm}
-        style={{
-          borderRadius: 8, border: 0,
-          background: "#ef4444", color: "#fff",
-          fontSize: 11, fontWeight: 600, padding: "5px 12px", cursor: "pointer",
-        }}
-      >
-        End session
-      </button>
-    </div>
   );
 }
 
@@ -1842,10 +1885,3 @@ function PlayIcon({ c }: { c?: string }) {
   );
 }
 
-function StopIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-      <rect x="2.5" y="2.5" width="9" height="9" rx="1.5" fill="currentColor" />
-    </svg>
-  );
-}

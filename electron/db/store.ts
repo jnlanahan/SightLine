@@ -15,7 +15,10 @@ import { app } from "electron";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { logLine } from "../log";
+import { summarizeChat } from "../chat-record";
 import type {
+  ChatRecord,
+  ChatSummary,
   MemoryFact,
   SessionRecord,
   SessionSummary,
@@ -29,9 +32,19 @@ const MAX_SESSIONS = 500;
 const MAX_FACTS = 400;
 // Training plans are few and long-lived; the cap is a runaway backstop.
 const MAX_PLANS = 100;
+// Chats are the product now, so the cap is generous; it only stops the index
+// growing without bound.
+const MAX_CHATS = 500;
 
 function dataDir(): string {
   return path.join(app.getPath("userData"), "data");
+}
+
+// Where the one-coach app keeps its data. A separate folder from the older
+// sessions and training plans, which are left exactly as they were — so
+// running an older build against the same profile still works.
+function chatDataDir(): string {
+  return path.join(app.getPath("userData"), "data-v2");
 }
 
 function ensureDir(dir: string): boolean {
@@ -147,10 +160,79 @@ export function deleteSession(id: string): boolean {
   );
 }
 
+// ── Chats ──
+
+function chatsDir(): string {
+  return path.join(chatDataDir(), "chats");
+}
+
+function chatIndexFile(): string {
+  return path.join(chatDataDir(), "chats-index.json");
+}
+
+export function listChats(): ChatSummary[] {
+  return readJson<ChatSummary[]>(chatIndexFile(), []);
+}
+
+export function getChat(id: string): ChatRecord | null {
+  return readJson<ChatRecord | null>(path.join(chatsDir(), `${id}.json`), null);
+}
+
+export function saveChat(record: ChatRecord): boolean {
+  if (!writeJson(path.join(chatsDir(), `${record.id}.json`), record)) return false;
+
+  const index = listChats();
+  const next = [summarizeChat(record), ...index.filter((c) => c.id !== record.id)]
+    .sort((a, b) => b.lastActiveAt - a.lastActiveAt)
+    .slice(0, MAX_CHATS);
+  writeJson(chatIndexFile(), next);
+
+  // This runs after every turn, so only touch the folder when something
+  // actually fell off the end of the index.
+  const kept = new Set(next.map((c) => c.id));
+  for (const dropped of index.filter((c) => !kept.has(c.id))) {
+    try {
+      fs.unlinkSync(path.join(chatsDir(), `${dropped.id}.json`));
+    } catch {
+      // pruning is best-effort
+    }
+  }
+  return true;
+}
+
+export function deleteChat(id: string): boolean {
+  try {
+    fs.unlinkSync(path.join(chatsDir(), `${id}.json`));
+  } catch {
+    // already gone
+  }
+  return writeJson(
+    chatIndexFile(),
+    listChats().filter((c) => c.id !== id),
+  );
+}
+
 // ── Memory facts ──
 
+let memoryCarriedOver = false;
+
 function memoryFile(): string {
-  return path.join(dataDir(), "memory.json");
+  const file = path.join(chatDataDir(), "memory.json");
+  // What the coach already knows about the user comes along, once. Copied,
+  // not moved: the old file stays where the older build expects it.
+  if (!memoryCarriedOver) {
+    memoryCarriedOver = true;
+    const old = path.join(dataDir(), "memory.json");
+    try {
+      if (!fs.existsSync(file) && fs.existsSync(old) && ensureDir(chatDataDir())) {
+        fs.copyFileSync(old, file);
+        logLine("[store] carried memory.json over to data-v2");
+      }
+    } catch (err) {
+      logLine(`[store] could not carry memory over: ${String(err)}`);
+    }
+  }
+  return file;
 }
 
 export function listFacts(): MemoryFact[] {

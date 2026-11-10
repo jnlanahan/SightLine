@@ -492,7 +492,9 @@ export function useSessionLoop(onNeedsApiKey: () => void) {
         useSession.getState().setError(null);
         useSession.getState().setRateLimit(null);
         useSession.getState().setLastProcessedHash(newHash);
-        useSession.getState().setCompletedSteps(result.completedSteps);
+        useSession
+          .getState()
+          .applyCompletedSteps(result.completedSteps, Date.now());
         useSession.getState().setUpcomingSteps(result.upcomingSteps ?? []);
         useSession.getState().setTroubleshooting(Boolean(result.troubleshooting));
         // The coach changed how it is helping. Takes effect from the next

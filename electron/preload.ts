@@ -21,6 +21,8 @@ import type {
 } from "./types";
 import type {
   MemoryFact,
+  ChatRecord,
+  ChatSummary,
   MemoryKind,
   SessionRecord,
   SessionSummary,
@@ -157,6 +159,13 @@ export interface SightLineApi {
     // Fires on every dock transition, including involuntary ones (docked
     // monitor unplugged) and width changes.
     onChanged(cb: (state: DockState) => void): () => void;
+  };
+  // Every goal is a chat: saved as it goes, listed on Home, reopenable.
+  chats: {
+    list(): Promise<ChatSummary[]>;
+    get(id: string): Promise<ChatRecord | null>;
+    save(record: ChatRecord): Promise<{ saved: boolean }>;
+    delete(id: string): Promise<{ deleted: boolean }>;
   };
   history: {
     list(): Promise<SessionSummary[]>;
@@ -313,6 +322,12 @@ const api: SightLineApi = {
       ipcRenderer.on("dock:changed", handler);
       return () => ipcRenderer.removeListener("dock:changed", handler);
     },
+  },
+  chats: {
+    list: () => ipcRenderer.invoke("chats:list"),
+    get: (id) => ipcRenderer.invoke("chats:get", { id }),
+    save: (record) => ipcRenderer.invoke("chats:save", record),
+    delete: (id) => ipcRenderer.invoke("chats:delete", { id }),
   },
   history: {
     list: () => ipcRenderer.invoke("history:list"),

@@ -81,8 +81,13 @@ import {
   savePlanFrame,
   saveSession,
   touchFacts,
+  deleteChat,
+  getChat,
+  listChats,
+  saveChat,
 } from "./db/store";
 import type {
+  ChatRecord,
   MemoryFact,
   MemoryKind,
   SessionRecord,
@@ -1528,6 +1533,28 @@ function registerIpc() {
   // ── History, memory, and saved plans ──
   // The store is the seam for the eventual move to Neon: these handlers hold
   // no persistence logic of their own, only the shapes the renderer needs.
+
+  // Chats: every goal is one, saved after each turn and reopenable.
+  ipcMain.handle("chats:list", () => listChats());
+
+  ipcMain.handle("chats:get", (_e, payload: { id: string }) =>
+    getChat(payload.id),
+  );
+
+  ipcMain.handle("chats:save", (_e, record: ChatRecord) => {
+    const saved = saveChat(record);
+    if (saved) {
+      logLine(
+        `[chats] saved ${record.id} (${record.state}, ${record.turns.length} turns, ` +
+          `${record.stepLog.length} steps logged, $${record.costUsd.toFixed(4)})`,
+      );
+    }
+    return { saved };
+  });
+
+  ipcMain.handle("chats:delete", (_e, payload: { id: string }) => ({
+    deleted: deleteChat(payload.id),
+  }));
 
   ipcMain.handle("history:list", () => listSessions());
 
