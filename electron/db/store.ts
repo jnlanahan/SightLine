@@ -15,7 +15,7 @@ import { app } from "electron";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { logLine } from "../log";
-import { summarizeChat } from "../chat-record";
+import { isChatId, summarizeChat } from "../chat-record";
 import type {
   ChatRecord,
   ChatSummary,
@@ -170,16 +170,34 @@ function chatIndexFile(): string {
   return path.join(chatDataDir(), "chats-index.json");
 }
 
+/**
+ * The file for a chat, or null if the id is not one this app minted.
+ *
+ * Every read, write and delete below goes through here. Ids arrive over IPC
+ * from the renderer and become file names, so an unchecked one ("../../x")
+ * could read, overwrite or delete a .json file anywhere the app can reach.
+ */
+function chatFile(id: unknown): string | null {
+  if (!isChatId(id)) {
+    logLine("[store] refused a chat id that is not in the expected form");
+    return null;
+  }
+  return path.join(chatsDir(), `${id}.json`);
+}
+
 export function listChats(): ChatSummary[] {
   return readJson<ChatSummary[]>(chatIndexFile(), []);
 }
 
 export function getChat(id: string): ChatRecord | null {
-  return readJson<ChatRecord | null>(path.join(chatsDir(), `${id}.json`), null);
+  const file = chatFile(id);
+  return file ? readJson<ChatRecord | null>(file, null) : null;
 }
 
 export function saveChat(record: ChatRecord): boolean {
-  if (!writeJson(path.join(chatsDir(), `${record.id}.json`), record)) return false;
+  const file = chatFile(record?.id);
+  if (!file) return false;
+  if (!writeJson(file, record)) return false;
 
   const index = listChats();
   const next = [summarizeChat(record), ...index.filter((c) => c.id !== record.id)]
@@ -191,8 +209,10 @@ export function saveChat(record: ChatRecord): boolean {
   // actually fell off the end of the index.
   const kept = new Set(next.map((c) => c.id));
   for (const dropped of index.filter((c) => !kept.has(c.id))) {
+    const stale = chatFile(dropped.id);
+    if (!stale) continue;
     try {
-      fs.unlinkSync(path.join(chatsDir(), `${dropped.id}.json`));
+      fs.unlinkSync(stale);
     } catch {
       // pruning is best-effort
     }
@@ -201,8 +221,10 @@ export function saveChat(record: ChatRecord): boolean {
 }
 
 export function deleteChat(id: string): boolean {
+  const file = chatFile(id);
+  if (!file) return false;
   try {
-    fs.unlinkSync(path.join(chatsDir(), `${id}.json`));
+    fs.unlinkSync(file);
   } catch {
     // already gone
   }

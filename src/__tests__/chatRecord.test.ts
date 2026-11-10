@@ -8,6 +8,7 @@ import {
   buildChatRecord,
   buildWhereWeLeftOff,
   chatToSession,
+  isChatId,
   isWorthSaving,
   summarizeChat,
   titleFromGoal,
@@ -46,6 +47,40 @@ function snapshot(overrides: Partial<ChatSnapshot> = {}): ChatSnapshot {
     ...overrides,
   };
 }
+
+describe("chat ids", () => {
+  // An id becomes a file name in the main process, and it arrives over IPC.
+  it("accepts the shape the app mints", () => {
+    const minted = `chat_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+    expect(isChatId(minted)).toBe(true);
+    expect(isChatId("chat_1")).toBe(true);
+  });
+
+  it("refuses anything that could leave the chats folder", () => {
+    for (const bad of [
+      "../../settings",
+      "..\\..\\keys",
+      "chat_../x",
+      "chat_a/b",
+      "chat_a\\b",
+      "chat_a.json",
+      "C:\\Users\\x",
+      "chat_",
+      "",
+      "sess_abc123",
+      "CHAT_ABC",
+      `chat_${"a".repeat(41)}`,
+    ]) {
+      expect(isChatId(bad), bad).toBe(false);
+    }
+  });
+
+  it("refuses anything that is not a string", () => {
+    for (const bad of [undefined, null, 42, {}, ["chat_1"]]) {
+      expect(isChatId(bad)).toBe(false);
+    }
+  });
+});
 
 describe("the step log", () => {
   it("stamps each newly finished step with the time", () => {

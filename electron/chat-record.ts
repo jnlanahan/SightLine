@@ -17,6 +17,18 @@ import type {
 import type { ConversationTurn, Stance } from "./types";
 import type { TokenUsage } from "./usage";
 
+// ── Ids ──
+
+// A chat id becomes a file name, and it reaches the main process over IPC
+// from the renderer. Only the exact shape the app mints is accepted
+// ("chat_" + lowercase base-36), so an id can never carry a path separator
+// or ".." and climb out of the chats folder.
+const CHAT_ID = /^chat_[a-z0-9]{1,40}$/;
+
+export function isChatId(id: unknown): id is string {
+  return typeof id === "string" && CHAT_ID.test(id);
+}
+
 // ── The step log ──
 
 /**
