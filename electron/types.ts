@@ -203,7 +203,6 @@ export interface WindowBounds {
 }
 
 export interface Settings {
-  captureIntervalSec: number;
   opacity: number;
   selectedDisplayId: string | null;
   // Pin capture to a specific desktopCapturer source. When set, capture uses
@@ -230,8 +229,6 @@ export interface Settings {
   // Soft budget for a single session, in USD. The coach warns as it nears the
   // cap and stops making paid calls at it. 0 disables the cap.
   sessionBudgetUsd: number;
-  // Persist finished sessions (transcript, steps, outcome) to local history.
-  historyEnabled: boolean;
   // Let the coach recall durable facts from earlier sessions.
   memoryEnabled: boolean;
   accentColor: AccentName;

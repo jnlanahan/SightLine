@@ -33,7 +33,6 @@ import {
   undockWindow,
   updateDockWidth,
   isDocked,
-  isDockingAvailable,
   getDockRectDip,
   setDockChangeListener,
 } from "./dock";
@@ -1212,14 +1211,6 @@ function registerIpc() {
   );
 
   ipcMain.handle(
-    "window:open-external",
-    async (_e: IpcMainInvokeEvent, payload: { url: string }) => {
-      if (!/^https?:\/\//i.test(payload.url)) return;
-      await shell.openExternal(payload.url);
-    },
-  );
-
-  ipcMain.handle(
     "clipboard:write",
     (_e: IpcMainInvokeEvent, payload: { text: string }) => {
       if (typeof payload?.text !== "string") return false;
@@ -1350,27 +1341,6 @@ function registerIpc() {
       glowWindow.webContents.send("glow:flash", rect);
     },
   );
-
-  ipcMain.handle("dock:set", async (_e, payload: { docked: boolean }) => {
-    wantsDock = Boolean(payload.docked);
-    if (redockTimer) {
-      clearTimeout(redockTimer);
-      redockTimer = null;
-    }
-    if (wantsDock) {
-      await dockToWatchedDisplay();
-    } else {
-      undockWindow();
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.setOpacity(loadSettings().opacity);
-      }
-    }
-    return {
-      docked: isDocked(),
-      rect: getDockRectDip()?.rect ?? null,
-      available: isDockingAvailable(),
-    };
-  });
 
   // Live drag-resize fires many times per second. Every width change is an
   // AppBar SETPOS, and SETPOS makes Windows broadcast a work-area change that

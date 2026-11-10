@@ -71,7 +71,6 @@ export interface SightLineApi {
     setOpacity(opacity: number): Promise<void>;
     setCollapsed(collapsed: boolean): Promise<void>;
     minimize(): Promise<void>;
-    openExternal(url: string): Promise<void>;
     // Manual window dragging — CSS app-region drag is unreliable for
     // transparent frameless windows on Windows, so the renderer drives it.
     dragStart(): void;
@@ -107,10 +106,8 @@ export interface SightLineApi {
     onPushToTalk(cb: (down: boolean) => void): () => void;
   };
   dock: {
-    // Dock/undock the panel as a Windows AppBar on the watched monitor.
-    // Resolves with the resulting state (docked stays false if the FFI layer
-    // is unavailable — the app keeps floating).
-    set(docked: boolean): Promise<DockState & { available: boolean }>;
+    // Docking itself follows the dockEnabled setting (see settings:set in
+    // main.ts); the renderer only resizes and observes.
     // Change the reserved strip width (DIP); persisted. Returns the clamped width.
     resize(width: number): Promise<number>;
     state(): Promise<DockState>;
@@ -199,8 +196,6 @@ const api: SightLineApi = {
     setCollapsed: (collapsed) =>
       ipcRenderer.invoke("window:set-collapsed", { collapsed }),
     minimize: () => ipcRenderer.invoke("window:minimize"),
-    openExternal: (url) =>
-      ipcRenderer.invoke("window:open-external", { url }),
     dragStart: () => ipcRenderer.send("window:drag-start"),
     dragEnd: () => ipcRenderer.send("window:drag-end"),
   },
@@ -238,7 +233,6 @@ const api: SightLineApi = {
     },
   },
   dock: {
-    set: (docked) => ipcRenderer.invoke("dock:set", { docked }),
     resize: (width) => ipcRenderer.invoke("dock:resize", { width }),
     state: () => ipcRenderer.invoke("dock:state"),
     onChanged: (cb) => {

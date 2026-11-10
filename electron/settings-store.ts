@@ -6,7 +6,6 @@ import { DEFAULT_ELEVEN_VOICE_ID } from "./tts/shared";
 import { logLine } from "./log";
 
 const DEFAULTS: Settings = {
-  captureIntervalSec: 5,
   opacity: 1,
   selectedDisplayId: null,
   selectedSourceId: null,
@@ -26,7 +25,6 @@ const DEFAULTS: Settings = {
   // control, and a cap that trips mid-task is worse than no cap. This exists
   // to catch a runaway, not to ration normal use.
   sessionBudgetUsd: 3.0,
-  historyEnabled: true,
   memoryEnabled: true,
   accentColor: "lime",
   windowBounds: null,

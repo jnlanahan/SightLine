@@ -22,18 +22,6 @@ const ACCENT_OPTIONS: { name: AccentName; label: string; color: string; rgb: str
   { name: "slate",  label: "Slate",  color: "#9FB2C8", rgb: "159,178,200" },
 ];
 
-const FREQ_TIERS = [
-  { label: "Low",  value: 30, hint: "saves tokens" },
-  { label: "Med",  value: 15 },
-  { label: "High", value: 5,  hint: "more API calls" },
-] as const;
-
-function secToTier(sec: number): number {
-  if (sec <= 7) return 5;
-  if (sec <= 20) return 15;
-  return 30;
-}
-
 const VOICE_OPTIONS: { id: TtsVoiceId; label: string; sample: string }[] = [
   { id: "nova",    label: "Ava — warm female (recommended)", sample: "Hey, I'm Ava. Ready when you are." },
   { id: "shimmer", label: "Iris — calm female",              sample: "Hi there — let's walk through this together." },
@@ -149,32 +137,6 @@ export function Settings({ onClose }: Props) {
         {/* Capture */}
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           <span style={sectionLabel}>Capture</span>
-
-          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
-              <span style={{ fontSize: 12.5, fontWeight: 500, color: T.ink }}>Check frequency</span>
-            </div>
-            <div className="no-drag" style={{ display: "flex", gap: 6 }}>
-              {FREQ_TIERS.map((tier) => {
-                const active = secToTier(settings.captureIntervalSec) === tier.value;
-                return (
-                  <button
-                    key={tier.label}
-                    type="button"
-                    onClick={() => void patch({ captureIntervalSec: tier.value })}
-                    style={accentBtnStyle(active)}
-                  >
-                    {tier.label}
-                    {"hint" in tier && (
-                      <span style={{ display: "block", fontSize: 9, opacity: 0.6, marginTop: 1 }}>
-                        {tier.hint}
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
 
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             <span style={{ fontSize: 12.5, fontWeight: 500, color: T.ink }}>Which screen should I watch?</span>
@@ -396,7 +358,7 @@ export function Settings({ onClose }: Props) {
           )}
         </div>
 
-        {/* Memory & history */}
+        {/* Memory */}
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           <span style={sectionLabel}>Memory</span>
           <ToggleRow
@@ -405,15 +367,6 @@ export function Settings({ onClose }: Props) {
             hint="Durable facts only — your setup and preferences, never passwords or personal details"
             checked={settings.memoryEnabled}
             onChange={(v) => void patch({ memoryEnabled: v })}
-            accentRGB={T.accentRGB}
-            accent={T.accent}
-          />
-          <ToggleRow
-            T={T}
-            label="Keep session history"
-            hint="Transcripts and progress stay on this computer — screenshots are never saved"
-            checked={settings.historyEnabled}
-            onChange={(v) => void patch({ historyEnabled: v })}
             accentRGB={T.accentRGB}
             accent={T.accent}
           />
