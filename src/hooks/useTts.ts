@@ -1,6 +1,5 @@
 import { api } from "../lib/api";
 import { takeAudioStart } from "../lib/askClock";
-import { useSession } from "../store/session";
 import {
   preprocessForTts,
   COMPLETION_PHRASES,
@@ -64,7 +63,6 @@ let lastTtsMode: TtsMode = null;
 
 function recordTtsMode(mode: TtsMode) {
   lastTtsMode = mode;
-  useSession.getState().setLastTtsEngine(mode);
 }
 
 // Speech completion tracking — lets the session loop wait for audio to finish

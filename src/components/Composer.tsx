@@ -4,14 +4,8 @@ import { ar, lt } from "../design/theme";
 import { ISend } from "../design/icons";
 import { useSession } from "../store/session";
 import { useSettings } from "../store/settings";
-import type { AppMode } from "../lib/api";
 
-const PLACEHOLDER: Record<AppMode, string> = {
-  tech_support: "Ask a question, or just talk",
-  training: "Ask your coach anything — or use the buttons above",
-  teacher: "Ask a question or say what to explore next",
-  coach: "Ask a question, or just talk",
-};
+const PLACEHOLDER = "Ask a question, or just talk";
 
 const KEY_LABEL: Record<string, string> = {
   ctrl: "Ctrl",
@@ -23,7 +17,6 @@ const KEY_LABEL: Record<string, string> = {
 
 interface Props {
   isThinking: boolean;
-  mode: AppMode | null;
   onSubmit(text: string): void;
   onStartTalking(): void;
   onStopTalking(): void;
@@ -39,7 +32,6 @@ interface Props {
  */
 export function Composer({
   isThinking,
-  mode,
   onSubmit,
   onStartTalking,
   onStopTalking,
@@ -151,7 +143,7 @@ export function Composer({
         <input
           type="text"
           value={value}
-          placeholder={PLACEHOLDER[mode ?? "tech_support"]}
+          placeholder={PLACEHOLDER}
           onChange={(e) => setValue(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey) {

@@ -10,7 +10,6 @@ interface Props {
   status: string;
   done: boolean;
   error: string | null;
-  researchQuery?: string | null;
   // The mid-turn tool running right now, so the busy label can say why.
   activeTool?: { name: string; detail: string } | null;
   // The coach is diagnosing a failure rather than guiding the plan.
@@ -47,10 +46,10 @@ function useTypewriter(text: string): string {
   return shown;
 }
 
-export function Instruction({ instruction, code = "", status, done, error, researchQuery, activeTool, troubleshooting, onStepDone }: Props) {
+export function Instruction({ instruction, code = "", status, done, error, activeTool, troubleshooting, onStepDone }: Props) {
   const T = useTheme();
   const display = useTypewriter(instruction);
-  const busy = status === "thinking" || status === "evaluating";
+  const busy = status === "thinking";
   const busyLabel =
     activeTool?.name === "search_web"
       ? "Looking that up…"
@@ -98,50 +97,6 @@ export function Instruction({ instruction, code = "", status, done, error, resea
           ✓
         </span>
         {instruction || "Task complete."}
-      </div>
-    );
-  }
-
-  if (status === "researching") {
-    return (
-      <div
-        style={{
-          borderRadius: 13, padding: "12px 14px", fontSize: 13.5,
-          color: "#f59e0b",
-          border: `1px solid rgba(245,158,11,0.35)`,
-          background: "rgba(245,158,11,0.08)",
-        }}
-      >
-        Looking something up…
-        {researchQuery && (
-          <span style={{ display: "block", marginTop: 3, fontFamily: "ui-monospace, monospace", fontSize: 11, color: T.ink3 }}>
-            "{researchQuery}"
-          </span>
-        )}
-        <span style={{ display: "block", marginTop: 4, fontSize: 12, color: T.ink3 }}>
-          Resume when you have the info.
-        </span>
-      </div>
-    );
-  }
-
-  if (status === "clarifying") {
-    return (
-      <div
-        style={{
-          display: "flex", alignItems: "center", gap: 10,
-          borderRadius: 13, padding: "12px 14px", fontSize: 13.5, color: T.ink2,
-          border: `1px solid ${lt(0.08)}`, background: lt(0.04),
-        }}
-      >
-        <span
-          className="spin-soft"
-          style={{
-            display: "inline-block", width: 13, height: 13, borderRadius: "50%",
-            border: "2px solid #f59e0b", borderTopColor: "transparent", flexShrink: 0,
-          }}
-        />
-        Setting up your session…
       </div>
     );
   }

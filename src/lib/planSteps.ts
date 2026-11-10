@@ -81,29 +81,3 @@ export function planProgress(steps: readonly PlanStep[]): number {
   if (steps.length === 0) return 0;
   return steps.filter((s) => s.state === "completed").length / steps.length;
 }
-
-/**
- * Flatten a training curriculum into plan rows for the progress rail. The
- * real browsing UI is CurriculumOutline; this only feeds the header's
- * done/total bar and one-line summary.
- */
-export function curriculumSteps(plan: {
-  modules: { tasks: { title: string; status: string }[] }[];
-  cursor: { module: number; task: number };
-}): PlanStep[] {
-  const steps: PlanStep[] = [];
-  plan.modules.forEach((m, mi) => {
-    m.tasks.forEach((t, ti) => {
-      steps.push({
-        description: t.title,
-        state:
-          t.status === "completed"
-            ? "completed"
-            : mi === plan.cursor.module && ti === plan.cursor.task
-              ? "current"
-              : "upcoming",
-      });
-    });
-  });
-  return steps;
-}

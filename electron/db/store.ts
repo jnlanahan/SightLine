@@ -1,14 +1,14 @@
-// Local persistence for sessions, memory, and training plans.
+// Local persistence for chats and memory.
 //
-// Backed by JSON files under %APPDATA%/SightLine/data. The volume is tiny —
-// a few hundred sessions of text — so a database process would be pure
+// Backed by JSON files under %APPDATA%/SightLine/data-v2. The volume is tiny —
+// a few hundred chats of text — so a database process would be pure
 // overhead here, and this keeps the app working with zero setup and zero
 // network. The repository functions below are the seam: swapping them for
 // Neon-backed implementations against ./schema.ts's DDL changes nothing above
 // this file.
 //
 // Invariant: persistence is best-effort. Every read falls back to empty and
-// every write swallows its error — losing history is bad, but taking a live
+// every write swallows its error — losing a chat is bad, but taking a live
 // coaching session down because a disk write failed is worse.
 
 import { app } from "electron";
@@ -20,22 +20,16 @@ import type {
   ChatRecord,
   ChatSummary,
   MemoryFact,
-  SessionRecord,
-  SessionSummary,
-  TrainingPlan,
 } from "./schema";
 
-// Keep the on-disk history bounded. Well beyond what anyone will scroll, and
-// small enough that the index stays instant to load.
-const MAX_SESSIONS = 500;
 // Memory that grows without limit would eventually crowd out its own ranking.
 const MAX_FACTS = 400;
-// Training plans are few and long-lived; the cap is a runaway backstop.
-const MAX_PLANS = 100;
 // Chats are the product now, so the cap is generous; it only stops the index
 // growing without bound.
 const MAX_CHATS = 500;
 
+// The older builds' folder. Only read, once, to carry memory.json over; this
+// build never writes to it.
 function dataDir(): string {
   return path.join(app.getPath("userData"), "data");
 }
@@ -69,7 +63,7 @@ function writeJson(file: string, value: unknown): boolean {
   try {
     if (!ensureDir(path.dirname(file))) return false;
     // Write-then-rename: a crash mid-write can't leave truncated JSON that
-    // would then fail to parse and silently read back as "no history".
+    // would then fail to parse and silently read back as "no chats".
     const tmp = `${file}.tmp`;
     fs.writeFileSync(tmp, JSON.stringify(value, null, 2), "utf-8");
     fs.renameSync(tmp, file);
@@ -85,79 +79,6 @@ export function newId(prefix: string): string {
   const stamp = Date.now().toString(36);
   const rand = Math.random().toString(36).slice(2, 10);
   return `${prefix}_${stamp}${rand}`;
-}
-
-// ── Sessions ──
-
-function sessionsDir(): string {
-  return path.join(dataDir(), "sessions");
-}
-
-function indexFile(): string {
-  return path.join(dataDir(), "sessions-index.json");
-}
-
-function summarize(record: SessionRecord): SessionSummary {
-  return {
-    id: record.id,
-    userId: record.userId,
-    mode: record.mode,
-    goal: record.goal,
-    startedAt: record.startedAt,
-    endedAt: record.endedAt,
-    outcome: record.outcome,
-    costUsd: record.costUsd,
-    stepsCompleted: record.steps.filter((s) => s.state === "completed").length,
-  };
-}
-
-export function saveSession(record: SessionRecord): boolean {
-  const ok = writeJson(
-    path.join(sessionsDir(), `${record.id}.json`),
-    record,
-  );
-  if (!ok) return false;
-
-  const index = listSessions();
-  const next = [summarize(record), ...index.filter((s) => s.id !== record.id)]
-    .sort((a, b) => b.startedAt - a.startedAt)
-    .slice(0, MAX_SESSIONS);
-  writeJson(indexFile(), next);
-
-  // Drop the detail files for anything that fell off the end of the index.
-  const kept = new Set(next.map((s) => s.id));
-  try {
-    for (const file of fs.readdirSync(sessionsDir())) {
-      if (!file.endsWith(".json")) continue;
-      if (!kept.has(file.replace(/\.json$/, ""))) {
-        fs.unlinkSync(path.join(sessionsDir(), file));
-      }
-    }
-  } catch {
-    // pruning is best-effort
-  }
-  return true;
-}
-
-export function listSessions(): SessionSummary[] {
-  return readJson<SessionSummary[]>(indexFile(), []);
-}
-
-export function getSession(id: string): SessionRecord | null {
-  const file = path.join(sessionsDir(), `${id}.json`);
-  return readJson<SessionRecord | null>(file, null);
-}
-
-export function deleteSession(id: string): boolean {
-  try {
-    fs.unlinkSync(path.join(sessionsDir(), `${id}.json`));
-  } catch {
-    // already gone
-  }
-  return writeJson(
-    indexFile(),
-    listSessions().filter((s) => s.id !== id),
-  );
 }
 
 // ── Chats ──
@@ -294,78 +215,4 @@ export function forgetFact(id: string): boolean {
   return saveFacts(
     listFacts().map((f) => (f.id === id ? { ...f, archived: true } : f)),
   );
-}
-
-// ── Training plans ──
-
-function plansFile(): string {
-  return path.join(dataDir(), "plans.json");
-}
-
-export function listPlans(): TrainingPlan[] {
-  return readJson<TrainingPlan[]>(plansFile(), []).sort(
-    (a, b) => b.updatedAt - a.updatedAt,
-  );
-}
-
-export function savePlan(plan: TrainingPlan): boolean {
-  const others = listPlans().filter((p) => p.id !== plan.id);
-  return writeJson(plansFile(), [plan, ...others].slice(0, MAX_PLANS));
-}
-
-export function deletePlan(id: string): boolean {
-  deletePlanFrames(id);
-  return writeJson(
-    plansFile(),
-    listPlans().filter((p) => p.id !== id),
-  );
-}
-
-// ── Plan frames ──
-//
-// The one exception to "screenshots never persist": exactly one JPEG per
-// explicit "Check my work" press, so the coach can compare an attempt to the
-// previous one across sessions. Stored beside the data files, deleted with
-// the plan.
-
-function planFramesDir(planId: string): string {
-  // Plan ids come from newId() — base36, no path characters — but sanitize
-  // anyway since the id crosses IPC.
-  return path.join(dataDir(), "plan-frames", planId.replace(/[^a-z0-9_-]/gi, ""));
-}
-
-/** Store a check-my-work frame (base64 JPEG, no data-URL prefix). */
-export function savePlanFrame(
-  planId: string,
-  frameId: string,
-  base64Jpeg: string,
-): string | null {
-  const dir = planFramesDir(planId);
-  if (!ensureDir(dir)) return null;
-  const name = `${frameId.replace(/[^a-z0-9_-]/gi, "")}.jpg`;
-  try {
-    fs.writeFileSync(path.join(dir, name), Buffer.from(base64Jpeg, "base64"));
-    return name;
-  } catch (err) {
-    logLine(`[store] plan frame write failed: ${String(err)}`);
-    return null;
-  }
-}
-
-/** Read a stored frame back as base64, or null if missing. */
-export function loadPlanFrame(planId: string, frameFile: string): string | null {
-  try {
-    const file = path.join(planFramesDir(planId), path.basename(frameFile));
-    return fs.readFileSync(file).toString("base64");
-  } catch {
-    return null;
-  }
-}
-
-export function deletePlanFrames(planId: string): void {
-  try {
-    fs.rmSync(planFramesDir(planId), { recursive: true, force: true });
-  } catch {
-    // best-effort, like every other delete here
-  }
 }

@@ -33,20 +33,13 @@ import {
   undockWindow,
   updateDockWidth,
   isDocked,
-  isDockingAvailable,
   getDockRectDip,
   setDockChangeListener,
 } from "./dock";
 import { clampDockWidth, RAIL_WIDTH, subtractDockStrip } from "./dock-geometry";
 import { hasKey, setKey } from "./credentials";
 import {
-  detailTrainingModule,
-  getClarifications,
-  getCurriculumOutline,
-  getGoalEvaluation,
   getNextInstruction,
-  getSessionPlan,
-  runWebResearch,
   MissingApiKeyError,
   RateLimitError,
   type NextInstructionArgs,
@@ -57,29 +50,16 @@ import { hasGoogleCredentials } from "./google-tts";
 import { speak as synthesizeSpeech, warmPhraseCache } from "./tts";
 import { hasElevenLabsKey, listElevenVoices } from "./tts/elevenlabs";
 import type {
-  AppMode,
-  CaptureFrame,
   CaptureRegion,
-  Clarification,
-  ConversationTurn,
   UploadedContext,
 } from "./types";
 import { uIOhook } from "uiohook-napi";
 import { HoldDetector, isPushToTalkCode } from "./hotkey";
 import {
   addFact,
-  deletePlan,
-  deleteSession,
   forgetFact,
-  getSession,
   listFacts,
-  listPlans,
-  listSessions,
-  loadPlanFrame,
   newId,
-  savePlan,
-  savePlanFrame,
-  saveSession,
   touchFacts,
   deleteChat,
   getChat,
@@ -90,8 +70,6 @@ import type {
   ChatRecord,
   MemoryFact,
   MemoryKind,
-  SessionRecord,
-  TrainingPlan,
 } from "./db/schema";
 import {
   formatFactsForPrompt,
@@ -101,17 +79,6 @@ import {
 
 const DEV_URL = process.env.VITE_DEV_SERVER_URL || "http://localhost:5173";
 const isDev = !app.isPackaged;
-
-// Reject a promise that runs past `ms`. Used to bound external calls (TTS
-// engines) so one hung request can't wedge a whole feature.
-function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
-  return Promise.race([
-    p,
-    new Promise<T>((_resolve, reject) =>
-      setTimeout(() => reject(new Error(label)), ms),
-    ),
-  ]);
-}
 
 function parseEnvFile(content: string): Record<string, string> {
   const result: Record<string, string> = {};
@@ -1146,7 +1113,7 @@ function registerIpc() {
         );
         logLine(
           `[claude] action=${result.action} in ${Date.now() - startedAt}ms ` +
-            `digression=${result.digression} needsResearch=${result.needsResearch} ` +
+            `digression=${result.digression} ` +
             `steps=${result.completedSteps.length} highlight=${result.highlight ? "yes" : "no"}` +
             (result.toolsUsed?.length
               ? ` tools=[${result.toolsUsed.join(",")}]`
@@ -1177,8 +1144,8 @@ function registerIpc() {
   // hash, the TTS queue, and the session store — all renderer-side.
   ipcMain.handle(
     "agent:describe",
-    (_e: IpcMainInvokeEvent, payload: { mode: AppMode }) => {
-      const descriptor = describeAgent(payload.mode);
+    () => {
+      const descriptor = describeAgent();
       logLine(
         `[agent] describe ${descriptor.id}: poll=${descriptor.loop.normalIntervalMs}ms ` +
           `spacing=${descriptor.loop.minCallSpacingMs}ms quiet=${descriptor.loop.quietPeriodMs}ms ` +
@@ -1186,44 +1153,6 @@ function registerIpc() {
           `tools=[${descriptor.tools.join(",")}]`,
       );
       return descriptor;
-    },
-  );
-
-  ipcMain.handle(
-    "claude:get-clarifications",
-    async (_e: IpcMainInvokeEvent, args: { mode: AppMode; goal: string }) => {
-      try {
-        return await getClarifications(args);
-      } catch (err) {
-        if (err instanceof MissingApiKeyError) {
-          return { __error: "missing_api_key" } as const;
-        }
-        const msg = err instanceof Error ? err.message : String(err);
-        return { __error: "request_failed", message: msg } as const;
-      }
-    },
-  );
-
-  ipcMain.handle(
-    "claude:get-session-plan",
-    async (
-      _e: IpcMainInvokeEvent,
-      args: {
-        mode: AppMode;
-        goal: string;
-        clarifications: Clarification[];
-        screenshot?: string;
-      },
-    ) => {
-      try {
-        return await getSessionPlan(args);
-      } catch (err) {
-        if (err instanceof MissingApiKeyError) {
-          return { __error: "missing_api_key" } as const;
-        }
-        const msg = err instanceof Error ? err.message : String(err);
-        return { __error: "request_failed", message: msg } as const;
-      }
     },
   );
 
@@ -1282,14 +1211,6 @@ function registerIpc() {
   );
 
   ipcMain.handle(
-    "window:open-external",
-    async (_e: IpcMainInvokeEvent, payload: { url: string }) => {
-      if (!/^https?:\/\//i.test(payload.url)) return;
-      await shell.openExternal(payload.url);
-    },
-  );
-
-  ipcMain.handle(
     "clipboard:write",
     (_e: IpcMainInvokeEvent, payload: { text: string }) => {
       if (typeof payload?.text !== "string") return false;
@@ -1317,52 +1238,6 @@ function registerIpc() {
     if (isDocked()) undockWindow();
     mainWindow.minimize();
   });
-
-  ipcMain.handle(
-    "research:search",
-    async (_e: IpcMainInvokeEvent, payload: { query: string }) => {
-      // Real web search first (Claude's server-side web_search tool — the
-      // same one the session planner uses). The legacy DuckDuckGo
-      // instant-answer lookup remains only as a fallback: it returns empty
-      // for most real queries, but empty is still better than an error.
-      const startedAt = Date.now();
-      try {
-        const text = await withTimeout(
-          runWebResearch(payload.query),
-          45_000,
-          "research_timeout",
-        );
-        logLine(
-          `[research] web search ok in ${Date.now() - startedAt}ms (${text.length} chars) for "${payload.query.slice(0, 80)}"`,
-        );
-        return { text };
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        logLine(`[research] web search failed (${msg}); trying DuckDuckGo fallback`);
-      }
-      try {
-        const url = `https://api.duckduckgo.com/?q=${encodeURIComponent(payload.query)}&format=json&no_html=1&skip_disambig=1`;
-        const resp = await fetch(url, { headers: { "User-Agent": "SightLine/0.1.0" } });
-        const data = await resp.json() as {
-          AbstractText?: string;
-          Answer?: string;
-          RelatedTopics?: Array<{ Text?: string } | { Topics?: unknown[] }>;
-        };
-        const parts: string[] = [];
-        if (data.Answer) parts.push(data.Answer);
-        if (data.AbstractText) parts.push(data.AbstractText);
-        if (Array.isArray(data.RelatedTopics)) {
-          for (const t of data.RelatedTopics.slice(0, 5)) {
-            if ("Text" in t && t.Text) parts.push(t.Text);
-          }
-        }
-        logLine(`[research] DuckDuckGo fallback returned ${parts.length} snippet(s)`);
-        return { text: parts.join("\n\n") };
-      } catch (err) {
-        return { __error: "fetch_failed", message: String(err) };
-      }
-    },
-  );
 
   // Speech synthesis. The whole provider chain, cache, timeouts, and fallback
   // policy live in ./tts — this handler is just the IPC surface.
@@ -1467,27 +1342,6 @@ function registerIpc() {
     },
   );
 
-  ipcMain.handle("dock:set", async (_e, payload: { docked: boolean }) => {
-    wantsDock = Boolean(payload.docked);
-    if (redockTimer) {
-      clearTimeout(redockTimer);
-      redockTimer = null;
-    }
-    if (wantsDock) {
-      await dockToWatchedDisplay();
-    } else {
-      undockWindow();
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.setOpacity(loadSettings().opacity);
-      }
-    }
-    return {
-      docked: isDocked(),
-      rect: getDockRectDip()?.rect ?? null,
-      available: isDockingAvailable(),
-    };
-  });
-
   // Live drag-resize fires many times per second. Every width change is an
   // AppBar SETPOS, and SETPOS makes Windows broadcast a work-area change that
   // every maximized window on that monitor re-lays-out for — so the strip is
@@ -1530,7 +1384,7 @@ function registerIpc() {
     rect: getDockRectDip()?.rect ?? null,
   }));
 
-  // ── History, memory, and saved plans ──
+  // ── Chats and memory ──
   // The store is the seam for the eventual move to Neon: these handlers hold
   // no persistence logic of their own, only the shapes the renderer needs.
 
@@ -1554,29 +1408,6 @@ function registerIpc() {
 
   ipcMain.handle("chats:delete", (_e, payload: { id: string }) => ({
     deleted: deleteChat(payload.id),
-  }));
-
-  ipcMain.handle("history:list", () => listSessions());
-
-  ipcMain.handle("history:get", (_e, payload: { id: string }) =>
-    getSession(payload.id),
-  );
-
-  ipcMain.handle("history:save", (_e, record: SessionRecord) => {
-    if (!loadSettings().historyEnabled) return { saved: false };
-    const saved = saveSession(record);
-    if (saved) {
-      logLine(
-        `[history] saved session ${record.id} (${record.mode}, ${record.turns.length} turns, ` +
-          `${record.steps.filter((s) => s.state === "completed").length} steps done, ` +
-          `$${record.costUsd.toFixed(4)})`,
-      );
-    }
-    return { saved };
-  });
-
-  ipcMain.handle("history:delete", (_e, payload: { id: string }) => ({
-    deleted: deleteSession(payload.id),
   }));
 
   // Recall: rank what we know against this goal and return both the prompt
@@ -1633,92 +1464,4 @@ function registerIpc() {
   ipcMain.handle("memory:forget", (_e, payload: { id: string }) => ({
     forgotten: forgetFact(payload.id),
   }));
-
-  ipcMain.handle("plans:list", () => listPlans());
-
-  ipcMain.handle("plans:save", (_e, plan: TrainingPlan) => ({
-    saved: savePlan(plan),
-  }));
-
-  ipcMain.handle("plans:delete", (_e, payload: { id: string }) => ({
-    deleted: deletePlan(payload.id),
-  }));
-
-  ipcMain.handle(
-    "plans:save-frame",
-    (_e, payload: { planId: string; frameId: string; dataUrl: string }) => ({
-      // Strip the data-URL prefix; the store writes raw JPEG bytes.
-      file: savePlanFrame(
-        payload.planId,
-        payload.frameId,
-        payload.dataUrl.replace(/^data:image\/\w+;base64,/, ""),
-      ),
-    }),
-  );
-
-  ipcMain.handle(
-    "plans:load-frame",
-    (_e, payload: { planId: string; frameFile: string }) => {
-      const base64 = loadPlanFrame(payload.planId, payload.frameFile);
-      return { dataUrl: base64 ? `data:image/jpeg;base64,${base64}` : null };
-    },
-  );
-
-  ipcMain.handle(
-    "claude:curriculum-outline",
-    async (
-      _e: IpcMainInvokeEvent,
-      args: { goal: string; clarifications: Clarification[]; screenshot?: string },
-    ) => {
-      try {
-        return await getCurriculumOutline(args);
-      } catch (err) {
-        if (err instanceof MissingApiKeyError) {
-          return { __error: "missing_api_key" } as const;
-        }
-        const msg = err instanceof Error ? err.message : String(err);
-        return { __error: "request_failed", message: msg } as const;
-      }
-    },
-  );
-
-  ipcMain.handle(
-    "claude:detail-module",
-    async (
-      _e: IpcMainInvokeEvent,
-      args: { plan: TrainingPlan; moduleIndex: number },
-    ) => {
-      try {
-        return await detailTrainingModule(args);
-      } catch (err) {
-        if (err instanceof MissingApiKeyError) {
-          return { __error: "missing_api_key" } as const;
-        }
-        const msg = err instanceof Error ? err.message : String(err);
-        return { __error: "request_failed", message: msg } as const;
-      }
-    },
-  );
-
-  ipcMain.handle(
-    "claude:evaluate-goal",
-    async (
-      _e: IpcMainInvokeEvent,
-      payload: {
-        mode: AppMode;
-        goal: string;
-        completedSteps: string[];
-        conversation: ConversationTurn[];
-        frames: CaptureFrame[];
-      },
-    ) => {
-      try {
-        return await getGoalEvaluation(payload);
-      } catch (err) {
-        if (err instanceof MissingApiKeyError) return { __error: "missing_api_key" };
-        const msg = err instanceof Error ? err.message : String(err);
-        return { __error: "request_failed", message: msg };
-      }
-    },
-  );
 }

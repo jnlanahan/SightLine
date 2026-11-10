@@ -12,10 +12,9 @@ async function loopSource(): Promise<string> {
 }
 
 describe("timing constants (regression guards)", () => {
-  // The per-mode cadence moved onto the agents (electron/agents/*.ts →
-  // Agent.loop) so each agent owns its own loop. The VALUES are unchanged and
-  // are now asserted against the agent objects directly in
-  // agentHarness.test.ts — a stronger guard than grepping source text.
+  // The cadence lives on the coach (electron/agents/coach.ts → Agent.loop and
+  // loopByStance) and its values are asserted against the agent object in
+  // coach.test.ts — a stronger guard than grepping source text.
   //
   // What stays here is the loop EXECUTOR's own behaviour: the guards, the
   // gates, and the hysteresis that belong to the scheduler rather than to any
@@ -113,10 +112,8 @@ describe("vision payload size (regression guards)", () => {
   // A turn may now spend several round trips on tools before it speaks, and
   // every one of them is silence the user sits through. The cap is the
   // latency budget — raising it is a deliberate trade.
-  it("the tech support agent caps a turn at 3 iterations", async () => {
-    const { techSupportAgent } = await import(
-      "../../electron/agents/tech-support"
-    );
-    expect(techSupportAgent.maxToolIterations).toBe(3);
+  it("the coach caps a turn at 3 iterations", async () => {
+    const { coachAgent } = await import("../../electron/agents/coach");
+    expect(coachAgent.maxToolIterations).toBe(3);
   });
 });

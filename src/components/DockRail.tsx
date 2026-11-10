@@ -33,11 +33,7 @@ export function DockRail({
 }) {
   const T = useTheme();
   const pulses = status === "watching" || status === "thinking";
-  const lineActive =
-    status === "watching" ||
-    status === "thinking" ||
-    status === "researching" ||
-    status === "evaluating";
+  const lineActive = status === "watching" || status === "thinking";
 
   return (
     <div

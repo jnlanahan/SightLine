@@ -83,14 +83,11 @@ export function parseInstruction(
         upcoming_steps?: string[];
         digression?: boolean;
         done?: boolean;
-        needsResearch?: boolean;
-        researchQuery?: string;
         notes?: string;
         highlight?: unknown;
         remember?: unknown;
       };
-      // Modes that don't emit an action (training/teacher) default to
-      // "instruct"/"done" so their behavior is unchanged.
+      // A reply that names no action defaults to "instruct" (or "done").
       const action =
         obj.action && VALID_ACTIONS.has(obj.action)
           ? (obj.action as InstructionResponse["action"])
@@ -120,11 +117,7 @@ export function parseInstruction(
           : [],
         digression: Boolean(obj.digression),
         done: action === "done" || Boolean(obj.done),
-        needsResearch: Boolean(obj.needsResearch),
-        researchQuery: (obj.researchQuery ?? "").trim(),
         notes: (obj.notes ?? "").trim(),
-        taskVerdict: null,
-        mistakePattern: "",
         highlight: action === "instruct" ? parseHighlight(obj.highlight) : null,
         remember: parseRemember(obj.remember),
       };
@@ -144,11 +137,7 @@ export function parseInstruction(
     upcomingSteps: [],
     digression: false,
     done: false,
-    needsResearch: false,
-    researchQuery: "",
     notes: "",
-    taskVerdict: null,
-    mistakePattern: "",
     highlight: null,
     remember: null,
   };

@@ -18,7 +18,6 @@
 // Pure module — no Electron imports, so the whole harness is unit-testable.
 
 import type {
-  AppMode,
   CaptureFrame,
   ConversationTurn,
   HighlightRect,
@@ -48,8 +47,6 @@ export interface ToolDeps {
   captureRegion(rect: HighlightRect): Promise<CaptureFrame | null>;
   /** Live web lookup. Throws on failure; the runner turns that into is_error. */
   research(query: string): Promise<string>;
-  /** Plan mutations the agent requested this turn, applied after the turn. */
-  planDraft: PlanDraft;
   log(message: string): void;
 }
 
@@ -63,24 +60,6 @@ export interface AgentTool {
   /** JSON Schema for the input. Must be a stable literal — see TOOLS below. */
   inputSchema: Record<string, unknown>;
   run(input: Record<string, unknown>, deps: ToolDeps): Promise<ToolOutput>;
-}
-
-// ---------------------------------------------------------------------------
-// Plan mutation (the seam the Training agent grows into)
-// ---------------------------------------------------------------------------
-
-export type PlanEdit =
-  | { op: "add"; description: string; after?: number }
-  | { op: "revise"; index: number; description: string }
-  | { op: "complete"; index: number };
-
-/** Per-turn accumulator. The runner hands the applied result to the caller. */
-export interface PlanDraft {
-  edits: PlanEdit[];
-}
-
-export function newPlanDraft(): PlanDraft {
-  return { edits: [] };
 }
 
 // ---------------------------------------------------------------------------
@@ -104,24 +83,15 @@ export interface OutputField {
 
 /** Read-only view of the turn, passed to context builders. */
 export interface TurnContext {
-  mode: AppMode;
   goal: string;
   completedSteps: string[];
   upcomingSteps: string[];
   conversation: ConversationTurn[];
   frames: CaptureFrame[];
   followUp?: string;
-  clarificationContext?: string;
   uploadedContext?: string;
   agentNotes?: string[];
   recalledMemory?: string;
-  // Training mode: the plan block (learner profile, outline, current task,
-  // mistake patterns, where-we-left-off). Resolved when the plan changes, not
-  // per tick, so the header stays cache-friendly.
-  trainingContext?: string;
-  // Training mode: the frame stored at this task's previous check-my-work,
-  // attached on a check turn so the coach can compare attempts.
-  referenceFrame?: string;
   lastExpectedResult?: string;
   secondsSinceScreenChange?: number;
   secondsSinceLastSpoke?: number;
@@ -139,9 +109,9 @@ export interface TurnContext {
 /**
  * A composable unit of agent behaviour.
  *
- * Every slot is optional, so a skill can be pure prompt text (socratic), pure
- * tooling (screenReading), or all five (research: prompt + tool + context +
- * fields). Sharing a skill between agents is just listing it twice.
+ * Every slot is optional, so a skill can be pure prompt text (troubleshoot),
+ * pure tooling (screenReading), or several at once (plan: prompt + context +
+ * fields).
  */
 export interface Skill {
   id: string;
@@ -169,7 +139,7 @@ export interface AgentGuidance {
 }
 
 export interface Agent {
-  id: AppMode;
+  id: string;
   /** The persona. First block of the system prompt, before any skill text. */
   intro: string;
   /**
@@ -204,17 +174,11 @@ export interface Agent {
    * for speech instead. The user just did what the coach asked and is waiting
    * to hear what's next — a silent turn there reads as the coach having
    * stopped watching, and the loop's screen-change gate then keeps it silent
-   * until they move. Off for agents whose silent turns are the point
-   * (training's activity log), and skipped on any turn whose stance is
-   * "watch" — there a silently recorded step is exactly what was asked for.
+   * until they move. Skipped on any turn whose stance is "watch" — there a
+   * silently recorded step is exactly what was asked for.
    */
   speakOnStepComplete?: boolean;
   guidance: AgentGuidance;
-  /** Pre-session prompts. Not part of the per-tick loop; the coach has none. */
-  clarificationPrompt?: string;
-  planPrompt?: string;
-  /** How many intake questions the pre-session call may keep. Default 3. */
-  maxClarifications?: number;
 }
 
 // ---------------------------------------------------------------------------
