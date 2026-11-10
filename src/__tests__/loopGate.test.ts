@@ -45,9 +45,4 @@ describe("session loop tick gate", () => {
     expect(r.proceed).toBe(false);
     expect(r.why).toContain("no-change");
   });
-
-  it("modes without a screen-change requirement always proceed (teacher)", () => {
-    const r = shouldCallClaude({ ...base, requireScreenChange: false });
-    expect(r.proceed).toBe(true);
-  });
 });

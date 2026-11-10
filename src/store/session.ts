@@ -2,29 +2,18 @@ import { create } from "zustand";
 import { EMPTY_USAGE, addUsage } from "../../electron/usage";
 import { appendToStepLog, type RestoredSession } from "../../electron/chat-record";
 import type {
-  AppMode,
   CaptureFrame,
   ConversationTurn,
   SessionStatus,
   Stance,
   StepLogEntry,
   StepPace,
-  TrainingPlan,
-  TtsPlaybackEngine,
   TokenUsage,
   UploadedContext,
 } from "../lib/api";
 
-/**
- * Why the session is paused. "user" is a deliberate pause, "idle" is the loop
- * standing down, "budget" means the spend cap stopped it — the UI needs to
- * tell these apart because only one of them is the user's own doing.
- */
-export type PauseReason = "user" | "idle" | "budget" | null;
-
 export interface SessionState {
   status: SessionStatus;
-  mode: AppMode | null;
   goal: string | null;
   currentInstruction: string;
   // Copyable code/command text that came with the current instruction.
@@ -45,7 +34,6 @@ export interface SessionState {
   rateLimitUntil: number | null;
   done: boolean;
 
-  clarificationContext: string;
   // User-attached reference material (text/markdown), in-session only.
   uploadedContext: string;
   attachedFileNames: string[];
@@ -53,8 +41,6 @@ export interface SessionState {
   agentNotes: string[];
   lastProcessedHash: string | null;
   pendingFollowUp: string | null;
-  pauseReason: PauseReason;
-  researchQuery: string | null;
 
   // Used to avoid speaking / re-rendering the same instruction back-to-back.
   lastSpokenInstruction: string | null;
@@ -80,9 +66,6 @@ export interface SessionState {
   // Visible outcome the agent expects from its last instruction; echoed back
   // to it next tick so it verifies the step happened before advancing.
   lastExpectedResult: string | null;
-  // Which TTS engine actually spoke last — lets the UI surface degradation
-  // to the system voice instead of failing silently.
-  lastTtsEngine: TtsPlaybackEngine | null;
   // The user is holding push-to-talk (or the mic button) and speaking. While
   // true the loop must not tick and the coach must not speak — talking over
   // someone who is mid-sentence is the single rudest thing this app can do.
@@ -100,19 +83,15 @@ export interface SessionState {
   // Number of Claude calls this session — the denominator for "cost per call"
   // and a cheap sanity check on loop behaviour in the logs.
   claudeCalls: number;
-  // Stable id for this session, minted at start so history and any memory
-  // learned mid-session can be attributed before the session ends.
+  // The open chat's id, minted at start (or restored on reopen) so autosave
+  // and any memory learned mid-chat can be attributed to it. Null between
+  // chats — the loop and its input trigger key off this.
   sessionId: string | null;
   // Facts recalled from earlier sessions, formatted for the prompt. Resolved
   // once at session start so the prompt prefix stays byte-stable across ticks.
   recalledMemory: string;
-  // Training mode: the persisted curriculum this session works against. The
-  // renderer mutates it through the pure helpers in electron/training-plan.ts
-  // and saves every change back through plans:save.
-  activePlan: TrainingPlan | null;
 
   setStatus(s: SessionStatus): void;
-  setMode(mode: AppMode | null): void;
   setGoal(goal: string): void;
   setInstruction(text: string, code?: string): void;
   setActiveTool(tool: { name: string; detail: string } | null): void;
@@ -129,13 +108,10 @@ export interface SessionState {
   setError(message: string | null): void;
   setRateLimit(until: number | null): void;
   setDone(done: boolean): void;
-  setClarificationContext(ctx: string): void;
   addUploadedContext(files: UploadedContext[]): void;
   appendAgentNote(note: string): void;
   setLastProcessedHash(h: string | null): void;
   setPendingFollowUp(text: string | null): void;
-  setPauseReason(r: PauseReason): void;
-  setResearchQuery(q: string | null): void;
   setLastSpokenInstruction(s: string | null): void;
   setLastSpokeAt(t: number | null): void;
   setLastClaudeCallAt(t: number | null): void;
@@ -146,14 +122,12 @@ export interface SessionState {
   setResumePending(r: { awayMinutes: number; whereWeLeftOff: string } | null): void;
   setTroubleshooting(v: boolean): void;
   setLastExpectedResult(s: string | null): void;
-  setLastTtsEngine(e: TtsPlaybackEngine | null): void;
   setListening(v: boolean): void;
   setTranscribing(v: boolean): void;
   setLastTranscript(t: string | null): void;
   recordUsage(usage: TokenUsage, costUsd: number): void;
   setSessionId(id: string | null): void;
   setRecalledMemory(text: string): void;
-  setActivePlan(plan: TrainingPlan | null): void;
   reset(): void;
 }
 
@@ -161,7 +135,6 @@ const MAX_FRAMES = 5;
 
 const initial = {
   status: "idle" as SessionStatus,
-  mode: null as AppMode | null,
   goal: null,
   currentInstruction: "",
   currentCode: "",
@@ -175,14 +148,11 @@ const initial = {
   lastError: null,
   rateLimitUntil: null,
   done: false,
-  clarificationContext: "",
   uploadedContext: "",
   attachedFileNames: [] as string[],
   agentNotes: [] as string[],
   lastProcessedHash: null as string | null,
   pendingFollowUp: null as string | null,
-  pauseReason: null as PauseReason,
-  researchQuery: null as string | null,
   lastSpokenInstruction: null as string | null,
   lastSpokeAt: null as number | null,
   lastClaudeCallAt: null as number | null,
@@ -193,7 +163,6 @@ const initial = {
   resumePending: null as { awayMinutes: number; whereWeLeftOff: string } | null,
   troubleshooting: false,
   lastExpectedResult: null as string | null,
-  lastTtsEngine: null as TtsPlaybackEngine | null,
   listening: false,
   transcribing: false,
   lastTranscript: null as string | null,
@@ -202,13 +171,11 @@ const initial = {
   claudeCalls: 0,
   sessionId: null as string | null,
   recalledMemory: "",
-  activePlan: null as TrainingPlan | null,
 };
 
 export const useSession = create<SessionState>((set) => ({
   ...initial,
   setStatus: (s) => set({ status: s }),
-  setMode: (mode) => set({ mode }),
   setGoal: (goal) => set({ goal }),
   setInstruction: (text, code = "") =>
     set({ currentInstruction: text, currentCode: code }),
@@ -234,7 +201,6 @@ export const useSession = create<SessionState>((set) => ({
   setError: (message) => set({ lastError: message }),
   setRateLimit: (until) => set({ rateLimitUntil: until }),
   setDone: (done) => set({ done }),
-  setClarificationContext: (ctx) => set({ clarificationContext: ctx }),
   addUploadedContext: (files) =>
     set((state) => {
       const additions = files
@@ -258,8 +224,6 @@ export const useSession = create<SessionState>((set) => ({
     ),
   setLastProcessedHash: (h) => set({ lastProcessedHash: h }),
   setPendingFollowUp: (text) => set({ pendingFollowUp: text }),
-  setPauseReason: (r) => set({ pauseReason: r }),
-  setResearchQuery: (q) => set({ researchQuery: q }),
   setLastSpokenInstruction: (s) => set({ lastSpokenInstruction: s }),
   setLastSpokeAt: (t) => set({ lastSpokeAt: t }),
   setLastClaudeCallAt: (t) => set({ lastClaudeCallAt: t }),
@@ -270,13 +234,11 @@ export const useSession = create<SessionState>((set) => ({
   setResumePending: (r) => set({ resumePending: r }),
   setTroubleshooting: (v) => set({ troubleshooting: v }),
   setLastExpectedResult: (s) => set({ lastExpectedResult: s }),
-  setLastTtsEngine: (e) => set({ lastTtsEngine: e }),
   setListening: (v) => set({ listening: v }),
   setTranscribing: (v) => set({ transcribing: v }),
   setLastTranscript: (t) => set({ lastTranscript: t }),
   setSessionId: (id) => set({ sessionId: id }),
   setRecalledMemory: (text) => set({ recalledMemory: text }),
-  setActivePlan: (plan) => set({ activePlan: plan }),
   recordUsage: (usage, costUsd) =>
     set((state) => ({
       usage: addUsage(state.usage, usage),

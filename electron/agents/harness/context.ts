@@ -44,9 +44,6 @@ function baseBlocks(ctx: TurnContext, frameCount: number): string[] {
     );
   }
 
-  if (ctx.clarificationContext && ctx.clarificationContext.trim().length > 0) {
-    parts.push(`Answers to clarifying questions:\n${ctx.clarificationContext}`);
-  }
   if (ctx.uploadedContext && ctx.uploadedContext.trim().length > 0) {
     parts.push(
       `Reference material the user attached:\n${ctx.uploadedContext.trim()}`,

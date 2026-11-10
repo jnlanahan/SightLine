@@ -3,7 +3,6 @@ import type Anthropic from "@anthropic-ai/sdk";
 import { historyMessages, runAgentTurn } from "../../electron/agents/harness/runner";
 import { parseTerminalTool } from "../../electron/agents/harness/parse-turn";
 import { getAgent } from "../../electron/agents/registry";
-import { newPlanDraft } from "../../electron/agents/harness/types";
 import type { ConversationTurn } from "../../electron/types";
 
 // The failure modes here all showed up as "the coach went quiet" or "my steps
@@ -144,9 +143,8 @@ function opts(client: Anthropic, completedSteps: string[]) {
   return {
     client,
     model: "claude-sonnet-4-6",
-    agent: getAgent("tech_support"),
+    agent: getAgent(),
     ctx: {
-      mode: "tech_support" as const,
       goal: "Set up a VPN",
       completedSteps,
       upcomingSteps: ["Connect to a server"],
@@ -156,8 +154,7 @@ function opts(client: Anthropic, completedSteps: string[]) {
     deps: {
       captureRegion: async () => null,
       research: async () => "findings",
-      planDraft: newPlanDraft(),
-      log: () => {},
+        log: () => {},
     },
     toContextResolution: (d: string) => d,
     log: () => {},

@@ -1,8 +1,7 @@
 // memory — facts that survive to the next session.
 //
-// Shared by all three agents, with a per-agent line about what is worth
-// remembering in that mode (a tutor remembers what you understand; a coach
-// remembers that your VPN blocks the sync port).
+// The agent passes in a line about what is worth remembering (the coach's is
+// in coach.ts), so the mechanism stays here and the judgement stays with it.
 //
 // The recalled facts are resolved ONCE at session start and passed in
 // unchanged on every tick — if they were re-ranked per turn the prompt prefix
@@ -45,8 +44,7 @@ const RECALL_BLOCK = (ctx: { recalledMemory?: string }) =>
     : [];
 
 /**
- * Build the memory skill with a mode-specific line about what is worth
- * keeping. Same mechanism everywhere; only the judgement differs.
+ * Build the memory skill with the agent's line about what is worth keeping.
  */
 export function memorySkill(worthRemembering: string): Skill {
   return {
@@ -56,9 +54,3 @@ export function memorySkill(worthRemembering: string): Skill {
     outputFields: [REMEMBER_FIELD],
   };
 }
-
-export const TECH_SUPPORT_MEMORY = `Worth remembering here: their setup ("they're on the Windows desktop app, not the web version"), a preference ("prefers keyboard shortcuts over menus"), or a problem and its fix ("their VPN blocks the sync port — turning it off fixes uploads").`;
-
-export const TRAINING_MEMORY = `Worth remembering here: how this user's environment is set up, how they learn best (pace, how much hinting they want), and durable obstacles that keep coming back. Task-level progress belongs to the training plan record, not here.`;
-
-export const TEACHER_MEMORY = `Worth remembering here: what this learner already understands and how they prefer to learn, so a future session doesn't start from zero. Never record anything about their performance that would embarrass them to read back.`;

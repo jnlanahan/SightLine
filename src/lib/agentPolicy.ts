@@ -1,7 +1,7 @@
 // The renderer's cache of the current agent's loop policy.
 //
-// The agent declares its cadence (electron/agents/*.ts → Agent.loop, and
-// Agent.loopByStance for the coach); the renderer executes it. This module is
+// The agent declares its cadence (electron/agents/coach.ts → Agent.loop and
+// Agent.loopByStance); the renderer executes it. This module is
 // the seam between the two: one async fetch at session start, then a cheap
 // read on every tick.
 //
@@ -11,18 +11,15 @@
 // exactly one place to change it.
 
 import { api } from "./api";
-import type { AgentDescriptor, AppMode, LoopPolicy, Stance } from "./api";
+import type { AgentDescriptor, LoopPolicy, Stance } from "./api";
 
-// Single slot: one session runs at a time, and its agent is fixed for the
-// duration. The stance can change mid-session; both cadences arrive in the
-// one descriptor, so a stance change never needs another fetch.
-let cached: { mode: AppMode; descriptor: AgentDescriptor } | null = null;
-// Keyed by mode so a describe still in flight for the previous mode can never
-// resolve into the new mode's policy.
-let inFlight: { mode: AppMode; promise: Promise<AgentDescriptor | null> } | null =
-  null;
+// One agent, described once for the life of the app. The stance can change
+// mid-session; both cadences arrive in the one descriptor, so a stance change
+// never needs another fetch.
+let cached: AgentDescriptor | null = null;
+let inFlight: Promise<AgentDescriptor | null> | null = null;
 
-/** The cadence for `stance`. Agents without stances have just the one. */
+/** The cadence for `stance`. A descriptor without stances has just the one. */
 export function policyFor(
   descriptor: Pick<AgentDescriptor, "loop" | "loopByStance">,
   stance: Stance,
@@ -31,20 +28,19 @@ export function policyFor(
 }
 
 /**
- * Fetch and cache the agent's policies, and return the one for `stance`.
+ * Fetch and cache the coach's policies, and return the one for `stance`.
  * Returns null if the agent could not be described — the caller should skip
  * this tick and try again rather than guessing at a cadence.
  */
 export async function ensureAgentPolicy(
-  mode: AppMode,
   stance: Stance,
 ): Promise<LoopPolicy | null> {
-  if (cached?.mode === mode) return policyFor(cached.descriptor, stance);
-  if (inFlight?.mode !== mode) {
-    const promise = api()
-      .agent.describe({ mode })
+  if (cached) return policyFor(cached, stance);
+  if (!inFlight) {
+    inFlight = api()
+      .agent.describe()
       .then((descriptor) => {
-        cached = { mode, descriptor };
+        cached = descriptor;
         api().log(
           `[loop] agent ${descriptor.id} skills=[${descriptor.skills.join(",")}] tools=[${descriptor.tools.join(",")}]`,
         );
@@ -56,10 +52,9 @@ export async function ensureAgentPolicy(
         return null;
       })
       .finally(() => {
-        if (inFlight?.mode === mode) inFlight = null;
+        inFlight = null;
       });
-    inFlight = { mode, promise };
   }
-  const descriptor = await inFlight.promise;
+  const descriptor = await inFlight;
   return descriptor ? policyFor(descriptor, stance) : null;
 }

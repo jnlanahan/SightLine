@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type Anthropic from "@anthropic-ai/sdk";
 import { runAgentTurn } from "../../electron/agents/harness/runner";
 import { getAgent } from "../../electron/agents/registry";
-import { newPlanDraft, type ToolDeps } from "../../electron/agents/harness/types";
+import type { ToolDeps } from "../../electron/agents/harness/types";
 import type { SpeechChunk } from "../../electron/speech-chunker";
 
 // Exercises the tool loop against a scripted stream. The runner is the piece
@@ -71,7 +71,6 @@ function deps(overrides: Partial<ToolDeps> = {}): ToolDeps {
   return {
     captureRegion: async () => null,
     research: async () => "findings",
-    planDraft: newPlanDraft(),
     log: () => {},
     ...overrides,
   };
@@ -81,9 +80,8 @@ function baseOpts(client: Anthropic, onSpeechChunk?: (c: SpeechChunk) => void) {
   return {
     client,
     model: "claude-sonnet-4-6",
-    agent: getAgent("tech_support"),
+    agent: getAgent(),
     ctx: {
-      mode: "tech_support" as const,
       goal: "Set up a VPN",
       completedSteps: ["Downloaded the client"],
       upcomingSteps: [],
@@ -209,14 +207,14 @@ describe("a finished step is never answered with silence", () => {
     expect(callCount()).toBe(2);
   });
 
-  it("leaves training's silent activity log alone", async () => {
-    // Training coaches by not talking; its scans record steps on wait by design.
+  it("leaves an agent without the switch alone", async () => {
+    // The bounce is opt-in (Agent.speakOnStepComplete). The training agent
+    // that relied on it being off is gone; the runner's switch is not.
     const { client, callCount } = fakeClient([{ tool: "wait", inputChunks: [grown] }]);
     const opts = baseOpts(client);
     const result = await runAgentTurn({
       ...opts,
-      agent: getAgent("training"),
-      ctx: { ...opts.ctx, mode: "training" as const },
+      agent: { ...getAgent(), speakOnStepComplete: false },
     });
     expect(result.action).toBe("wait");
     expect(callCount()).toBe(1);
@@ -233,8 +231,8 @@ describe("a finished step is never answered with silence", () => {
     const opts = baseOpts(client);
     const result = await runAgentTurn({
       ...opts,
-      agent: getAgent("coach"),
-      ctx: { ...opts.ctx, mode: "coach" as const, stance: "guide" as const },
+      agent: getAgent(),
+      ctx: { ...opts.ctx, stance: "guide" as const },
     });
     expect(result.action).toBe("instruct");
     expect(callCount()).toBe(2);
@@ -247,8 +245,8 @@ describe("a finished step is never answered with silence", () => {
     const opts = baseOpts(client);
     const result = await runAgentTurn({
       ...opts,
-      agent: getAgent("coach"),
-      ctx: { ...opts.ctx, mode: "coach" as const, stance: "watch" as const },
+      agent: getAgent(),
+      ctx: { ...opts.ctx, stance: "watch" as const },
     });
     expect(result.action).toBe("wait");
     expect(result.completedSteps).toEqual(["Downloaded the client", "Installed it"]);

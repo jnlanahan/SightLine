@@ -43,7 +43,6 @@ import {
   SAY_TOOL,
   WAIT_TOOL,
   type Agent,
-  type PlanDraft,
   type ToolDeps,
   type ToolOutput,
   type TurnContext,
@@ -91,8 +90,6 @@ export interface RunTurnOptions {
 export interface TurnResult extends InstructionResponse {
   /** Names of mid-turn tools the model used, in call order. */
   toolsUsed: string[];
-  /** Plan edits requested this turn, for the caller to apply. */
-  planEdits: PlanDraft["edits"];
 }
 
 type Block = Anthropic.Messages.TextBlockParam | Anthropic.Messages.ImageBlockParam;
@@ -148,16 +145,6 @@ function buildUserBlocks(
         : `Screenshot ${i + 1} of ${frames.length} (earlier, reduced resolution — for comparison only):`,
     });
     blocks.push(imageBlock(dataUrl));
-  }
-
-  // A stored earlier attempt (training's check-my-work) rides at context
-  // resolution — its job is comparison, not label-reading.
-  if (ctx.referenceFrame) {
-    blocks.push({
-      type: "text",
-      text: "The user's PREVIOUS attempt at this task, from an earlier check (reduced resolution — compare against the latest screenshot):",
-    });
-    blocks.push(imageBlock(toContextResolution(ctx.referenceFrame)));
   }
 
   if (ctx.followUp && ctx.followUp.trim().length > 0) {
@@ -351,7 +338,6 @@ export async function runAgentTurn(opts: RunTurnOptions): Promise<TurnResult> {
       model,
       costUsd: estimateCostUsd(model, usage),
       toolsUsed,
-      planEdits: deps.planDraft.edits,
     };
   };
 

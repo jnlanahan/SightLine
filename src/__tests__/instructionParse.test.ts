@@ -11,8 +11,6 @@ describe("parseInstruction", () => {
         completed_steps: ["Opened the editor"],
         upcoming_steps: ["Verify the file saved"],
         digression: false,
-        needsResearch: false,
-        researchQuery: "",
         notes: "",
         highlight: { x: 0.4, y: 0.2, w: 0.1, h: 0.05 },
       }),
@@ -104,7 +102,7 @@ describe("parseInstruction", () => {
     expect(r.troubleshooting).toBe(false);
   });
 
-  it("legacy modes without an action default to instruct/done", () => {
+  it("a reply without an action defaults to instruct/done", () => {
     const done = parseInstruction(
       JSON.stringify({ instruction: "All set!", done: true }),
       [],

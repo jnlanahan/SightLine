@@ -1,39 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
-  curriculumSteps,
   planProgress,
   toPlanSteps,
   toStepPhrase,
 } from "../lib/planSteps";
-
-describe("curriculumSteps", () => {
-  it("flattens modules into rail rows with the cursor as current", () => {
-    const steps = curriculumSteps({
-      cursor: { module: 1, task: 0 },
-      modules: [
-        {
-          tasks: [
-            { title: "Open the sheet", status: "completed" },
-            { title: "Sort and filter", status: "completed" },
-          ],
-        },
-        {
-          tasks: [
-            { title: "Insert a pivot table", status: "in_progress" },
-            { title: "Group by month", status: "not_started" },
-          ],
-        },
-      ],
-    });
-    expect(steps.map((s) => s.state)).toEqual([
-      "completed",
-      "completed",
-      "current",
-      "upcoming",
-    ]);
-    expect(planProgress(steps)).toBe(0.5);
-  });
-});
 
 describe("toStepPhrase", () => {
   it("leaves a short instruction alone", () => {

@@ -10,9 +10,7 @@ import { Composer } from "./components/Composer";
 import { ProgressRail, PlanList } from "./components/ProgressRail";
 import { Home } from "./components/Home";
 import type {
-  AppMode,
   CaptureTarget,
-  Clarification,
   DockSide,
   SessionStatus,
   TokenUsage,
@@ -28,17 +26,7 @@ import {
   isWorthSaving,
   titleFromGoal,
 } from "../electron/chat-record";
-import { toPlanSteps, curriculumSteps } from "./lib/planSteps";
-import { CurriculumOutline } from "./components/CurriculumOutline";
-import { detailModuleInBackground } from "./lib/trainingProgress";
-import {
-  appendJournal,
-  beginRun,
-  buildWhereWeLeftOff,
-  currentModule,
-  currentTask,
-} from "../electron/training-plan";
-import type { TrainingPlan } from "./lib/api";
+import { toPlanSteps } from "./lib/planSteps";
 import { usePushToTalk } from "./hooks/usePushToTalk";
 import { useTheme } from "./design/ThemeProvider";
 import { Glow, Logo, Spinner, CtrlBtn } from "./design/primitives";
@@ -57,13 +45,6 @@ import { EMPTY_USAGE, addUsage, budgetStatus, formatUsd } from "../electron/usag
 
 type View = "panel" | "settings" | "privacy";
 
-const MODE_META: Record<AppMode, { goalLabel: string; stepNoun: string }> = {
-  tech_support: { goalLabel: "Goal", stepNoun: "step" },
-  training:     { goalLabel: "Training plan for", stepNoun: "plan step" },
-  teacher:      { goalLabel: "Learning", stepNoun: "topic" },
-  coach:        { goalLabel: "Goal", stepNoun: "step" },
-};
-
 const STATUS_TEXT: Record<SessionStatus, string> = {
   idle:        "Ready when you are",
   watching:    "Watching your screen",
@@ -71,9 +52,6 @@ const STATUS_TEXT: Record<SessionStatus, string> = {
   waiting:     "Done",
   paused:      "Paused",
   error:       "Error",
-  clarifying:  "Setting up…",
-  researching: "Looking that up…",
-  evaluating:  "Checking your work…",
 };
 
 const STATUS_DOT: Record<SessionStatus, string> = {
@@ -83,14 +61,10 @@ const STATUS_DOT: Record<SessionStatus, string> = {
   waiting:     "#4F8A2C",
   paused:      "#7B816D",
   error:       "#DB3B3B",
-  clarifying:  "#C07C10",
-  researching: "#C07C10",
-  evaluating:  "#C07C10",
 };
 
 export default function App() {
   const status         = useSession((s) => s.status);
-  const mode           = useSession((s) => s.mode);
   const goal           = useSession((s) => s.goal);
   const instruction    = useSession((s) => s.currentInstruction);
   const currentCode    = useSession((s) => s.currentCode);
@@ -106,15 +80,12 @@ export default function App() {
   const done           = useSession((s) => s.done);
   const reset          = useSession((s) => s.reset);
   const setStatus      = useSession((s) => s.setStatus);
-  const setMode        = useSession((s) => s.setMode);
   const setGoal        = useSession((s) => s.setGoal);
   const appendTurn     = useSession((s) => s.appendTurn);
-  const researchQuery  = useSession((s) => s.researchQuery);
   const conversation   = useSession((s) => s.conversation);
   const attachedFileNames = useSession((s) => s.attachedFileNames);
   const agentNotes     = useSession((s) => s.agentNotes);
   const troubleshooting = useSession((s) => s.troubleshooting);
-  const activePlan     = useSession((s) => s.activePlan);
   const stance         = useSession((s) => s.stance);
   const stepLog        = useSession((s) => s.stepLog);
 
@@ -130,11 +101,7 @@ export default function App() {
   const [collapsed, setCollapsed]         = useState(false);
   const [docked, setDocked]               = useState(false);
   const [planOpen, setPlanOpen]           = useState(false);
-  const [evalResult, setEvalResult]       = useState<{ achieved: boolean; verdict: string } | null>(null);
   const chatEndRef = useRef<HTMLDivElement | null>(null);
-  // When the current session began — the store holds progress, not wall-clock
-  // start, and history needs a real duration.
-  const sessionStartedAtRef = useRef<number | null>(null);
   // What the open chat had already run up before this sitting, and when it
   // began. The store counts one sitting — that is what the spending cap
   // applies to — while the saved chat carries the running total.
@@ -152,7 +119,7 @@ export default function App() {
   // per tick even when nothing new was said.
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [conversation.length, instruction, evalResult]);
+  }, [conversation.length, instruction]);
 
   const rateLimitCountdown = useRateLimitCountdown();
   const { cancel: cancelTts } = useTts();
@@ -168,19 +135,15 @@ export default function App() {
   );
 
   // The single ordered plan, derived once and shared by the progress rail and
-  // the step list so the two can never disagree about where you are. With a
-  // training plan active, the curriculum is the plan — the loop's flat step
-  // list is just the session's activity log.
-  const planSteps = activePlan
-    ? curriculumSteps(activePlan)
-    : toPlanSteps({
-        completedSteps,
-        // The step log runs parallel to completedSteps and carries the times.
-        completedAt: stepLog.map((e) => e.at),
-        currentInstruction: instruction,
-        upcomingSteps,
-        done,
-      });
+  // the step list so the two can never disagree about where you are.
+  const planSteps = toPlanSteps({
+    completedSteps,
+    // The step log runs parallel to completedSteps and carries the times.
+    completedAt: stepLog.map((e) => e.at),
+    currentInstruction: instruction,
+    upcomingSteps,
+    done,
+  });
 
   useEffect(() => { void loadSettings(); }, [loadSettings]);
 
@@ -246,12 +209,6 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, [showPeek]);
 
-  // A new instruction means the user kept working — clear any stale
-  // goal-evaluation verdict card.
-  useEffect(() => {
-    setEvalResult(null);
-  }, [instruction]);
-
   async function toggleCollapsed() {
     const next = !collapsed;
     if (next) {
@@ -294,11 +251,9 @@ export default function App() {
       return;
     }
     reset();
-    setMode("coach");
     useSession.getState().loadChat(chatToSession(record));
     useSession.getState().setSessionId(record.id);
     const now = Date.now();
-    sessionStartedAtRef.current = now;
     chatBaseRef.current = {
       createdAt: record.createdAt,
       title: record.title,
@@ -325,25 +280,17 @@ export default function App() {
     setStatus(record.state === "done" ? "waiting" : "watching");
   }
 
-  function startSession(g: string, clarifications: Clarification[] = [], planSteps: string[] = []) {
+  function startSession(g: string) {
     if (!keyStatus.anthropic) { setView("settings"); return; }
-    const ctx = clarifications
-      .filter((c) => c.answer.trim())
-      .map((c) => `Q: ${c.question}\nA: ${c.answer}`)
-      .join("\n\n");
     reset();
-    // One front door: there is no mode to pick any more. Every goal goes to
-    // the same coach, which decides for itself how to help.
-    setMode("coach");
-    if (ctx) useSession.getState().setClarificationContext(ctx);
-    if (planSteps.length > 0) useSession.getState().setUpcomingSteps(planSteps);
+    // One front door: every goal goes to the same coach, which decides for
+    // itself how to help.
     setGoal(g);
     // Every goal is a chat. Mint its id up front so the first autosave, and
     // anything the coach learns along the way, can be attributed to it even
     // if the chat is never cleanly left.
     const id = `chat_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
     useSession.getState().setSessionId(id);
-    sessionStartedAtRef.current = Date.now();
     chatBaseRef.current = {
       createdAt: Date.now(),
       title: titleFromGoal(g),
@@ -351,8 +298,8 @@ export default function App() {
       costUsd: 0,
       claudeCalls: 0,
     };
-    // Everything between submitting the goal and this line is setup the user
-    // sat through (questions, plan building) before the coach could start.
+    // Everything between submitting the goal and this line is time the user
+    // waited before the coach could start.
     const setup = sinceAsk(Date.now());
     if (setup?.kind === "goal") {
       api().log(`[timing] session started ${setup.ms}ms after goal`);
@@ -360,8 +307,8 @@ export default function App() {
 
     recallMemoryFor(g, id);
     appendTurn({ role: "user", content: `Goal: ${g}`, timestamp: Date.now() });
-    // Arm the pacing clocks: the plan overview just spoke, and "now" is the
-    // baseline for screen stillness. Without these the stall check-in ladder
+    // Arm the pacing clocks: "now" is the baseline for screen stillness and
+    // for the last time anything was said. Without these the stall check-in ladder
     // never fires before the first instruction — if the screen never changes
     // (e.g. capture is watching the wrong monitor) the app would stay silent
     // forever instead of asking what's going on.
@@ -372,86 +319,11 @@ export default function App() {
     // there's nothing to toggle here — the sidebar is already in place.
   }
 
-  /**
-   * Training: start a session against a persisted curriculum (fresh from the
-   * review screen or resumed from the library). The plan record — not the
-   * session — is the unit of long-term progress here.
-   */
-  function startTrainingSession(plan: TrainingPlan) {
-    if (!keyStatus.anthropic) { setView("settings"); return; }
-    reset();
-    setMode("training");
-    const now = Date.now();
-    const started = beginRun(plan, now);
-    useSession.getState().setActivePlan(started);
-    void api().plans.save(started);
-    journaledRef.current = false;
-    // Resuming into a module that was never detailed (the mid-session call
-    // failed, or the app closed first): write it now, in the background — the
-    // context block re-resolves when it lands.
-    const module = currentModule(started);
-    if (module && !module.detailed) {
-      void detailModuleInBackground(started, started.cursor.module, (m) => api().log(m));
-    }
-    setGoal(plan.goal);
-    const id = `sess_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
-    useSession.getState().setSessionId(id);
-    sessionStartedAtRef.current = now;
-    void api()
-      .memory.recall(plan.goal)
-      .then(({ text, facts }) => {
-        if (!text) return;
-        if (useSession.getState().sessionId !== id) return;
-        useSession.getState().setRecalledMemory(text);
-        api().log(`[memory] applied ${facts.length} recalled fact(s)`);
-      })
-      .catch(() => {
-        // Memory is never load-bearing.
-      });
-    appendTurn({ role: "user", content: `Goal: ${plan.goal}`, timestamp: now });
-    useSession.getState().setLastSpokeAt(now);
-    useSession.getState().setLastScreenChangeAt(now);
-    setStatus("watching");
-  }
-
-  // Session-end bookkeeping runs exactly once per training session — stop and
-  // quit can both reach it.
-  const journaledRef = useRef(true);
-
-  /**
-   * Overwrite whereWeLeftOff and append the journal entry — the mechanical
-   * memory a future session orients from. No API calls.
-   */
-  const finalizeTrainingPlan = useCallback(() => {
-    if (journaledRef.current) return;
-    const s = useSession.getState();
-    const plan = s.activePlan;
-    if (!plan) return;
-    journaledRef.current = true;
-    const now = Date.now();
-    const task = currentTask(plan);
-    const module = currentModule(plan);
-    let next: TrainingPlan = {
-      ...plan,
-      whereWeLeftOff: buildWhereWeLeftOff(plan, s.completedSteps, now),
-      updatedAt: now,
-    };
-    const note =
-      `${new Date(now).toISOString().slice(0, 10)}: module ${plan.cursor.module + 1} ` +
-      `"${module?.title ?? "?"}", task "${task?.title ?? "?"}" — ` +
-      `${s.completedSteps.length} on-screen action(s) recorded.`;
-    next = appendJournal(next, s.sessionId ?? "", note, now);
-    void api().plans.save(next);
-  }, []);
-
   function pause() {
     cancelTts();
-    useSession.getState().setPauseReason("user");
     setStatus("paused");
   }
   function resume() {
-    useSession.getState().setPauseReason(null);
-    useSession.getState().setResearchQuery(null);
     useSession.getState().setLastClaudeCallAt(null);
     setStatus("watching");
   }
@@ -508,67 +380,28 @@ export default function App() {
   /** Back to the chat list. Nothing is lost: the chat is saved as it stands. */
   function leaveChat() {
     cancelTts();
-    finalizeTrainingPlan();
     void persistChat();
     reset();
     chatBaseRef.current = null;
     setShowPeek(false);
-    setEvalResult(null);
     setPlanOpen(false);
     // Stay docked — the sidebar is the persistent home, not a per-chat
     // takeover. The user leaves docked mode via the header/Settings toggle.
   }
 
-  async function markDone() {
-    if (!goal || !mode) return;
-    cancelTts();
-    setEvalResult(null);
-    setStatus("evaluating");
-    // If the IPC call itself rejects (not just returns an error envelope),
-    // the session must not stay parked in "evaluating" — nothing else moves
-    // it, the loop doesn't tick there, and the Done button is hidden.
-    let next: SessionStatus = "watching";
-    try {
-      const s = useSession.getState();
-      const result = await api().claude.evaluateGoal({
-        mode,
-        goal,
-        completedSteps: s.completedSteps,
-        conversation: s.conversation,
-        frames: s.frames.slice(-2),
-      });
-      if (!("__error" in result)) {
-        setEvalResult(result);
-        next = "waiting";
-      }
-    } catch (err) {
-      api().log(`[eval] FAILED: ${err instanceof Error ? err.message : String(err)}`);
-    } finally {
-      if (useSession.getState().status === "evaluating") setStatus(next);
-    }
-  }
-
   function submitFollowUp(text: string) {
     cancelTts();
     markAsk("followup", Date.now());
-    setEvalResult(null);
     appendTurn({ role: "user", content: text, timestamp: Date.now() });
     useSession.getState().setPendingFollowUp(text);
     useSession.getState().setLastClaudeCallAt(null);
     if (status === "thinking") return;
-    if (
-      status === "paused" ||
-      status === "waiting" ||
-      status === "error" ||
-      status === "researching"
-    ) {
+    if (status === "paused" || status === "waiting" || status === "error") {
       // A follow-up after "done" means the session is live again. `done` was
-      // a one-way latch: nothing cleared it, so after one premature done the
-      // training buttons stayed hidden and every later instruction rendered
-      // inside the "Task complete" card for the rest of the session.
+      // a one-way latch: nothing cleared it, so after one premature done every
+      // later instruction rendered inside the "Task complete" card for the
+      // rest of the session.
       if (status === "waiting") useSession.getState().setDone(false);
-      useSession.getState().setPauseReason(null);
-      useSession.getState().setResearchQuery(null);
       setStatus("watching");
     }
   }
@@ -589,7 +422,7 @@ export default function App() {
     void patchSettings({ ttsEnabled: next });
   }
 
-  const showSpinner = status === "thinking" || status === "researching" || status === "clarifying";
+  const showSpinner = status === "thinking";
 
   // Troubleshooting overrides the ambient status while the session is live —
   // the user should see the coach has switched from guiding to fixing.
@@ -692,7 +525,6 @@ export default function App() {
           onConfirm={() => {
             // Save before the process goes away — quitting mid-session is the
             // most common way a session actually ends.
-            finalizeTrainingPlan();
             void persistChat().finally(() => {
               void api().app.quit();
             });
@@ -705,7 +537,7 @@ export default function App() {
       {showPeek && hasFrame && <PeekOverlay onClose={() => setShowPeek(false)} />}
 
       {/* Content area */}
-      {(!mode || !goal) ? (
+      {!goal ? (
         <div className="flex flex-1 flex-col gap-2.5 overflow-y-auto p-3 pt-2 sl-scroll">
           <Home
             onStart={(g) => startSession(g)}
@@ -719,7 +551,7 @@ export default function App() {
            conversation instead of burying it. */
         <div className="flex flex-1 flex-col" style={{ minHeight: 0 }}>
           <ProgressRail
-            label={MODE_META[mode].goalLabel}
+            label="Goal"
             goal={goal}
             steps={planSteps}
             open={planOpen}
@@ -729,13 +561,7 @@ export default function App() {
 
           {planOpen && (
             <>
-              {activePlan ? (
-                <div style={{ flexShrink: 0, padding: "8px 12px", borderBottom: `1px solid ${lt(0.08)}` }}>
-                  <CurriculumOutline plan={activePlan} />
-                </div>
-              ) : (
-                <PlanList steps={planSteps} />
-              )}
+              <PlanList steps={planSteps} />
               <div style={{ flexShrink: 0, padding: "8px 16px 10px", borderBottom: `1px solid ${lt(0.08)}` }}>
                 <ContextPanel
                   fileNames={attachedFileNames}
@@ -763,7 +589,6 @@ export default function App() {
                 status={status}
                 done={done}
                 error={error}
-                researchQuery={researchQuery}
                 activeTool={activeTool}
                 troubleshooting={troubleshooting}
                 onStepDone={
@@ -781,18 +606,9 @@ export default function App() {
             {stance === "watch" && (
               <div style={{ marginTop: 8 }}>
                 <TrainingActions
-                  busy={status === "thinking" || status === "evaluating"}
+                  busy={status === "thinking"}
                   onCheckWork={() => submitFollowUp("Check my work")}
                   onStuck={() => submitFollowUp("I'm stuck")}
-                />
-              </div>
-            )}
-            {evalResult && (
-              <div style={{ marginTop: 8 }}>
-                <EvalResultCard
-                  achieved={evalResult.achieved}
-                  verdict={evalResult.verdict}
-                  onDismiss={() => setEvalResult(null)}
                 />
               </div>
             )}
@@ -801,8 +617,7 @@ export default function App() {
 
           <div className="px-3 pb-2 pt-1" style={{ flexShrink: 0 }}>
             <Composer
-              isThinking={status === "thinking" || status === "evaluating"}
-              mode={mode}
+              isThinking={status === "thinking"}
               onSubmit={submitFollowUp}
               onStartTalking={startTalking}
               onStopTalking={stopTalking}
@@ -827,7 +642,6 @@ export default function App() {
             onToggleVoice={toggleVoice}
             onAttach={attachContext}
             onPeek={() => setShowPeek((v) => !v)}
-            onMarkDone={() => void markDone()}
           />
         </>
       )}
@@ -1075,56 +889,6 @@ function TrainingActions({
   );
 }
 
-/* ── Evaluation result card ── */
-
-function EvalResultCard({
-  achieved,
-  verdict,
-  onDismiss,
-}: {
-  achieved: boolean;
-  verdict: string;
-  onDismiss(): void;
-}) {
-  const T = useTheme();
-  return (
-    <div style={{
-      borderRadius: 11,
-      padding: "10px 14px",
-      background: achieved ? "rgba(143,203,102,0.08)" : "rgba(239,68,68,0.07)",
-      border: `1px solid ${achieved ? "rgba(143,203,102,0.25)" : "rgba(239,68,68,0.25)"}`,
-      display: "flex", gap: 10, alignItems: "flex-start",
-    }}>
-      <span style={{ fontSize: 16, flexShrink: 0, marginTop: 1 }}>
-        {achieved ? "✓" : "✗"}
-      </span>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <p style={{ margin: "0 0 3px", fontSize: 11, fontWeight: 700, color: achieved ? T.green : "#DB3B3B", letterSpacing: "0.04em", textTransform: "uppercase" }}>
-          {achieved ? "Goal achieved" : "Not quite done"}
-        </p>
-        <p style={{ margin: 0, fontSize: 12, lineHeight: 1.5, color: T.ink2 }}>{verdict}</p>
-      </div>
-      <button
-        type="button"
-        className="no-drag"
-        onClick={onDismiss}
-        title="Dismiss"
-        style={{
-          flexShrink: 0, width: 24, height: 24,
-          display: "grid", placeItems: "center",
-          border: 0, borderRadius: 7,
-          background: "transparent", color: T.ink3,
-          cursor: "pointer",
-        }}
-      >
-        <CloseIcon />
-      </button>
-    </div>
-  );
-}
-
-/* ── Integrated panel header ── */
-
 function PanelHeader({
   status,
   statusText,
@@ -1171,7 +935,7 @@ function PanelHeader({
   // the assistant is doing — breathing while it watches, sweeping while it
   // thinks, quiet otherwise.
   const lineStyle: React.CSSProperties =
-    status === "thinking" || status === "researching" || status === "evaluating"
+    status === "thinking"
       ? {
           background: `linear-gradient(90deg, transparent, ${T.accent} 35%, ${T.accentSoft} 50%, ${T.accent} 65%, transparent)`,
           backgroundSize: "60% 100%",
@@ -1361,7 +1125,6 @@ function ControlBar({
   onToggleVoice,
   onAttach,
   onPeek,
-  onMarkDone,
 }: {
   status: SessionStatus;
   ttsEnabled: boolean;
@@ -1375,7 +1138,6 @@ function ControlBar({
   onToggleVoice(): void;
   onAttach(): void;
   onPeek(): void;
-  onMarkDone(): void;
 }) {
   const T   = useTheme();
   const isPaused = status === "paused";
@@ -1473,24 +1235,6 @@ function ControlBar({
       {/* Live pill doubling as the spend meter — the cost of watching someone's
           screen should be visible while it's happening, not after the fact. */}
       <CostPill />
-
-      {/* "I'm done — check my work" */}
-      {(status === "watching" || status === "waiting") && (
-        <button
-          className="no-drag"
-          onClick={onMarkDone}
-          title="I'm done — let the AI check my work"
-          style={{
-            height: 30, border: `1px solid ${lt(0.12)}`,
-            borderRadius: 9, cursor: "pointer",
-            background: "transparent", color: T.ink2,
-            fontSize: 10.5, fontWeight: 600, padding: "0 10px",
-            letterSpacing: "0.02em", flexShrink: 0,
-          }}
-        >
-          Done ✓
-        </button>
-      )}
 
       {/* Leave. Not a stop: the chat is saved as it stands and can be
           reopened from the list, so there is nothing to confirm. */}

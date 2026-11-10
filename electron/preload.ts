@@ -2,19 +2,13 @@ import { contextBridge, ipcRenderer } from "electron";
 import type {
   ApiKeyStatus,
   AgentDescriptor,
-  AppMode,
-  Clarification,
   CaptureFrame,
   CaptureRegion,
   CaptureTarget,
-  ClarificationResponse,
-  ConversationTurn,
   DockState,
   ElevenVoiceOption,
-  GoalEvaluation,
   HighlightRect,
   InstructionResponse,
-  SessionPlan,
   Settings,
   TtsEngine,
   UploadedContext,
@@ -24,11 +18,7 @@ import type {
   ChatRecord,
   ChatSummary,
   MemoryKind,
-  SessionRecord,
-  SessionSummary,
-  TrainingPlan,
 } from "./db/schema";
-import type { CurriculumOutline, ModuleTaskDetail } from "./training-plan";
 import type { NextInstructionArgs } from "./claude";
 
 export interface SightLineApi {
@@ -52,10 +42,10 @@ export interface SightLineApi {
   };
   agent: {
     /**
-     * Ask the agent for this mode how it wants to be ticked. Called once at
-     * session start; the returned LoopPolicy drives the renderer's loop.
+     * Ask the coach how it wants to be ticked. Called once per session; the
+     * returned LoopPolicy drives the renderer's loop.
      */
-    describe(args: { mode: AppMode }): Promise<AgentDescriptor>;
+    describe(): Promise<AgentDescriptor>;
   };
   claude: {
     nextInstruction(args: NextInstructionArgs): Promise<
@@ -64,41 +54,12 @@ export interface SightLineApi {
       | { __error: "rate_limited"; retryAfterSec: number }
       | { __error: "request_failed"; message: string }
     >;
-    getClarifications(args: { mode: AppMode; goal: string }): Promise<
-      ClarificationResponse | { __error: string; message?: string }
-    >;
-    getSessionPlan(args: {
-      mode: AppMode;
-      goal: string;
-      clarifications: Clarification[];
-      screenshot?: string;
-    }): Promise<SessionPlan | { __error: string; message?: string }>;
-    // Training mode: the full curriculum outline (modules + draft task
-    // titles). Null when generation failed — keep the user at the review step.
-    getCurriculumOutline(args: {
-      goal: string;
-      clarifications: Clarification[];
-      screenshot?: string;
-    }): Promise<CurriculumOutline | null | { __error: string; message?: string }>;
-    // Training mode: objectives + done-criteria for one module, written with
-    // the plan's journal in view. Null on failure — retry at next session start.
-    detailModule(args: {
-      plan: TrainingPlan;
-      moduleIndex: number;
-    }): Promise<ModuleTaskDetail[] | null | { __error: string; message?: string }>;
     // Fires once per completed sentence of the instruction while Claude's
     // response is still streaming — lets TTS start on the first sentence.
     onSpeechChunk(cb: (chunk: { text: string; index: number }) => void): () => void;
     // Fires when the agent starts a mid-turn tool (a web search, a zoomed
     // read). `detail` is the query or reason, for display.
     onToolStart(cb: (ev: { tool: string; detail: string }) => void): () => void;
-    evaluateGoal(args: {
-      mode: AppMode;
-      goal: string;
-      completedSteps: string[];
-      conversation: ConversationTurn[];
-      frames: CaptureFrame[];
-    }): Promise<GoalEvaluation | { __error: string; message?: string }>;
   };
   whisper: {
     transcribe(args: {
@@ -126,9 +87,6 @@ export interface SightLineApi {
     >;
     // ElevenLabs voices available on the configured account, for the picker.
     listVoices(): Promise<ElevenVoiceOption[]>;
-  };
-  research: {
-    search(query: string): Promise<{ text: string } | { __error: string; message?: string }>;
   };
   overlay: {
     setAdjust(adjust: boolean): Promise<void>;
@@ -167,12 +125,6 @@ export interface SightLineApi {
     save(record: ChatRecord): Promise<{ saved: boolean }>;
     delete(id: string): Promise<{ deleted: boolean }>;
   };
-  history: {
-    list(): Promise<SessionSummary[]>;
-    get(id: string): Promise<SessionRecord | null>;
-    save(record: SessionRecord): Promise<{ saved: boolean }>;
-    delete(id: string): Promise<{ deleted: boolean }>;
-  };
   memory: {
     // Rank what's known against this goal. Returns the prompt text to hand
     // the agent plus the facts themselves, so the UI can show what it recalled.
@@ -184,22 +136,6 @@ export interface SightLineApi {
     ): Promise<{ added: boolean; reason?: "duplicate"; fact?: MemoryFact }>;
     list(): Promise<MemoryFact[]>;
     forget(id: string): Promise<{ forgotten: boolean }>;
-  };
-  plans: {
-    list(): Promise<TrainingPlan[]>;
-    save(plan: TrainingPlan): Promise<{ saved: boolean }>;
-    delete(id: string): Promise<{ deleted: boolean }>;
-    // One stored frame per "Check my work" press — the user-approved
-    // exception to "screenshots never persist". Deleted with the plan.
-    saveFrame(args: {
-      planId: string;
-      frameId: string;
-      dataUrl: string;
-    }): Promise<{ file: string | null }>;
-    loadFrame(args: {
-      planId: string;
-      frameFile: string;
-    }): Promise<{ dataUrl: string | null }>;
   };
   app: {
     quit(): Promise<void>;
@@ -232,18 +168,11 @@ const api: SightLineApi = {
     pickContext: () => ipcRenderer.invoke("files:pick-context"),
   },
   agent: {
-    describe: (args) => ipcRenderer.invoke("agent:describe", args),
+    describe: () => ipcRenderer.invoke("agent:describe"),
   },
   claude: {
     nextInstruction: (args) =>
       ipcRenderer.invoke("claude:next-instruction", args),
-    getClarifications: (args) =>
-      ipcRenderer.invoke("claude:get-clarifications", args),
-    getSessionPlan: (args) =>
-      ipcRenderer.invoke("claude:get-session-plan", args),
-    getCurriculumOutline: (args) =>
-      ipcRenderer.invoke("claude:curriculum-outline", args),
-    detailModule: (args) => ipcRenderer.invoke("claude:detail-module", args),
     onSpeechChunk: (cb) => {
       const handler = (
         _: Electron.IpcRendererEvent,
@@ -260,7 +189,6 @@ const api: SightLineApi = {
       ipcRenderer.on("claude:tool-start", handler);
       return () => ipcRenderer.removeListener("claude:tool-start", handler);
     },
-    evaluateGoal: (args) => ipcRenderer.invoke("claude:evaluate-goal", args),
   },
   whisper: {
     transcribe: (args) => ipcRenderer.invoke("whisper:transcribe", args),
@@ -280,9 +208,6 @@ const api: SightLineApi = {
     speak: (text, previousText) =>
       ipcRenderer.invoke("tts:speak", { text, previousText }),
     listVoices: () => ipcRenderer.invoke("tts:list-voices"),
-  },
-  research: {
-    search: (query) => ipcRenderer.invoke("research:search", { query }),
   },
   overlay: {
     setAdjust: (adjust) => ipcRenderer.invoke("overlay:set-adjust", { adjust }),
@@ -329,25 +254,12 @@ const api: SightLineApi = {
     save: (record) => ipcRenderer.invoke("chats:save", record),
     delete: (id) => ipcRenderer.invoke("chats:delete", { id }),
   },
-  history: {
-    list: () => ipcRenderer.invoke("history:list"),
-    get: (id) => ipcRenderer.invoke("history:get", { id }),
-    save: (record) => ipcRenderer.invoke("history:save", record),
-    delete: (id) => ipcRenderer.invoke("history:delete", { id }),
-  },
   memory: {
     recall: (goal) => ipcRenderer.invoke("memory:recall", { goal }),
     add: (kind, content, sessionId) =>
       ipcRenderer.invoke("memory:add", { kind, content, sessionId }),
     list: () => ipcRenderer.invoke("memory:list"),
     forget: (id) => ipcRenderer.invoke("memory:forget", { id }),
-  },
-  plans: {
-    list: () => ipcRenderer.invoke("plans:list"),
-    save: (plan) => ipcRenderer.invoke("plans:save", plan),
-    delete: (id) => ipcRenderer.invoke("plans:delete", { id }),
-    saveFrame: (args) => ipcRenderer.invoke("plans:save-frame", args),
-    loadFrame: (args) => ipcRenderer.invoke("plans:load-frame", args),
   },
   app: {
     quit: () => ipcRenderer.invoke("app:quit"),

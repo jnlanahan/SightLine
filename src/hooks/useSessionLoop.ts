@@ -19,10 +19,7 @@ import {
 import { useQuietPeriod } from "./useQuietPeriod";
 import { ensureAgentPolicy } from "../lib/agentPolicy";
 import { takeFirstWords } from "../lib/askClock";
-import { applyTrainingTurn, loadReferenceFrame } from "../lib/trainingProgress";
-import { trainingContextBlock } from "../../electron/training-plan";
-import { CHECK_MY_WORK_FOLLOW_UP } from "../../electron/types";
-import type { AppMode, Stance, StepPace } from "../lib/api";
+import type { Stance, StepPace } from "../lib/api";
 
 const RETRY_DELAY_MS = 10_000;
 
@@ -43,11 +40,11 @@ const CAPTURE_FAILURES_BEFORE_ERROR = 3;
 // The runner sends at most this many frames to the model (previous + latest).
 // Sending more across the bridge is pure IPC cost — each frame is a 1280 px
 // base64 JPEG — so the renderer slices before the call. The store's 5-frame
-// buffer still serves the peek overlay and goal evaluation.
+// buffer still serves the peek overlay.
 const FRAMES_PER_CALL = 2;
 
-// The polling cadence itself now belongs to each agent (electron/agents/*.ts
-// → Agent.loop), fetched once per session via agent:describe.
+// The polling cadence itself belongs to the coach (electron/agents/coach.ts
+// → Agent.loop / loopByStance), fetched once via agent:describe.
 //
 // What has NOT changed is why aggressive polling is safe: looking more often
 // is NOT the same as talking more often. The agent's most common turn by a
@@ -162,7 +159,6 @@ export function useSessionLoop(onNeedsApiKey: () => void) {
           log(
             `tick(${reason}) BLOCKED: session budget reached (${formatUsd(state.costUsd)} of ${formatUsd(budget.limitUsd)})`,
           );
-          useSession.getState().setPauseReason("budget");
           useSession.getState().setError(
             `Session budget reached (${formatUsd(state.costUsd)}). Raise the limit in Settings to keep going.`,
           );
@@ -172,7 +168,7 @@ export function useSessionLoop(onNeedsApiKey: () => void) {
 
         // The agent's cadence, fetched once per session. Without it we have no
         // basis for any timing decision below, so skip rather than guess.
-        const cfg = await ensureAgentPolicy(state.mode ?? "coach", state.stance);
+        const cfg = await ensureAgentPolicy(state.stance);
         if (!cfg) {
           log(`tick(${reason}) skipped: agent policy unavailable`);
           return;
@@ -192,9 +188,6 @@ export function useSessionLoop(onNeedsApiKey: () => void) {
           );
           return;
         }
-
-        // Teacher mode: only fire when the user has sent a follow-up message.
-        if (!cfg.requireScreenChange && !state.pendingFollowUp) return;
 
         // 1. Capture frame
         const displayId =
@@ -377,25 +370,9 @@ export function useSessionLoop(onNeedsApiKey: () => void) {
           `tick(${reason}) → Claude: ${gate.why} followUp=${followUp ? `"${followUp.slice(0, 40)}"` : "no"} stalled=${stalled} justStarted=${sessionJustStarted} stance=${s.stance}${resuming ? " resuming" : ""}`,
         );
 
-        // Training: the plan context rides every tick (byte-stable while the
-        // plan is unchanged); the previous-attempt frame rides only a
-        // check-my-work turn, where comparing attempts is the whole point.
-        const trainingContext = s.activePlan
-          ? trainingContextBlock(s.activePlan)
-          : undefined;
-        let referenceFrame: string | undefined;
-        if (
-          s.activePlan &&
-          followUp?.startsWith(CHECK_MY_WORK_FOLLOW_UP.slice(0, 15))
-        ) {
-          referenceFrame =
-            (await loadReferenceFrame(s.activePlan)) ?? undefined;
-        }
-
         const callStartedAt = Date.now();
 
         const result = await api().claude.nextInstruction({
-          mode: s.mode ?? "coach",
           stance: s.stance,
           goal: s.goal!,
           completedSteps: s.completedSteps,
@@ -403,12 +380,9 @@ export function useSessionLoop(onNeedsApiKey: () => void) {
           conversation: s.conversation,
           frames: s.frames.slice(-FRAMES_PER_CALL),
           followUp,
-          clarificationContext: s.clarificationContext,
           uploadedContext: s.uploadedContext,
           agentNotes: s.agentNotes,
           recalledMemory: s.recalledMemory,
-          trainingContext,
-          referenceFrame,
           lastExpectedResult: s.lastExpectedResult ?? undefined,
           secondsSinceScreenChange: Math.round(sinceChangeMs / 1000),
           secondsSinceLastSpoke: s.lastSpokeAt
@@ -514,13 +488,6 @@ export function useSessionLoop(onNeedsApiKey: () => void) {
 
         if (result.notes && result.notes.trim().length > 0) {
           useSession.getState().appendAgentNote(result.notes.trim());
-        }
-
-        // Training: a spoken check-my-work verdict (or a noticed mistake
-        // pattern) advances the persisted plan. Async and best-effort — the
-        // spoken feedback is already on its way to the user either way.
-        if (result.taskVerdict || result.mistakePattern) {
-          void applyTrainingTurn(result, log);
         }
 
         // A durable fact for FUTURE sessions. Persisted immediately rather
@@ -690,42 +657,6 @@ export function useSessionLoop(onNeedsApiKey: () => void) {
         // submitFollowUp resumes from it.
         const restingStatus = action === "done" ? "waiting" : "watching";
 
-        // Research signal — auto-fetch and resume without user intervention.
-        // (Legacy path: the live agents search mid-turn with a tool; this only
-        // fires for an agent without one.)
-        if (result.needsResearch && result.researchQuery) {
-          const query = result.researchQuery;
-          log(`research requested: "${query}"`);
-          useSession.getState().setResearchQuery(query);
-          useSession.getState().setStatus("researching");
-
-          void (async () => {
-            try {
-              const research = await api().research.search(query);
-              if (!("__error" in research) && research.text) {
-                const ctx = useSession.getState().clarificationContext ?? "";
-                const addition = `[Research: "${query}"]\n${research.text}`;
-                useSession
-                  .getState()
-                  .setClarificationContext(
-                    ctx ? `${ctx}\n\n${addition}` : addition,
-                  );
-              }
-            } catch (err) {
-              log(`research FAILED: ${err instanceof Error ? err.message : String(err)}`);
-            } finally {
-              // Whatever happened, the session must not stay parked in
-              // "researching" — nothing else would ever move it.
-              const live = useSession.getState();
-              if (live.sessionId === sessionId && live.status === "researching") {
-                useSession.getState().setStatus(restingStatus);
-              }
-            }
-          })();
-
-          return;
-        }
-
         useSession.getState().setStatus(restingStatus);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
@@ -817,14 +748,11 @@ export function useSessionLoop(onNeedsApiKey: () => void) {
 
           const s = useSession.getState();
           if (s.status !== "watching") break;
-          const cfg = await ensureAgentPolicy(s.mode ?? "coach", s.stance);
+          const cfg = await ensureAgentPolicy(s.stance);
           if (!cfg) {
             await sleep(POLICY_RETRY_MS);
             continue;
           }
-          // An agent with no auto-poll (teacher) exits the chain here — the
-          // follow-up watcher drives everything for it.
-          if (cfg.normalIntervalMs === 0) break;
 
           // After a long stretch with no screen change, slow the backstop.
           const sinceChangeMs = Date.now() - (s.lastScreenChangeAt ?? Date.now());
@@ -860,11 +788,10 @@ export function useSessionLoop(onNeedsApiKey: () => void) {
     };
   }, []);
 
-  // Fire a tick immediately whenever a follow-up is submitted, in every
-  // mode — a direct question shouldn't wait for the next poll. In teacher
-  // mode this is the ONLY trigger (the scheduled loop exits immediately,
-  // normalIntervalMs = 0). A follow-up submitted mid-"thinking" is picked up
-  // by the chain the moment that tick ends (see runChain).
+  // Fire a tick immediately whenever a follow-up is submitted, in either
+  // stance — a direct question shouldn't wait for the next poll. A follow-up
+  // submitted mid-"thinking" is picked up by the chain the moment that tick
+  // ends (see runChain).
   useEffect(() => {
     const unsub = useSession.subscribe((state, prev) => {
       if (state.pendingFollowUp === prev.pendingFollowUp) return;
@@ -894,27 +821,25 @@ export function useSessionLoop(onNeedsApiKey: () => void) {
   const [quietPeriodMs, setQuietPeriodMs] = useState(0);
   useEffect(() => {
     let cancelled = false;
-    const load = (mode: AppMode | null, stance: Stance) => {
-      // No mode means no session (reset() clears it on every stop/start).
-      // Describing a default agent here used to fire a spurious tech-support
-      // fetch on every session start and briefly arm its 1.5 s input trigger
-      // for a training session.
-      if (!mode) {
+    const load = (sessionId: string | null, stance: Stance) => {
+      // No open chat means nothing to react to (reset() clears the id when a
+      // chat is left), so the input trigger stays disarmed between chats.
+      if (!sessionId) {
         setQuietPeriodMs(0);
         return;
       }
-      void ensureAgentPolicy(mode, stance).then((policy) => {
+      void ensureAgentPolicy(stance).then((policy) => {
         if (cancelled) return;
-        // A slower describe for a previous mode or stance must not win the race.
+        // A slower describe for a previous chat or stance must not win the race.
         const live = useSession.getState();
-        if (live.mode !== mode || live.stance !== stance) return;
+        if (live.sessionId !== sessionId || live.stance !== stance) return;
         setQuietPeriodMs(policy?.quietPeriodMs ?? 0);
       });
     };
-    load(useSession.getState().mode, useSession.getState().stance);
+    load(useSession.getState().sessionId, useSession.getState().stance);
     const unsub = useSession.subscribe((state, prev) => {
-      if (state.mode !== prev.mode || state.stance !== prev.stance) {
-        load(state.mode, state.stance);
+      if (state.sessionId !== prev.sessionId || state.stance !== prev.stance) {
+        load(state.sessionId, state.stance);
       }
     });
     return () => {
@@ -924,8 +849,8 @@ export function useSessionLoop(onNeedsApiKey: () => void) {
   }, []);
 
   // Input trigger: wait for the agent's quiet period of silence after user
-  // activity, then fire a tick. An agent with quietPeriodMs=0 (training,
-  // teacher) never subscribes at all. Also skipped while the user is off on a
+  // activity, then fire a tick. A cadence with quietPeriodMs=0 (the watch
+  // stance) never subscribes at all. Also skipped while the user is off on a
   // digression — the backstop covers re-checking until they return.
   useQuietPeriod(quietPeriodMs, () => {
     const s = useSession.getState();

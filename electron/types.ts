@@ -1,11 +1,6 @@
 import type { TokenUsage } from "./usage";
 import type { MemoryKind } from "./db/schema";
 
-// "coach" is the one agent the app actually runs (electron/agents/coach.ts).
-// The other three are the pre-merge agents, unreachable from the UI and kept
-// only until the removal step of docs/ONE-COACH-PLAN.md.
-export type AppMode = "tech_support" | "training" | "teacher" | "coach";
-
 /**
  * How the coach is helping right now. "guide" walks the user through one step
  * at a time and speaks when a step is done; "watch" stays silent while they
@@ -25,7 +20,7 @@ export type Stance = "guide" | "watch";
 export interface LoopPolicy {
   /** Minimum time between model calls, stamped when the call is made. */
   minCallSpacingMs: number;
-  /** Backstop auto-poll interval. 0 = no auto-poll (teacher). */
+  /** Backstop auto-poll interval. */
   normalIntervalMs: number;
   /** Backstop once the screen has been still a long time. */
   slowIntervalMs: number;
@@ -34,15 +29,15 @@ export interface LoopPolicy {
   /** Whether ticks may proceed with no screen change so the agent can check in. */
   stallEnabled: boolean;
   /**
-   * True: skip the call unless the screen changed or a follow-up is pending.
-   * False (teacher): fire ONLY when a follow-up is pending.
+   * Skip the call unless the screen changed or a follow-up is pending. True
+   * for both coach stances; false is still understood by the loop gate.
    */
   requireScreenChange: boolean;
 }
 
 /** What `agent:describe` returns — everything the renderer needs to run a loop. */
 export interface AgentDescriptor {
-  id: AppMode;
+  id: string;
   loop: LoopPolicy;
   /** Per-stance cadence, for an agent that has stances. Falls back to `loop`. */
   loopByStance?: Record<Stance, LoopPolicy>;
@@ -62,10 +57,7 @@ export type SessionStatus =
   | "thinking"
   | "waiting"
   | "paused"
-  | "error"
-  | "clarifying"
-  | "researching"
-  | "evaluating";
+  | "error";
 
 export interface CompletedStep {
   index: number;
@@ -99,8 +91,8 @@ export interface CaptureRegion {
   height: number;
 }
 
-// Pacing decision Claude makes each tick in tech_support mode. Modes that
-// don't emit an action default to "instruct" (or "done" when done=true).
+// Pacing decision Claude makes each look. A reply that names no action
+// defaults to "instruct" (or "done" when done=true).
 export type InstructionAction =
   | "instruct"
   | "wait"
@@ -141,14 +133,7 @@ export interface InstructionResponse {
   // The stance the coach asked to be in from now on. Null/absent = unchanged.
   stance?: Stance | null;
   done: boolean;
-  needsResearch: boolean;
-  researchQuery: string;
   notes: string;
-  // Training mode: the check-my-work verdict, set only on a turn where the
-  // user pressed the button. Null everywhere else.
-  taskVerdict: "pass" | "not_yet" | null;
-  // Training mode: a recurring mistake kind the coach noticed. Empty when none.
-  mistakePattern: string;
   highlight: HighlightRect | null;
   // A fact worth carrying into FUTURE sessions, distinct from "notes" (which
   // is a scratchpad for this session only). Null on most turns.
@@ -166,38 +151,6 @@ export interface InstructionResponse {
 export interface UploadedContext {
   name: string;
   text: string;
-}
-
-// Training mode button presses travel through the normal follow-up path (it
-// already bypasses call spacing and forbids a silent answer). The bracketed
-// markers are how the agent tells a button press from a typed question — the
-// review skill's prompt matches on them.
-export const CHECK_MY_WORK_FOLLOW_UP =
-  "[check-my-work] I think this task is done — check my work.";
-export const STUCK_FOLLOW_UP = "[stuck] I'm stuck — help me get unstuck.";
-
-export interface Clarification {
-  question: string;
-  answer: string;
-}
-
-export interface ClarificationQuestion {
-  question: string;
-  options: string[];
-}
-
-export interface ClarificationResponse {
-  questions: ClarificationQuestion[];
-}
-
-export interface SessionPlan {
-  overview: string;
-  steps: string[];
-}
-
-export interface GoalEvaluation {
-  achieved: boolean;
-  verdict: string;
 }
 
 export type TtsVoiceId =
@@ -342,53 +295,3 @@ export type TtsPlaybackEngine = TtsEngine | "system" | "none";
 // unlikely to collide with what the user is typing in the app they're being
 // coached through.
 export type PushToTalkKey = "ctrl" | "alt" | "f8" | "f9" | "none";
-
-export type IpcChannel =
-  | "settings:get"
-  | "settings:set"
-  | "keys:get-status"
-  | "keys:set"
-  | "keys:clear"
-  | "displays:list"
-  | "capture:once"
-  | "capture:list-targets"
-  | "capture:recalibrate"
-  | "window:minimize"
-  | "files:pick-context"
-  | "claude:next-instruction"
-  | "claude:get-session-plan"
-  | "agent:describe"
-  | "whisper:transcribe"
-  | "window:set-opacity"
-  | "window:set-ignore-mouse"
-  | "window:set-collapsed"
-  | "window:open-external"
-  | "app:quit"
-  | "overlay:show-glow"
-  | "overlay:hide-glow"
-  | "overlay:set-adjust"
-  | "overlay:flash-highlight"
-  | "logs:open"
-  | "overlay:commit-region"
-  | "overlay:cancel-adjust"
-  | "tts:speak"
-  | "session:log"
-  | "claude:evaluate-goal"
-  | "dock:set"
-  | "dock:resize"
-  | "dock:state"
-  | "tts:list-voices"
-  | "voice:ptt"
-  | "history:list"
-  | "history:get"
-  | "history:save"
-  | "history:delete"
-  | "memory:list"
-  | "memory:forget"
-  | "plans:list"
-  | "plans:save"
-  | "plans:delete"
-  | "plans:save-frame"
-  | "plans:load-frame"
-  | "claude:curriculum-outline"
-  | "claude:detail-module";

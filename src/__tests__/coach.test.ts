@@ -19,7 +19,6 @@ import { policyFor } from "../lib/agentPolicy";
 
 function ctx(overrides: Partial<TurnContext> = {}): TurnContext {
   return {
-    mode: "coach",
     goal: "Teach me pivot tables",
     completedSteps: [],
     upcomingSteps: [],
@@ -31,8 +30,7 @@ function ctx(overrides: Partial<TurnContext> = {}): TurnContext {
 
 describe("the coach is the agent the app runs", () => {
   it("is what every session resolves to", () => {
-    expect(getAgent("coach")).toBe(coachAgent);
-    expect(getAgent(null)).toBe(coachAgent);
+    expect(getAgent()).toBe(coachAgent);
   });
 });
 
@@ -159,8 +157,10 @@ describe("the coach's rules", () => {
   });
 
   it("has no setup prompts — the first look replaces the setup calls", () => {
-    expect(coachAgent.clarificationPrompt).toBeUndefined();
-    expect(coachAgent.planPrompt).toBeUndefined();
+    // The fields are gone from the Agent type; this also catches one being
+    // added back on the coach object itself.
+    expect("clarificationPrompt" in coachAgent).toBe(false);
+    expect("planPrompt" in coachAgent).toBe(false);
   });
 });
 
@@ -188,14 +188,14 @@ describe("the two cadences", () => {
   });
 
   it("both cross the bridge in one descriptor, as plain data", () => {
-    const descriptor = describeAgent("coach");
+    const descriptor = describeAgent();
     expect(descriptor.loopByStance).toEqual(COACH_LOOPS);
     expect(() => JSON.stringify(descriptor)).not.toThrow();
     expect(JSON.parse(JSON.stringify(descriptor))).toEqual(descriptor);
   });
 
   it("the renderer picks by stance, and falls back for an agent without stances", () => {
-    const descriptor = describeAgent("coach");
+    const descriptor = describeAgent();
     expect(policyFor(descriptor, "guide")).toEqual(COACH_LOOPS.guide);
     expect(policyFor(descriptor, "watch")).toEqual(COACH_LOOPS.watch);
     const single = { loop: COACH_LOOPS.guide };

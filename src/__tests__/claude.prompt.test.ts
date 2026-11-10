@@ -1,16 +1,15 @@
 import { describe, it, expect } from "vitest";
 
-import { techSupportAgent } from "../../electron/agents/tech-support";
+import { coachAgent } from "../../electron/agents/coach";
 import { speechSkill } from "../../electron/agents/skills/speech";
 import { systemPrompt } from "../../electron/agents/harness/schema";
 
 // Load-bearing prompt phrases, locked so removing one is a deliberate
-// decision rather than a side effect. The voice rules are now the `speech`
-// skill (shared by all three agents); the never-dead-air rules are the tech
-// support agent's situational guidance.
+// decision rather than a side effect. The voice rules are the `speech` skill;
+// the never-dead-air rules are the coach's situational guidance.
 
 const voiceRules = speechSkill.systemFragment ?? "";
-const techSupportPrompt = systemPrompt(techSupportAgent);
+const coachPrompt = systemPrompt(coachAgent);
 
 describe("shared voice rules", () => {
   it("contains 'One action per response'", () => {
@@ -29,33 +28,36 @@ describe("shared voice rules", () => {
     expect(voiceRules).toContain("One idea per sentence");
   });
 
-  it("reaches every agent, not just tech support", () => {
-    // The voice is the product. A mode that silently lost these rules would
+  it("reaches the coach's prompt", () => {
+    // The voice is the product. An agent that silently lost these rules would
     // still work and would sound like a different app.
-    expect(techSupportPrompt).toContain("One idea per sentence");
+    expect(coachPrompt).toContain("One idea per sentence");
   });
 });
 
-describe("tech support agent — pacing", () => {
+describe("coach — pacing", () => {
   it("contains pacing instruction", () => {
-    expect(techSupportPrompt).toContain("one concrete step at a time");
+    expect(coachPrompt).toContain("one concrete step at a time");
   });
 });
 
-describe("tech support agent — never-dead-air rules", () => {
+describe("coach — never-dead-air rules", () => {
   it("first turn forces a spoken first step", () => {
-    const { sessionStart } = techSupportAgent.guidance;
-    expect(sessionStart).toContain("The session just started");
+    const { sessionStart } = coachAgent.guidance;
+    // (The tech support agent's guidance opened "The session just started";
+    // the coach's opens "This is your first look". The rules below are what
+    // make the first turn speak, and both agents carry them.)
+    expect(sessionStart).toContain("This is your first look");
     expect(sessionStart).toContain("Do not call wait");
     expect(sessionStart).toContain("do not set digression=true");
   });
 
   it("stall check-in mentions the wrong-monitor possibility", () => {
-    expect(techSupportAgent.guidance.stalled).toContain("which screen or monitor");
+    expect(coachAgent.guidance.stalled).toContain("which screen or monitor");
   });
 
   it("stall guidance checks for completed steps before waiting", () => {
-    expect(techSupportAgent.guidance.stalled).toContain(
+    expect(coachAgent.guidance.stalled).toContain(
       "if the user already completed that step, give the NEXT step now",
     );
   });

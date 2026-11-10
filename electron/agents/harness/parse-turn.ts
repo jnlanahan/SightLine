@@ -2,7 +2,7 @@
 // already consumes.
 //
 // The response shape is deliberately unchanged from the pre-harness JSON era:
-// everything downstream (glow highlight, memory writes, research, notes, the
+// everything downstream (glow highlight, memory writes, notes, the
 // stall ladder's pace scaling) keeps working untouched. What changed is where
 // the fields come from — a validated tool input instead of a hand-extracted
 // JSON blob.
@@ -15,7 +15,6 @@ import { SAY_TOOL } from "./types";
 
 const VALID_ACTIONS = new Set(["instruct", "acknowledge", "check_in", "done"]);
 const VALID_PACES = new Set(["quick", "medium", "long"]);
-const VALID_VERDICTS = new Set(["pass", "not_yet"]);
 const VALID_STANCES = new Set(["guide", "watch"]);
 
 function str(v: unknown): string {
@@ -91,19 +90,7 @@ export function parseTerminalTool(
       ? (str(input.stance) as InstructionResponse["stance"])
       : null,
     done: action === "done",
-    // Research is a real tool now. These two fields survive only so the
-    // renderer's legacy research path stays a working fallback for an agent
-    // whose skill set has no search_web tool.
-    needsResearch: Boolean(input.needsResearch),
-    researchQuery: str(input.researchQuery),
     notes: str(input.notes),
-    // Only a spoken turn can grade — a wait carrying a verdict would advance
-    // the plan without the user ever hearing why.
-    taskVerdict:
-      speaking && VALID_VERDICTS.has(str(input.task_verdict))
-        ? (str(input.task_verdict) as InstructionResponse["taskVerdict"])
-        : null,
-    mistakePattern: speaking ? str(input.mistake_pattern) : "",
     highlight: action === "instruct" ? parseHighlight(input.highlight) : null,
     remember: parseRemember(input.remember),
   };
