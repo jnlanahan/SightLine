@@ -44,9 +44,9 @@ const ACTION_FIELD: OutputField = {
   required: true,
   schema: {
     type: "string",
-    enum: ["instruct", "acknowledge", "check_in", "done"],
+    enum: ["instruct", "acknowledge", "check_in", "done", "confirm_goal"],
     description:
-      "What kind of speech this is. instruct = the next concrete step. acknowledge = a short warm line for real progress that needs no direction. check_in = one friendly question after a long silence. done = the goal is visibly achieved.",
+      "What kind of speech this is. instruct = the next concrete step. acknowledge = a short warm line for real progress that needs no direction. check_in = one friendly question after a long silence. done = the goal is visibly achieved. confirm_goal = saying the goal back and asking if it is right, before the first step.",
   },
 };
 

@@ -151,6 +151,15 @@ export function useSessionLoop(onNeedsApiKey: () => void) {
           return;
         }
 
+        // The coach has said the goal back and is waiting on a yes. Another
+        // look before the user answers could only produce a step nobody
+        // agreed to. Their answer arrives as a follow-up; reopening the chat
+        // still gets its greeting.
+        if (state.goalPending && !state.pendingFollowUp && !state.resumePending) {
+          log(`tick(${reason}) skipped: waiting for the user to agree the goal`);
+          return;
+        }
+
         const now = Date.now();
         if (state.rateLimitUntil && now < state.rateLimitUntil) {
           log(
@@ -389,6 +398,9 @@ export function useSessionLoop(onNeedsApiKey: () => void) {
         const result = await api().claude.nextInstruction({
           stance: s.stance,
           goal: s.goal!,
+          agreedGoal: s.agreedGoal,
+          doneWhen: s.doneWhen,
+          goalPending: s.goalPending,
           completedSteps: s.completedSteps,
           upcomingSteps: s.upcomingSteps,
           stages: s.stages,
@@ -523,6 +535,20 @@ export function useSessionLoop(onNeedsApiKey: () => void) {
         if (result.stance && result.stance !== useSession.getState().stance) {
           log(`stance ${useSession.getState().stance} → ${result.stance}`);
           useSession.getState().setStance(result.stance);
+        }
+
+        // Agreeing the goal. A confirm_goal turn puts the question to the
+        // user and holds the loop; any other spoken turn after it means the
+        // coach took their reply as a yes and has moved on. Settled by the
+        // coach's own action, never by guessing at the user's words.
+        if (result.action === "confirm_goal") {
+          useSession
+            .getState()
+            .proposeGoal(result.proposedGoal ?? "", result.doneWhen ?? "");
+          log(`goal proposed: "${(result.proposedGoal ?? "").slice(0, 60)}" doneWhen="${(result.doneWhen ?? "").slice(0, 60)}"`);
+        } else if (useSession.getState().goalPending && result.action !== "wait") {
+          useSession.getState().agreeGoal();
+          log("goal agreed");
         }
 
         if (result.notes && result.notes.trim().length > 0) {
@@ -673,7 +699,10 @@ export function useSessionLoop(onNeedsApiKey: () => void) {
           }
 
           case "acknowledge":
-          case "check_in": {
+          case "check_in":
+          // The goal said back is spoken and shown like any other line; the
+          // card with the one-tap yes is drawn from the store (App.tsx).
+          case "confirm_goal": {
             const text = noAnswerFallback ?? result.instruction;
             useSession.getState().appendTurn({
               role: "assistant",

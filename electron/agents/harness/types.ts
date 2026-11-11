@@ -108,6 +108,11 @@ export interface TurnContext {
   // The coach's current stance. Per-tick data: it belongs in the context
   // header, never in the cached prompt.
   stance?: Stance;
+  // The goal as the coach said it back, what done looks like, and whether the
+  // user has still to agree to it. Empty until the coach has proposed one.
+  agreedGoal?: string;
+  doneWhen?: string;
+  goalPending?: boolean;
   // A long goal's stages and which one the user is on (0-based). Empty for a
   // quick question or a short walkthrough.
   stages?: string[];

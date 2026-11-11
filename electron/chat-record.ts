@@ -142,6 +142,10 @@ export interface ChatSnapshot {
   id: string;
   title: string;
   goal: string;
+  // The goal as agreed with the coach. Absent = none agreed.
+  agreedGoal?: string;
+  doneWhen?: string;
+  goalPending?: boolean;
   createdAt: number;
   now: number;
   done: boolean;
@@ -180,6 +184,9 @@ export function buildChatRecord(snapshot: ChatSnapshot): ChatRecord {
     userId: null,
     title: snapshot.title,
     goal: snapshot.goal,
+    agreedGoal: snapshot.agreedGoal ?? "",
+    doneWhen: snapshot.doneWhen ?? "",
+    goalPending: snapshot.goalPending === true,
     state: snapshot.done ? "done" : "active",
     createdAt: snapshot.createdAt,
     lastActiveAt: snapshot.now,
@@ -269,6 +276,9 @@ export function clampStage(index: unknown, count: number): number {
 /** The session-store fields a reopened chat restores. */
 export interface RestoredSession {
   goal: string;
+  agreedGoal: string;
+  doneWhen: string;
+  goalPending: boolean;
   stance: Stance;
   stepLog: StepLogEntry[];
   completedSteps: string[];
@@ -300,6 +310,11 @@ export function chatToSession(saved: ChatRecord): RestoredSession {
   const lastSaid = [...conversation].reverse().find((t) => t.role === "assistant");
   return {
     goal: record.goal,
+    // Chats saved before goals were agreed have none of these. Such a chat
+    // is already under way, so nothing is left waiting on a yes.
+    agreedGoal: typeof record.agreedGoal === "string" ? record.agreedGoal : "",
+    doneWhen: typeof record.doneWhen === "string" ? record.doneWhen : "",
+    goalPending: record.goalPending === true,
     stance: record.stance,
     stepLog: [...record.stepLog],
     // The coach is shown the log's own wording, so its list and the log agree.

@@ -130,6 +130,28 @@ describe("the coach never talks over itself or ignores the user", () => {
     );
   });
 
+  // Once the coach has said the goal back, a look before the user answers
+  // could only produce a step nobody agreed to. Their answer (a follow-up)
+  // and the greeting on reopening a chat still go through.
+  it("holds its looks while the goal is waiting on the user's yes", async () => {
+    const src = await loopSource();
+    expect(src).toContain(
+      "if (state.goalPending && !state.pendingFollowUp && !state.resumePending) {",
+    );
+    // Ahead of the capture: nothing is looked at, and nothing is paid for.
+    expect(src.indexOf("state.goalPending && !state.pendingFollowUp")).toBeLessThan(
+      src.indexOf("api().capture.once("),
+    );
+  });
+
+  it("the coach's own action settles the goal, never a guess at the user's words", async () => {
+    const src = await loopSource();
+    expect(src).toContain('if (result.action === "confirm_goal") {');
+    expect(src).toContain(
+      'else if (useSession.getState().goalPending && result.action !== "wait") {',
+    );
+  });
+
   it("a follow-up that returns wait is recovered into something spoken", async () => {
     const src = await loopSource();
     expect(src).toContain('if (answeringFollowUp && action === "wait")');

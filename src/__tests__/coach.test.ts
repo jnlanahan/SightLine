@@ -42,6 +42,9 @@ describe("the coach's cached prefix", () => {
     expect(coachAgent.skills.map((s) => s.id)).toEqual([
       "speech",
       "pacing",
+      // Added after the first live run (agree the goal before the first
+      // step). It moved the cache prefix once.
+      "goal",
       "verify",
       "troubleshoot",
       "research",
@@ -112,14 +115,17 @@ describe("what the coach fills in each turn", () => {
   it("fills exactly these fields, in this order", () => {
     // Pinned on purpose: these schemas sit in the cached prefix, so any change
     // re-writes the cache once. Step 6 added note_seen (and "seen" inside
-    // remember); step 7 added stages and stage — the deliberate change that
-    // last moved this pin.
+    // remember); step 7 added stages and stage; agreeing the goal added goal
+    // and done_when (spoken turns only) — the deliberate change that last
+    // moved this pin.
     expect(sayFields).toEqual([
       "action",
       "instruction",
       "code",
       "expected_pace",
       "stance",
+      "goal",
+      "done_when",
       "expected_result",
       "troubleshooting",
       "completed_steps",
@@ -418,6 +424,100 @@ describe("a long goal has stages", () => {
     expect(parseTerminalTool("wait", { stage: 0 }, []).stageNumber).toBeNull();
     expect(parseTerminalTool("wait", { stage: "2" }, []).stageNumber).toBeNull();
     expect(parseTerminalTool("wait", { stage: 1.5 }, []).stageNumber).toBeNull();
+  });
+});
+
+describe("agreeing the goal before the first step", () => {
+  // The first live run: the coach heard a goal and went straight to step one,
+  // twelve steps, never saying what it was aiming at. "The user needs to know
+  // the goal and then start the session."
+  const prompt = systemPrompt(coachAgent);
+  const [say, wait] = terminalTools(coachAgent);
+
+  it("has a turn for saying the goal back, on spoken turns only", () => {
+    const action = say.input_schema.properties.action as { enum: string[] };
+    expect(action.enum).toContain("confirm_goal");
+    expect(Object.keys(wait.input_schema.properties)).not.toContain("goal");
+    expect(Object.keys(wait.input_schema.properties)).not.toContain("done_when");
+  });
+
+  it("opens anything bigger than a quick answer by agreeing the goal", () => {
+    expect(coachAgent.guidance.sessionStart).toContain("agree the goal first (action=confirm_goal)");
+    expect(coachAgent.guidance.sessionStart).toContain("comes after they say yes");
+    expect(prompt).toContain("what done will look like");
+  });
+
+  it("still just answers a quick question", () => {
+    expect(coachAgent.guidance.sessionStart).toContain(
+      "If you can fully answer in one reply: answer it now",
+    );
+    expect(prompt).toContain("just answer. No agreement needed");
+  });
+
+  it("gives no step until the user has agreed", () => {
+    expect(prompt).toContain("Until they agree, never give a step");
+    const header = buildContextHeader(
+      coachAgent,
+      ctx({
+        agreedGoal: "Get the Windows score on screen",
+        doneWhen: "the score number is visible",
+        goalPending: true,
+      }),
+      1,
+    );
+    expect(header).toContain('they have NOT agreed to it yet: "Get the Windows score on screen"');
+    expect(header).toContain('Done when: "the score number is visible"');
+    expect(header).toContain("Don't give a step until they do");
+  });
+
+  it("carries the agreed goal into every later look", () => {
+    const header = buildContextHeader(
+      coachAgent,
+      ctx({
+        agreedGoal: "Get the Windows score on screen",
+        doneWhen: "the score number is visible",
+        goalPending: false,
+      }),
+      1,
+    );
+    expect(header).toContain('The goal you and the user agreed: "Get the Windows score on screen"');
+    expect(header).not.toContain("NOT agreed");
+    // The user's own words are still there too.
+    expect(header).toContain("Original goal: Teach me pivot tables");
+  });
+
+  it("says nothing about an agreed goal for a chat that never had one", () => {
+    const header = buildContextHeader(coachAgent, ctx(), 1);
+    expect(header).not.toContain("agreed");
+  });
+
+  it("never puts the goal in the cached prompt", () => {
+    expect(prompt).not.toContain("The goal you and the user agreed:");
+  });
+
+  it("reads the goal only from a confirm_goal turn", () => {
+    const proposed = parseTerminalTool(
+      "say",
+      {
+        action: "confirm_goal",
+        instruction: "So we're getting your score on screen. Sound right?",
+        goal: " Get the Windows score on screen ",
+        done_when: "the score number is visible",
+      },
+      [],
+    );
+    expect(proposed.action).toBe("confirm_goal");
+    expect(proposed.proposedGoal).toBe("Get the Windows score on screen");
+    expect(proposed.doneWhen).toBe("the score number is visible");
+
+    // A stray goal on a step must not rewrite what the user agreed to.
+    const step = parseTerminalTool(
+      "say",
+      { action: "instruct", instruction: "Open Settings.", goal: "Something else" },
+      [],
+    );
+    expect(step.proposedGoal).toBe("");
+    expect(parseTerminalTool("wait", { goal: "Something else" }, []).proposedGoal).toBe("");
   });
 });
 

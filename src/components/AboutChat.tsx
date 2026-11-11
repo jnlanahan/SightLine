@@ -15,6 +15,7 @@ import type { ChatNote } from "../../electron/db/schema";
  */
 export function AboutChat({
   goal,
+  doneWhen,
   whereWeLeftOff,
   tidyNote,
   notes,
@@ -27,6 +28,9 @@ export function AboutChat({
   onClose,
 }: {
   goal: string;
+  // What done looks like, as agreed with the coach. Empty for a chat that
+  // never agreed a goal (a quick question, or one from before this existed).
+  doneWhen: string;
   whereWeLeftOff: string;
   // What the background tidy-up did after the last visit, in a sentence.
   // Empty when the chat has never been tidied.
@@ -72,6 +76,7 @@ export function AboutChat({
       <section style={{ display: "flex", flexDirection: "column", gap: 4 }}>
         <p style={heading}>Goal</p>
         <p style={body}>{goal}</p>
+        {doneWhen && <p style={{ ...body, opacity: 0.75 }}>Done when: {doneWhen}</p>}
       </section>
 
       <section style={{ display: "flex", flexDirection: "column", gap: 4 }}>

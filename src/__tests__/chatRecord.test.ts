@@ -437,6 +437,64 @@ describe("a long plan's stages", () => {
   });
 });
 
+describe("the agreed goal", () => {
+  const agreed = {
+    agreedGoal: "Get the VPN connected on this laptop",
+    doneWhen: "the client shows Connected",
+  };
+
+  beforeEach(() => useSession.getState().reset());
+
+  it("is saved with the chat and restored with it, waiting or agreed", () => {
+    const waiting = buildChatRecord(snapshot({ ...agreed, goalPending: true }));
+    const restored = chatToSession(JSON.parse(JSON.stringify(waiting)));
+    expect(restored.agreedGoal).toBe(agreed.agreedGoal);
+    expect(restored.doneWhen).toBe(agreed.doneWhen);
+    expect(restored.goalPending).toBe(true);
+    // The user's own words are kept beside it.
+    expect(restored.goal).toBe("Set up a VPN on this laptop");
+
+    const settled = chatToSession(buildChatRecord(snapshot({ ...agreed, goalPending: false })));
+    expect(settled.goalPending).toBe(false);
+  });
+
+  it("defaults to none, and nothing waiting, for a chat saved before goals were agreed", () => {
+    const old = JSON.parse(JSON.stringify(buildChatRecord(snapshot())));
+    delete old.agreedGoal;
+    delete old.doneWhen;
+    delete old.goalPending;
+    const restored = chatToSession(old);
+    expect(restored.agreedGoal).toBe("");
+    expect(restored.doneWhen).toBe("");
+    expect(restored.goalPending).toBe(false);
+  });
+
+  it("waits on a yes when the coach proposes it, and stands once the coach moves on", () => {
+    useSession.getState().proposeGoal(agreed.agreedGoal, agreed.doneWhen);
+    expect(useSession.getState().goalPending).toBe(true);
+    expect(useSession.getState().agreedGoal).toBe(agreed.agreedGoal);
+    useSession.getState().agreeGoal();
+    expect(useSession.getState().goalPending).toBe(false);
+    expect(useSession.getState().agreedGoal).toBe(agreed.agreedGoal);
+  });
+
+  it("keeps the wording already there when the coach asks again without one", () => {
+    useSession.getState().proposeGoal(agreed.agreedGoal, agreed.doneWhen);
+    useSession.getState().agreeGoal();
+    useSession.getState().proposeGoal("", "");
+    expect(useSession.getState().goalPending).toBe(true);
+    expect(useSession.getState().agreedGoal).toBe(agreed.agreedGoal);
+    expect(useSession.getState().doneWhen).toBe(agreed.doneWhen);
+  });
+
+  it("is cleared with the session", () => {
+    useSession.getState().proposeGoal(agreed.agreedGoal, agreed.doneWhen);
+    useSession.getState().reset();
+    expect(useSession.getState().agreedGoal).toBe("");
+    expect(useSession.getState().goalPending).toBe(false);
+  });
+});
+
 describe("refusing a chat that is not a chat", () => {
   it("accepts a real record, before and after a trip to disk", () => {
     const record = buildChatRecord(snapshot());

@@ -6,7 +6,12 @@ import { useRateLimitCountdown } from "./hooks/useRateLimitCountdown";
 import { useTts } from "./hooks/useTts";
 import { api } from "./lib/api";
 import { markAsk, sinceAsk } from "./lib/askClock";
-import { CHECK_WORK_REPLY, STEP_DONE_REPLY, STUCK_REPLY } from "./lib/quickReplies";
+import {
+  CHECK_WORK_REPLY,
+  GOAL_AGREED_REPLY,
+  STEP_DONE_REPLY,
+  STUCK_REPLY,
+} from "./lib/quickReplies";
 import { Composer } from "./components/Composer";
 import { ProgressRail, PlanList, StageList } from "./components/ProgressRail";
 import { Home } from "./components/Home";
@@ -19,6 +24,7 @@ import type {
   TokenUsage,
 } from "./lib/api";
 import { Instruction } from "./components/Instruction";
+import { GoalCard } from "./components/GoalCard";
 import { PrivacyNotice } from "./components/PrivacyNotice";
 import { Settings as SettingsView } from "./components/Settings";
 import { DockRail } from "./components/DockRail";
@@ -70,7 +76,10 @@ const STATUS_DOT: Record<SessionStatus, string> = {
 export default function App() {
   const status         = useSession((s) => s.status);
   const goal           = useSession((s) => s.goal);
-  const instruction    = useSession((s) => s.currentInstruction);
+  const agreedGoal     = useSession((s) => s.agreedGoal);
+  const doneWhen       = useSession((s) => s.doneWhen);
+  const goalPending    = useSession((s) => s.goalPending);
+  const instruction   = useSession((s) => s.currentInstruction);
   const currentCode    = useSession((s) => s.currentCode);
   const activeTool     = useSession((s) => s.activeTool);
   const completedSteps = useSession((s) => s.completedSteps);
@@ -348,6 +357,9 @@ export default function App() {
       id: s.sessionId,
       title: base.title,
       goal: s.goal,
+      agreedGoal: s.agreedGoal,
+      doneWhen: s.doneWhen,
+      goalPending: s.goalPending,
       createdAt: base.createdAt,
       now: Date.now(),
       done: s.done,
@@ -388,7 +400,7 @@ export default function App() {
     if (conversationLength === 0) return;
     if (!useSession.getState().sessionId) return;
     void persistChat();
-  }, [conversationLength, stepLogLength, agentNotes, stance, stages, stageIndex, done, persistChat]);
+  }, [conversationLength, stepLogLength, agentNotes, stance, stages, stageIndex, done, goalPending, persistChat]);
 
   /** Back to the chat list. Nothing is lost: the chat is saved as it stands. */
   function leaveChat() {
@@ -479,7 +491,16 @@ export default function App() {
           ? "Checking earlier chats…"
           : "Taking a closer look…"
       : null;
-  const statusText = toolText ?? (fixing ? "Troubleshooting…" : STATUS_TEXT[status]);
+  // The coach has said the goal back and is not looking again until the user
+  // answers — "Watching your screen" would be untrue.
+  const awaitingGoal = goalPending && status === "watching";
+  const statusText =
+    toolText ??
+    (awaitingGoal
+      ? "Waiting for your go-ahead"
+      : fixing
+        ? "Troubleshooting…"
+        : STATUS_TEXT[status]);
   const statusDot  = fixing ? "#C07C10" : STATUS_DOT[status];
 
   // Collapsed — all hooks above keep running (capture loop, TTS), only the
@@ -598,7 +619,9 @@ export default function App() {
             // A long plan shows where the user is in it; anything shorter
             // just shows the goal.
             label={stages.length > 0 ? `Stage ${stageIndex + 1} of ${stages.length}` : "Goal"}
-            goal={stages.length > 0 ? (stages[stageIndex] ?? goal) : goal}
+            // The goal as agreed with the coach, once there is one; the
+            // user's own words until then.
+            goal={stages.length > 0 ? (stages[stageIndex] ?? goal) : (agreedGoal || goal)}
             steps={planSteps}
             open={planOpen}
             docked={docked}
@@ -607,6 +630,21 @@ export default function App() {
 
           {planOpen && (
             <>
+              {agreedGoal && (
+                <div
+                  className="sl-selectable"
+                  style={{
+                    flexShrink: 0, padding: "8px 16px",
+                    fontSize: 12, lineHeight: 1.45,
+                    borderBottom: `1px solid ${lt(0.08)}`,
+                  }}
+                >
+                  <div style={{ fontWeight: 600 }}>{agreedGoal}</div>
+                  {doneWhen && (
+                    <div style={{ marginTop: 2, opacity: 0.75 }}>Done when: {doneWhen}</div>
+                  )}
+                </div>
+              )}
               <StageList stages={stages} current={stageIndex} />
               <PlanList steps={planSteps} />
               <div style={{ flexShrink: 0, padding: "8px 16px 10px", borderBottom: `1px solid ${lt(0.08)}` }}>
@@ -622,7 +660,8 @@ export default function App() {
           {aboutOpen ? (
             <div className="flex-1 overflow-y-auto sl-scroll" style={{ minHeight: 0 }}>
               <AboutChat
-                goal={goal}
+                goal={agreedGoal || goal}
+                doneWhen={doneWhen}
                 whereWeLeftOff={
                   // The tidy-up's summary, until the chat moves on from it.
                   tidy && tidy.whereWeLeftOff && tidy.turns === conversation.length
@@ -659,20 +698,31 @@ export default function App() {
               autoScroll={false}
             />
             <div style={{ marginTop: 8 }}>
-              <Instruction
-                instruction={instruction}
-                code={currentCode}
-                status={status}
-                done={done}
-                error={error}
-                activeTool={activeTool}
-                troubleshooting={troubleshooting}
-                onStepDone={
-                  stance === "guide"
-                    ? () => submitFollowUp(STEP_DONE_REPLY)
-                    : undefined
-                }
-              />
+              {/* The coach has said the goal back: the goal and a one-tap yes
+                  stand where the step will go. An error still shows as one. */}
+              {goalPending && !done && !error ? (
+                <GoalCard
+                  goal={agreedGoal || goal}
+                  doneWhen={doneWhen}
+                  busy={status === "thinking"}
+                  onAgree={() => submitFollowUp(GOAL_AGREED_REPLY)}
+                />
+              ) : (
+                <Instruction
+                  instruction={instruction}
+                  code={currentCode}
+                  status={status}
+                  done={done}
+                  error={error}
+                  activeTool={activeTool}
+                  troubleshooting={troubleshooting}
+                  onStepDone={
+                    stance === "guide"
+                      ? () => submitFollowUp(STEP_DONE_REPLY)
+                      : undefined
+                  }
+                />
+              )}
             </div>
             {/* Watching quietly: the two one-tap ways to ask for the coach's
                 voice. They send plain words, the same as typing or saying

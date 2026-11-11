@@ -13,7 +13,13 @@ import type { InstructionResponse } from "../../types";
 import { parseHighlight, parseRemember } from "../../instruction-parse";
 import { SAY_TOOL } from "./types";
 
-const VALID_ACTIONS = new Set(["instruct", "acknowledge", "check_in", "done"]);
+const VALID_ACTIONS = new Set([
+  "instruct",
+  "acknowledge",
+  "check_in",
+  "done",
+  "confirm_goal",
+]);
 const VALID_PACES = new Set(["quick", "medium", "long"]);
 const VALID_STANCES = new Set(["guide", "watch"]);
 
@@ -108,6 +114,10 @@ export function parseTerminalTool(
     stance: VALID_STANCES.has(str(input.stance))
       ? (str(input.stance) as InstructionResponse["stance"])
       : null,
+    // Only a confirm_goal proposes a goal. Read anywhere else, a stray value
+    // would rewrite the goal the user already agreed to.
+    proposedGoal: action === "confirm_goal" ? str(input.goal) : "",
+    doneWhen: action === "confirm_goal" ? str(input.done_when) : "",
     stages: stageList(input.stages),
     stageNumber: stageNumber(input.stage),
     done: action === "done",

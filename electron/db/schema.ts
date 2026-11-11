@@ -112,6 +112,14 @@ export interface ChatRecord {
   title: string;
   // The goal in the user's own words.
   goal: string;
+  // The goal as the coach said it back, and what done will look like. Empty
+  // for a quick question, which is answered without agreeing anything.
+  // `goalPending` is true while the user has still to say yes. Optional
+  // because chats saved before goals were agreed have none of the three:
+  // missing means no agreed goal, and nothing waiting on a yes.
+  agreedGoal?: string;
+  doneWhen?: string;
+  goalPending?: boolean;
   state: "active" | "done";
   createdAt: number;
   lastActiveAt: number;
@@ -203,6 +211,9 @@ create table if not exists chats (
   user_id              uuid references users(id) on delete cascade,
   title                text not null,
   goal                 text not null,
+  agreed_goal          text not null default '',
+  done_when            text not null default '',
+  goal_pending         boolean not null default false,
   state                text not null default 'active'
                          check (state in ('active','done')),
   created_at           timestamptz not null,

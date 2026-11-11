@@ -21,6 +21,14 @@ import type {
 export interface SessionState {
   status: SessionStatus;
   goal: string | null;
+  // The goal as the coach said it back, and what done will look like. Empty
+  // until the coach proposes one (a quick question never gets one).
+  agreedGoal: string;
+  doneWhen: string;
+  // The coach has said the goal back and the user has not answered yet. The
+  // loop holds its looks while this is true: a step nobody agreed to is the
+  // thing this exists to prevent.
+  goalPending: boolean;
   currentInstruction: string;
   // Copyable code/command text that came with the current instruction.
   currentCode: string;
@@ -109,6 +117,11 @@ export interface SessionState {
 
   setStatus(s: SessionStatus): void;
   setGoal(goal: string): void;
+  // The coach said the goal back and is waiting on a yes. An empty goal
+  // keeps the wording already there.
+  proposeGoal(goal: string, doneWhen: string): void;
+  // The coach moved on from the question, so the goal stands as agreed.
+  agreeGoal(): void;
   setInstruction(text: string, code?: string): void;
   setActiveTool(tool: { name: string; detail: string } | null): void;
   setCompletedSteps(steps: string[]): void;
@@ -159,6 +172,9 @@ const MAX_FRAMES = 5;
 const initial = {
   status: "idle" as SessionStatus,
   goal: null,
+  agreedGoal: "",
+  doneWhen: "",
+  goalPending: false,
   currentInstruction: "",
   currentCode: "",
   activeTool: null as { name: string; detail: string } | null,
@@ -203,6 +219,9 @@ export const useSession = create<SessionState>((set) => ({
   ...initial,
   setStatus: (s) => set({ status: s }),
   setGoal: (goal) => set({ goal }),
+  proposeGoal: (goal, doneWhen) =>
+    set(goal ? { agreedGoal: goal, doneWhen, goalPending: true } : { goalPending: true }),
+  agreeGoal: () => set({ goalPending: false }),
   setInstruction: (text, code = "") =>
     set({ currentInstruction: text, currentCode: code }),
   setActiveTool: (tool) => set({ activeTool: tool }),

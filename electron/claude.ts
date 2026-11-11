@@ -134,6 +134,11 @@ export interface NextInstructionArgs {
   // The coach's current stance (guide or watch), kept by the renderer and
   // shown to the coach in the context header each look.
   stance?: Stance;
+  // The goal the coach said back, what done looks like, and whether the user
+  // has still to agree to it. Kept by the renderer, saved with the chat.
+  agreedGoal?: string;
+  doneWhen?: string;
+  goalPending?: boolean;
   // A long goal's stages and the current one (0-based), kept by the renderer.
   stages?: string[];
   stageIndex?: number;

@@ -100,7 +100,9 @@ export type InstructionAction =
   | "wait"
   | "acknowledge"
   | "check_in"
-  | "done";
+  | "done"
+  // The coach said the goal back and is waiting for the user's yes.
+  | "confirm_goal";
 
 // How long the current step should take a careful beginner — scales the
 // stall check-in timer in the session loop.
@@ -134,6 +136,10 @@ export interface InstructionResponse {
   digression: boolean;
   // The stance the coach asked to be in from now on. Null/absent = unchanged.
   stance?: Stance | null;
+  // The goal as the coach said it back, and what done will look like. Only
+  // on a confirm_goal turn; empty or absent otherwise.
+  proposedGoal?: string;
+  doneWhen?: string;
   // A long goal's stage titles, when the coach laid them out or changed them
   // this turn, and the stage the user is now on (counting from 1).
   // Null/absent = unchanged.
