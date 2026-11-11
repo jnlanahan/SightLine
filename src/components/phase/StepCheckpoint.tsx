@@ -6,9 +6,17 @@ import type { ReactNode } from "react";
 import { useTokens } from "../../design/ThemeProvider";
 import { IconCheck } from "../../design/lineIcons";
 import type { StepVM } from "../../lib/phaseView";
+import { clockTime, dayLabel } from "../../lib/when";
 
 function stepLabel(step: Pick<StepVM, "n" | "title">): string {
   return step.title ? `Step ${step.n} · ${step.title}` : `Step ${step.n}`;
+}
+
+/** "Done today at 9:41 AM", "Done yesterday at 4:05 PM", "Done Mon, Nov 9 at 2:10 PM". */
+export function doneWhenText(at: number, now: number): string {
+  const day = dayLabel(at, now);
+  const when = day === "Today" || day === "Yesterday" ? day.toLowerCase() : day;
+  return `Done ${when} at ${clockTime(at)}`;
 }
 
 export function StepCheckpoint({ step, children }: { step: StepVM; children?: ReactNode }) {
@@ -31,6 +39,9 @@ export function StepCheckpoint({ step, children }: { step: StepVM; children?: Re
           {current ? step.n : <IconCheck size={11} stroke={3} />}
         </span>
         <span
+          // The step log's time. The design draws no time on a checkpoint, so
+          // it is a tooltip: there for anyone who wants it, invisible otherwise.
+          title={step.doneAt !== undefined ? doneWhenText(step.doneAt, Date.now()) : undefined}
           style={{
             fontSize: type.label[0],
             fontWeight: current ? 700 : 600,

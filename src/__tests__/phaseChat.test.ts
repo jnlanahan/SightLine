@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { PhaseChat, type PhaseChatProps } from "../components/phase/PhaseChat";
+import { doneWhenText } from "../components/phase/StepCheckpoint";
 import { SightLineTheme } from "../design/ThemeProvider";
 import {
   buildPhaseView,
@@ -192,6 +193,15 @@ describe("phase chat", () => {
     const lead = html.slice(html.indexOf("data-lead-line"));
     expect(lead.indexOf("Use View, then Freeze Panes.")).toBeLessThan(lead.indexOf("And the first column?"));
     expect(html).toContain("Same menu, Freeze First Column.");
+  });
+
+  // The step log (every finished step and when) was the owner's own ask on
+  // 9 November. The design draws no times, so each done step carries its time
+  // as a tooltip rather than losing it.
+  it("each finished step still says when it was done", () => {
+    const html = render(phased);
+    expect(count(html, 'title="Done ')).toBe(2);
+    expect(doneWhenText(Date.now() - 60_000, Date.now())).toMatch(/^Done (today|yesterday) at \d/);
   });
 
   it("a finished goal shows no one-tap replies under the completion section", async () => {

@@ -4,6 +4,8 @@ Written by session 1 on 11 November 2026, which built every step from 13 to 21 a
 
 **In one line:** the new main screen is built and every automatic check passes, but no one has seen it on a screen yet. Your run below is what decides whether it is right.
 
+> **Since this was written (later on 11 November).** The screen has now been looked at on your machine, with stand-in chats and a scripted stand-in for the coach, and driven through a whole walkthrough. It matches the design. Six defects were found and fixed, and the work is merged into `one-coach`: replies showing under a finished goal; a quick answer at normal size; the header using your raw words over the chat's title; a false "Plan updated: removed …" note on nearly every new step; the view ceasing to follow after "I did it"; and step times no longer shown (now a tooltip on each finished step). There are 753 tests now. The first of "the three things most likely to be wrong" below (scrolling) was partly right and is fixed as far as it could be checked; the third (false plan notes) was right and is fixed. **Nothing below has been run with the real coach, the real voice or your real screen. The tick list is still yours.**
+
 ## Results
 
 | Check | Result |

@@ -188,6 +188,24 @@ Each remembered item is either **seen on screen** or **not yet confirmed**, and 
 
 ## 14. Open questions for the designer
 
+**Answered, 10 November 2026.** The design that came back is in [redesign/](redesign/README.md), and [redesign/DECISIONS.md](redesign/DECISIONS.md) gives the reasons. In the order of the questions below:
+
+1. The chat list is its own screen, Home. The button at the top of the rail goes back to it.
+2. One slow breathing halo on the current circle of the rail, plus the word "Watching". Nothing else moves.
+3. The instruction for the step in progress is the one large line (21 px). Everything else is 13.5 px, above it in the same scroll.
+4. The rail slides in and a note says the plan was made. A reopened chat lands on the current phase, with earlier phases above it.
+5. As the coach's first line under the current step, after a thin divider reading "Picked up where you left off · 2 days ago".
+6. The step log is no longer a list at the top. Each finished step is a checkpoint inside its phase, with its messages under it, and a circle or dot on the rail. Its time is a tooltip on the checkpoint.
+7. Not part of the redesigned screen. About this chat keeps its current marks and its Forget button.
+8. Always at the foot of the current phase while a plan is running: "I did it" and "I'm stuck" while guiding, "Check my work" and "I'm stuck" while watching. A quick answer shows none.
+9. The plan's progress (phase circles and step dots), the halo, and mute, pause and expand.
+10. Not decided. Done chats stay in the same list, as today.
+11. "Chat". "Phase" is the only new word.
+
+Still open: new layouts for Home, first run, About this chat and About you; the floating window's see-through look; and the key-entry screen in section 10.
+
+The questions as they were asked:
+
 1. Where does the chat list live in a 400 px strip: its own home screen, or a drawer over the chat?
 2. How does a silent coach show it is still watching without drawing the eye?
 3. How much of the screen does the latest coach line get, compared with the history above it?

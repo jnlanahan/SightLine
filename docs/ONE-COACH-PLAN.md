@@ -53,8 +53,12 @@ Step 12's merge decision now comes after step 22, so the documents are finished 
 - **First live run, 10 November:** the owner ran one walkthrough on Sonnet 5.5 and it worked end to end. The findings are in the next section and are the work that remains.
 - **Fixes from the first live run, 10 November, later:** all four are built, each its own commit: the "good question" filler, agreeing the goal, showing the model, and the voice (what it says, and a more natural voice model). What was decided is in "Fixes after the first live run" below. 536 tests, type-check and build pass. Agreeing the goal and the new wording were checked against the live service on Sonnet 5.5, and the new voice model against the owner's ElevenLabs account. **None of the four has been through a live run by the owner yet, and nobody has listened to the new voice.**
 - **The redesign arrived, 10 November, evening:** the owner designed the new main screen in parallel; it is in [redesign/](redesign/README.md). It is woven into this plan as steps 13 to 22. The design was drawn before the four fixes above, so it says nothing about agreeing the goal or showing the model, and it assumes a menu the app does not have. "The redesign: phase chats" below settles each of those.
-- **Overnight, 10 to 11 November:** at the owner's request, steps 13 to 21 and the machine half of step 22 are being built by three cloud sessions, at 1:00 AM, 4:00 AM and 9:00 AM Eastern. They share one branch and one pull request against `one-coach`, and never commit to `one-coach` or `main`. The brief is [overnight/2026-11-10](overnight/2026-11-10/README.md); each session leaves a report there.
-- **Next:** read the overnight reports and the pull request. The owner's live test (the four fixes and the new screen can be judged in the same run, or the fixes first on `one-coach` as it stands). Then the owner's half of step 22, the results table, and merging `one-coach` into `main` or dropping it. Testing Opus 5.5 was put off by the owner; it is not blocking.
+- **Overnight, 10 to 11 November:** at the owner's request, three cloud sessions were set to build the redesign, at 1:00 AM, 4:00 AM and 9:00 AM Eastern, on one shared branch with one pull request (#10). The first built everything, steps 13 to 21 and the machine half of step 22, in about forty minutes; the other two found nothing left and only re-ran the checks. The brief and the reports are in [overnight/2026-11-10](overnight/2026-11-10/README.md).
+- **Checked by eye, 11 November.** No cloud session can see a screen, so the screen was rendered on the owner's machine against stand-in chat data, then driven through a whole walkthrough (goal, yes, seven steps over three phases, done) with a scripted stand-in for the coach. It rendered cleanly and matches the design. That found six defects the 739 tests had passed over, all fixed: replies showing under a finished goal; a quick answer at normal size instead of large; the header using the owner's raw words over the chat's title; a false "Plan updated: removed …" note on nearly every new step; the view ceasing to follow after "I did it" was tapped; and the time each step was done no longer shown anywhere (now a tooltip on the step). The first three and the next two are their own commits.
+- **Merged into `one-coach`, 11 November,** at the owner's request to finish the plan without waiting for a live test. The state before the merge is tagged `one-coach-before-redesign`. 753 tests, type-check and build pass.
+- **Wrap-up done, 11 November:** `CLAUDE.md` describes the new screen; the README is rewritten (it still described the three old modes); `PRODUCTION.md` and the open questions in `REDESIGN-BRIEF.md` are brought up to date; the results table is filled in as far as it can be.
+- **What has still never been run live by the owner:** the four fixes from the first live run (including the new voice, which nobody has heard), and the whole redesigned screen with the real coach. Everything above is checked by tests, by reading, against the live AI service, or by eye with stand-in data, and none of that is the same as using it.
+- **Next, and only the owner can do these:** the live run (the tick list is in [overnight/2026-11-10/MORNING.md](overnight/2026-11-10/MORNING.md)), choosing the default colour set, and deciding whether `one-coach` goes into `main`. Testing Opus 5.5 was put off by the owner; it is not blocking.
 
 ## First live run, 10 November 2026
 
@@ -399,10 +403,10 @@ Sonnet 5.5 is from six looks; the other two are one look each, so treat them as 
 
 ## Step 12: Wrap up
 
-- Rewrite the Agents, Session loop and Persistence sections of `CLAUDE.md`.
-- Correct `docs/PRODUCTION.md`, `.env.example` and the README where they describe removed features or the wrong key storage.
-- Fill in the results table below.
-- Decide: merge `one-coach` into `main`, or drop it. (Now taken after step 22.)
+- Rewrite the Agents, Session loop and Persistence sections of `CLAUDE.md`. Done.
+- Correct `docs/PRODUCTION.md`, `.env.example` and the README where they describe removed features or the wrong key storage. Done 11 November: the README was rewritten (it still described the three old modes); `PRODUCTION.md` was corrected; `.env.example` was already right.
+- Fill in the results table below. Done as far as one live run allows.
+- Decide: merge `one-coach` into `main`, or drop it. (Now taken after step 22.) **Open, and the owner's to take.** `main` is still the app as it was before any of this.
 
 ## Steps 13 to 22: the redesign
 
@@ -440,7 +444,13 @@ Each step is one work package in [redesign/IMPLEMENTATION.md](redesign/IMPLEMENT
 
 **Check.** The acceptance checklist at the end of `redesign/IMPLEMENTATION.md`. A machine can check the tests, the contrast test, the layout rule, the wording and the removals. The manual run (WP10, points 1 to 9) is the owner's.
 
-**After step 22.** Rewrite the renderer section of `CLAUDE.md` for the new components, and mark the open questions in `REDESIGN-BRIEF.md` as answered by `redesign/DECISIONS.md`.
+**After step 22.** Rewrite the renderer section of `CLAUDE.md` for the new components, and mark the open questions in `REDESIGN-BRIEF.md` as answered by `redesign/DECISIONS.md`. (Both done on 11 November, ahead of the owner's run, at the owner's request.)
+
+**Status, 11 November.** Steps 13 to 21 are built and merged into `one-coach`. Step 22's machine half is done, and more: the screen was looked at and driven through a whole walkthrough, which found and fixed six defects (see Progress). Step 22's other half, the owner's run, is open.
+
+**Two things the build changed in the plan above, for whoever reads this later.** The new header is `PhaseHeader`; the older `PanelHeader` in `App.tsx` was kept, because Home has no other way to reach Settings or quit. And the plan's "one added line" in the loop is exactly that: `setPointing(true)` beside the existing highlight call.
+
+**For the owner's eye in the run.** Beyond the tick list: every "I did it" tap appears in the chat as a bubble reading "Done — what's next?", which is truthful but may be clutter; a walkthrough always opens with a "Plan: N steps" or "Plan: N phases" note, as the design asks; and the step time is only a tooltip.
 
 ## Not in this plan
 
@@ -454,8 +464,12 @@ Each step is one work package in [redesign/IMPLEMENTATION.md](redesign/IMPLEMENT
 | --- | --- | --- | --- |
 | Goal submitted to first spoken words, machine time | not measured | not measured | 2.9 s (heard at 3.4 s) |
 | Follow-up asked to first spoken words | not measured | not measured | 2.5 s (heard at 2.8 s) |
-| Typical turn time | | | |
+| Typical turn time | not measured | not measured | a spoken look about 4 s (2.9 to 5.1 s over twelve); a silent look about 1.8 s (1.5 to 2.1 s over four) |
 | Cost per look | not measured | not measured | about 1.6 cents (25 cents over 16 looks) |
-| Lines of source, excluding tests | | | |
+| Lines of source, excluding tests | 18,061 | | 17,893 |
 
 The last column is one live run on Sonnet 5.5, 10 November 2026: one sample of each. The "before" numbers were never taken; the build that still has the old setup flow is tagged `one-coach-baseline` if they are wanted.
+
+Those timings are from before two changes that each cost time and have not been measured live: the goal is now agreed first, so step one arrives one exchange later; and the new voice model takes about 0.4 s longer to start speaking.
+
+Lines of source: `main` has 17,965. The one-coach work ended slightly smaller than it began, having replaced three agents and their setup flows with one coach, chats, memory, search and the tidy-up. The redesign then added about 1,500 (19,404 now): the new screen is more code than the plain one it replaced.

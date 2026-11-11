@@ -128,7 +128,7 @@ local rows to the first account on first sign-in.
 
 ```bash
 npm run lint     # tsc over both compilation targets
-npm test         # 258 unit tests
+npm test         # the unit tests (753 on 11 November 2026)
 npm run build    # production Vite + esbuild bundle
 npm run dev      # launch and click through it
 ```
@@ -138,10 +138,12 @@ tests cover the pure logic, not how it feels.
 
 ### Manual pass
 
-- [ ] Type a goal on Home and confirm the first step arrives and is spoken
+- [ ] Type a goal on Home; the coach should say the goal back, and give step one once you say yes
+- [ ] Ask a quick question; it should simply answer, with no rail down the side
 - [ ] Hold the push-to-talk key mid-sentence — the coach should stop *immediately*
-- [ ] Open the plan; confirm it pushes the conversation down rather than covering it
-- [ ] Check the cost pill moves, and that Settings → Spend can cap a session
+- [ ] Scroll up in a long chat and let a step finish; the view should stay put and a "ready" pill appear
+- [ ] Open the "⋯" menu; the cost so far should move, and Settings → Spend should be able to cap a sitting
+- [ ] Leave a chat, reopen it, and confirm it greets you with where you left off
 - [ ] Finish a chat, then start a new one and confirm it remembers something
 - [ ] Settings → Memory → "Review what it remembers" → forget a fact
 - [ ] Unplug/replug a monitor while docked; the sidebar should recover
@@ -167,7 +169,9 @@ Measured against the actual payload the loop sends (see
 | Typical session | ~130 | **~$1.09** |
 | Heavy — a call every 18s | 200 | **~$1.79** |
 
-Plus roughly $0.05–0.15/hour of ElevenLabs speech.
+Plus ElevenLabs speech. That was roughly $0.05–0.15/hour on the Flash model; the app moved to ElevenLabs' v4 Turbo model on 10 November 2026 for a more natural voice, which very likely costs more per character and has not been measured.
+
+The Claude figures above were measured before the coach moved to Sonnet 5.5 and Opus 5.5. The one live run on Sonnet 5.5 so far cost 25 cents for 16 looks.
 
 The default cap is $3/session, chosen as a runaway guard rather than a ration —
 a cap that trips mid-task is worse than no cap. It's adjustable in Settings.

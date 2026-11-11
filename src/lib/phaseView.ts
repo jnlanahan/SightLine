@@ -25,6 +25,10 @@ export interface StepVM {
   state: ItemState;
   /** Added to the plan this sitting (DATA.md §4). */
   added: boolean;
+  /** When a done step was finished, from the chat's step log. The log is the
+   *  user's record of what was done and when; the checkpoint carries the time
+   *  so the redesign does not lose it. */
+  doneAt?: number;
   /** Messages under this step, oldest first. Empty for upcoming steps. */
   turns: ConversationTurn[];
   /** True only for the current step: it holds the one lead line. */
@@ -336,6 +340,7 @@ export function buildPhaseView(input: PhaseInput, opts: PhaseViewOptions = {}): 
       n: i + 1,
       title: entry.text.trim(),
       state: "done",
+      doneAt: entry.at,
       added: added.has(norm(entry.text)),
       turns: buckets[i] ?? [],
       isLeadHolder: false,
