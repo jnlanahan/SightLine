@@ -1,0 +1,432 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>C6 · Phase chats</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:inherit}
+@keyframes ph-halo{0%,100%{transform:scale(.85);opacity:.25}50%{transform:scale(1.2);opacity:.6}}
+@keyframes ph-pulse{0%,100%{opacity:.35}50%{opacity:1}}
+@keyframes ph-rise{from{transform:translateY(8px);opacity:0}to{transform:none;opacity:1}}
+.ph-halo{animation:ph-halo 5s ease-in-out infinite}
+.ph-pulse{animation:ph-pulse 1.2s ease-in-out infinite}
+.ph-rise{animation:ph-rise .25s ease-out}
+.ph-scroll{scrollbar-width:thin}
+@media (prefers-reduced-motion:reduce){.ph-halo,.ph-pulse,.ph-rise{animation:none}}
+</style>
+</helmet>
+<div style="width: 400px; height: 900px; box-sizing: border-box; display: flex; background: {{t.bg}}; color: {{t.ink}}; font-family: Manrope, 'Segoe UI', sans-serif; overflow: hidden">
+
+  <div style="width: 64px; flex-shrink: 0; background: {{t.rail}}; border-right: 1px solid {{t.line}}; display: flex; flex-direction: column; align-items: center; padding: 8px 0 10px">
+    <button type="button" aria-label="All chats" style="width: 44px; height: 44px; border: 0; background: transparent; border-radius: 10px; color: {{t.ink}}; display: flex; align-items: center; justify-content: center; cursor: pointer">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10"></path></svg>
+    </button>
+
+    <div style="display: flex; flex-direction: column; align-items: center; padding-top: 28px">
+      <sc-for list="{{rail}}" as="p" hint-placeholder-count="3">
+        <div style="display: flex; flex-direction: column; align-items: center">
+          <sc-if value="{{p.notFirst}}" hint-placeholder-val="{{false}}">
+            <div style="width: 2px; height: 22px; background: {{p.lineColor}}"></div>
+          </sc-if>
+          <sc-if value="{{p.isDone}}" hint-placeholder-val="{{true}}">
+            <button type="button" aria-label="{{p.label}}" onClick="{{p.go}}" style="width: 30px; height: 30px; border: 0; border-radius: 50%; background: {{t.doneFill}}; color: {{t.doneInk}}; display: flex; align-items: center; justify-content: center; cursor: pointer">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12 5 5L20 7"></path></svg>
+            </button>
+          </sc-if>
+          <sc-if value="{{p.isCurrent}}" hint-placeholder-val="{{false}}">
+            <div style="position: relative; width: 38px; height: 38px; display: flex; align-items: center; justify-content: center">
+              <div class="ph-halo" style="position: absolute; inset: -12px; border-radius: 50%; background: radial-gradient(circle, {{t.accent}} 0%, transparent 70%)"></div>
+              <button type="button" aria-label="{{p.label}}" onClick="{{p.go}}" style="position: relative; width: 38px; height: 38px; border: 0; border-radius: 50%; background: {{t.accent}}; color: {{t.onAccent}}; font: inherit; font-size: 16px; font-weight: 700; display: flex; align-items: center; justify-content: center; cursor: pointer">{{p.num}}</button>
+            </div>
+          </sc-if>
+          <sc-if value="{{p.isUpcoming}}" hint-placeholder-val="{{false}}">
+            <div role="img" aria-label="{{p.label}}" style="width: 30px; height: 30px; box-sizing: border-box; border: 1.5px solid {{t.muted}}; border-radius: 50%; color: {{t.ink2}}; font-size: 13px; display: flex; align-items: center; justify-content: center">{{p.num}}</div>
+          </sc-if>
+          <div aria-hidden="true" style="display: flex; flex-direction: column; align-items: center; gap: 4px; padding-top: 8px">
+            <sc-for list="{{p.dots}}" as="d" hint-placeholder-count="2">
+              <span style="{{d.style}}"></span>
+            </sc-for>
+          </div>
+        </div>
+      </sc-for>
+    </div>
+
+    <div style="flex-grow: 1"></div>
+    <button type="button" aria-label="Mute voice" style="width: 44px; height: 44px; border: 0; background: transparent; border-radius: 10px; color: {{t.ink2}}; display: flex; align-items: center; justify-content: center; cursor: pointer">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 5 6 9H3v6h3l5 4z"></path><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"></path></svg>
+    </button>
+    <button type="button" aria-label="Pause watching" style="width: 44px; height: 44px; border: 0; background: transparent; border-radius: 10px; color: {{t.ink2}}; display: flex; align-items: center; justify-content: center; cursor: pointer">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M9 5v14M15 5v14"></path></svg>
+    </button>
+    <button type="button" aria-label="Collapse to rail" style="width: 44px; height: 44px; border: 0; background: transparent; border-radius: 10px; color: {{t.ink2}}; display: flex; align-items: center; justify-content: center; cursor: pointer">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m11 17-5-5 5-5M18 17l-5-5 5-5"></path></svg>
+    </button>
+  </div>
+
+  <div style="position: relative; flex-grow: 1; min-width: 0; display: flex; flex-direction: column">
+    <div style="display: flex; align-items: center; padding: 8px 4px 8px 20px; border-bottom: 1px solid {{t.line}}">
+      <div style="flex-grow: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px">
+        <div style="font-size: 14px; font-weight: 700">Set up the work VPN</div>
+        <div style="font-size: 12px; color: {{t.ink2}}">{{headerStatus}}</div>
+      </div>
+      <button type="button" aria-label="Menu" style="width: 44px; height: 44px; border: 0; background: transparent; border-radius: 10px; color: {{t.ink2}}; display: flex; align-items: center; justify-content: center; cursor: pointer">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M5 12h.01M12 12h.01M19 12h.01"></path></svg>
+      </button>
+    </div>
+
+    <div class="ph-scroll" ref="{{setScroller}}" onScroll="{{onScroll}}" style="position: relative; flex-grow: 1; min-height: 0; overflow-y: auto">
+      <sc-for list="{{visible}}" as="p" hint-placeholder-count="2">
+        <section data-phase="{{p.num}}" style="{{p.sectionStyle}}">
+          <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px">
+            <div style="font-size: 11px; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase; color: {{t.ink2}}">Phase {{p.num}} of {{phaseCount}}</div>
+            <sc-if value="{{p.isDone}}" hint-placeholder-val="{{true}}">
+              <div style="display: flex; align-items: center; gap: 4px; font-size: 12px; color: {{t.ink2}}">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12 5 5L20 7"></path></svg>
+                Done
+              </div>
+            </sc-if>
+            <sc-if value="{{p.isCurrent}}" hint-placeholder-val="{{false}}">
+              <div style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: {{t.ink2}}">
+                <span style="width: 7px; height: 7px; border-radius: 50%; background: {{t.accent}}"></span>
+                {{statusWord}}
+              </div>
+            </sc-if>
+          </div>
+          <div style="{{p.titleStyle}}">{{p.title}}</div>
+
+          <sc-for list="{{p.steps}}" as="s" hint-placeholder-count="2">
+            <div data-stepmark="{{s.num}}" style="display: flex; flex-direction: column; gap: 10px; padding-top: 6px">
+              <div style="display: flex; align-items: center; gap: 10px">
+                <sc-if value="{{s.isDone}}" hint-placeholder-val="{{true}}">
+                  <span style="width: 20px; height: 20px; flex-shrink: 0; border-radius: 50%; background: {{t.doneFill}}; color: {{t.doneInk}}; display: flex; align-items: center; justify-content: center">
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12 5 5L20 7"></path></svg>
+                  </span>
+                </sc-if>
+                <sc-if value="{{s.isCurrent}}" hint-placeholder-val="{{false}}">
+                  <span style="width: 20px; height: 20px; flex-shrink: 0; border-radius: 50%; background: {{t.accent}}; color: {{t.onAccent}}; font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center">{{s.num}}</span>
+                </sc-if>
+                <span style="{{s.labelStyle}}">Step {{s.num}} · {{s.title}}</span>
+                <sc-if value="{{s.isNew}}" hint-placeholder-val="{{false}}">
+                  <span style="font-size: 10.5px; font-weight: 700; letter-spacing: 0.6px; text-transform: uppercase; color: {{t.ink}}; border: 1px solid {{t.accent}}; border-radius: 999px; padding: 1px 7px">Added</span>
+                </sc-if>
+              </div>
+              <sc-for list="{{s.msgs}}" as="m" hint-placeholder-count="2">
+                <div style="display: flex; flex-direction: column; gap: 10px; padding-left: 30px">
+                  <sc-if value="{{m.isCoach}}" hint-placeholder-val="{{true}}">
+                    <p style="{{m.textStyle}}">{{m.text}}</p>
+                  </sc-if>
+                  <sc-if value="{{m.isYou}}" hint-placeholder-val="{{false}}">
+                    <div style="align-self: flex-end; max-width: 86%; padding: 8px 12px; border-radius: 12px 12px 4px 12px; background: {{t.you}}; font-size: 13.5px; line-height: 1.45">{{m.text}}</div>
+                  </sc-if>
+                  <sc-if value="{{m.isNote}}" hint-placeholder-val="{{false}}">
+                    <div style="display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 10px; border: 1px dashed {{t.accent}}; font-size: 12.5px; color: {{t.ink2}}">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>
+                      {{m.text}}
+                    </div>
+                  </sc-if>
+                  <sc-if value="{{m.hasCode}}" hint-placeholder-val="{{false}}">
+                    <div style="display: flex; align-items: center; gap: 8px; padding: 4px 4px 4px 12px; border-radius: 10px; background: {{t.code}}; border: 1px solid {{t.line}}">
+                      <code style="flex-grow: 1; min-width: 0; font-family: Consolas, 'Cascadia Mono', monospace; font-size: 13px">{{m.code}}</code>
+                      <button type="button" style="border: 0; border-radius: 8px; background: {{t.btn}}; color: {{t.btnInk}}; font: inherit; font-size: 12px; font-weight: 600; min-height: 34px; padding: 0 12px; cursor: pointer">Copy</button>
+                    </div>
+                  </sc-if>
+                </div>
+              </sc-for>
+            </div>
+          </sc-for>
+
+          <sc-if value="{{p.isCurrent}}" hint-placeholder-val="{{false}}">
+            <div style="display: flex; flex-direction: column; gap: 12px; margin-top: auto; padding-top: 10px">
+              <sc-if value="{{notChecking}}" hint-placeholder-val="{{true}}">
+                <div style="display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: {{t.ink2}}">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-dasharray="3 2" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="3"></rect></svg>
+                  Outlined on your screen. I'll move on when I see it's done.
+                </div>
+                <div style="display: flex; gap: 8px">
+                  <button type="button" onClick="{{markDone}}" style="display: flex; align-items: center; gap: 6px; border: 1px solid {{t.chip}}; background: transparent; color: {{t.ink}}; font: inherit; font-size: 13px; font-weight: 600; border-radius: 999px; min-height: 38px; padding: 0 14px; cursor: pointer">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12 5 5L20 7"></path></svg>
+                    I did it
+                  </button>
+                  <button type="button" onClick="{{stuck}}" style="border: 1px solid {{t.chip}}; background: transparent; color: {{t.ink}}; font: inherit; font-size: 13px; font-weight: 600; border-radius: 999px; min-height: 38px; padding: 0 14px; cursor: pointer">I'm stuck</button>
+                </div>
+              </sc-if>
+              <sc-if value="{{checking}}" hint-placeholder-val="{{false}}">
+                <div role="status" style="display: flex; align-items: center; gap: 10px; min-height: 38px; font-size: 13px; font-weight: 600; color: {{t.ink2}}">
+                  <span class="ph-pulse" style="width: 8px; height: 8px; border-radius: 50%; background: {{t.accent}}"></span>
+                  That looks done. Checking your screen.
+                </div>
+              </sc-if>
+            </div>
+          </sc-if>
+        </section>
+      </sc-for>
+
+      <sc-if value="{{allDone}}" hint-placeholder-val="{{false}}">
+        <section data-phase="{{doneMarker}}" style="min-height: 100%; box-sizing: border-box; padding: 40px 20px; display: flex; flex-direction: column; align-items: flex-start; gap: 14px">
+          <div style="width: 44px; height: 44px; border-radius: 50%; background: {{t.accent}}; color: {{t.onAccent}}; display: flex; align-items: center; justify-content: center">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12 5 5L20 7"></path></svg>
+          </div>
+          <div style="font-size: 22px; font-weight: 700">Your work VPN is set up.</div>
+          <p style="margin: 0; font-size: 14px; line-height: 1.5; color: {{t.ink2}}">This chat stays open. Ask anything about it later and I'll pick up from here.</p>
+          <button type="button" onClick="{{replay}}" style="border: 1px solid {{t.chip}}; background: transparent; color: {{t.ink}}; font: inherit; font-size: 13px; font-weight: 600; border-radius: 10px; min-height: 40px; padding: 0 14px; cursor: pointer">Replay the demo</button>
+        </section>
+      </sc-if>
+    </div>
+
+    <sc-if value="{{hasPending}}" hint-placeholder-val="{{false}}">
+      <div style="position: absolute; left: 0; right: 0; bottom: 76px; display: flex; justify-content: center; pointer-events: none">
+        <button type="button" class="ph-rise" onClick="{{jump}}" style="pointer-events: auto; display: flex; align-items: center; gap: 8px; border: 0; background: {{t.accent}}; color: {{t.onAccent}}; font: inherit; font-size: 13px; font-weight: 700; border-radius: 999px; min-height: 40px; padding: 0 16px; box-shadow: 0 6px 18px rgba(0,0,0,0.25); cursor: pointer">
+          {{pending}}
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M6 13l6 6 6-6"></path></svg>
+        </button>
+      </div>
+    </sc-if>
+
+    <div style="margin: 0 12px 12px; display: flex; align-items: center; gap: 6px; padding: 4px 4px 4px 14px; border-radius: 14px; background: {{t.input}}; border: 1px solid {{t.line}}">
+      <label for="ph-input" style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Message the coach</label>
+      <input id="ph-input" placeholder="{{placeholder}}" style="flex-grow: 1; min-width: 0; border: 0; background: transparent; font: inherit; font-size: 14px; color: {{t.ink}}; outline: none; height: 44px">
+      <button type="button" aria-label="Hold to talk" style="width: 44px; height: 44px; border: 0; border-radius: 12px; background: {{t.btn}}; color: {{t.btnInk}}; display: flex; align-items: center; justify-content: center; cursor: pointer">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"></rect><path d="M5 11a7 7 0 0 0 14 0M12 18v3"></path></svg>
+      </button>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"palette":{"editor":"enum","options":["Graphite","Porcelain","Midnight"],"default":"Graphite"},"$preview":{"width":400,"height":900}}'>
+var PH_THEMES = {
+  Graphite: { rail: '#0F1112', bg: '#17191A', card: '#1E2122', ink: '#ECEDE8', ink2: '#A3A79E', muted: '#5A5E5B', line: '#2A2E30', accent: '#9BD45A', onAccent: '#152009', doneFill: '#ECEDE8', doneInk: '#17191A', chip: '#3A3E40', code: '#0F1112', you: '#2A2E30', btn: '#ECEDE8', btnInk: '#17191A', input: '#1E2122' },
+  Porcelain: { rail: '#E9E7E1', bg: '#F6F5F1', card: '#FFFFFF', ink: '#1E1F1C', ink2: '#5D5F58', muted: '#9C9E95', line: '#DDDBD3', accent: '#3E7B3A', onAccent: '#FFFFFF', doneFill: '#1E1F1C', doneInk: '#FFFFFF', chip: '#CFCDC4', code: '#EFEDE7', you: '#E9E7E0', btn: '#1E1F1C', btnInk: '#F6F5F1', input: '#FFFFFF' },
+  Midnight: { rail: '#0A0F1C', bg: '#0F1626', card: '#151E31', ink: '#E8ECF4', ink2: '#9AA6BD', muted: '#4A5874', line: '#22304A', accent: '#6EE7B7', onAccent: '#052E1F', doneFill: '#E8ECF4', doneInk: '#0F1626', chip: '#2C3A57', code: '#0A0F1C', you: '#1E2A42', btn: '#E8ECF4', btnInk: '#0F1626', input: '#151E31' }
+};
+var PH_PLAN = [
+  { title: 'Get to the VPN settings', steps: [
+    { title: 'Open Settings', msgs: [
+      { who: 'coach', text: "We'll do this in Windows Settings, in three phases. First, press Windows + I." },
+      { who: 'coach', text: "That's Settings." } ] },
+    { title: 'Find the VPN page', msgs: [
+      { who: 'coach', text: 'Choose Network & internet on the left, then VPN.' },
+      { who: 'you', text: "where's network?" },
+      { who: 'coach', text: 'Fourth item down on the left, next to the globe icon.' },
+      { who: 'coach', text: "You're on the VPN page. That's phase one done." } ] } ] },
+  { title: 'Add the connection', steps: [
+    { title: 'Click Add VPN', confirm: 'The Add VPN window is open.', msgs: [
+      { who: 'coach', text: 'Click Add VPN at the top right. When it asks for a server, paste this:', code: 'vpn.northwind.example' },
+      { who: 'you', text: 'I see Add VPN and Advanced. which one?' },
+      { who: 'coach', text: 'Add VPN. Advanced comes later, if at all.' } ] },
+    { title: 'Fill in the details', confirm: 'Saved. On to the last phase.', msgs: [
+      { who: 'coach', text: 'Set the provider to Windows (built-in), name it Work, and choose User name and password. Type your work email and password, then click Save.' } ] } ] },
+  { title: 'Connect and check', steps: [
+    { title: 'Connect', confirm: 'It says Connected.', msgs: [
+      { who: 'coach', text: 'Under Work, click Connect.' } ] },
+    { title: 'Open the work portal', confirm: 'The portal loads. You are done.', msgs: [
+      { who: 'coach', text: 'Open your work portal in the browser to make sure it loads.' } ] } ] }
+];
+var PH_CERT = { title: 'Install the work certificate', isNew: true, confirm: 'Certificate installed.', msgs: [
+  { who: 'coach', text: 'Open the email from IT and double-click northwind-cert.cer, then choose Install for current user.' } ] };
+function phClonePlan(plan) {
+  return plan.map(function (p) { return { title: p.title, steps: p.steps.slice() }; });
+}
+function phFlat(plan) {
+  var out = [];
+  plan.forEach(function (p, pi) { p.steps.forEach(function (s, si) { out.push({ phase: pi, local: si, step: s }); }); });
+  return out;
+}
+var PH_AUTO_MS = 10000;
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { plan: phClonePlan(PH_PLAN), current: 2, checking: false, extra: {}, pending: '', scrollMode: '', inserted: false, live: false };
+    this.scroller = null;
+  }
+  componentDidMount() {
+    var self = this;
+    this.mountTimer = setTimeout(function () { self.scrollToPhase(self.phaseOf(self.state.current), false); }, 60);
+  }
+  componentDidUpdate(prevProps, prevState) {
+    if (!prevState) return;
+    var self = this;
+    if (prevState.current !== this.state.current) {
+      var mode = this.state.scrollMode;
+      setTimeout(function () {
+        if (mode === 'phase') self.scrollToPhase(self.phaseOf(self.state.current), true);
+        else if (mode === 'step') self.scrollToStep(self.state.current);
+      }, 30);
+    }
+    if (prevState.current !== this.state.current || prevState.live !== this.state.live || prevState.plan !== this.state.plan) {
+      this.scheduleAuto();
+    }
+  }
+  componentWillUnmount() {
+    clearTimeout(this.timer);
+    clearTimeout(this.mountTimer);
+    clearTimeout(this.autoTimer);
+  }
+  flat() { return phFlat(this.state.plan); }
+  phaseOf(i) {
+    var f = this.flat();
+    return i >= f.length ? this.state.plan.length : f[i].phase;
+  }
+  scheduleAuto() {
+    var self = this;
+    clearTimeout(this.autoTimer);
+    if (!this.state.live || this.state.checking || this.state.current >= this.flat().length) return;
+    this.autoTimer = setTimeout(function () { self.complete(); }, PH_AUTO_MS);
+  }
+  atBottom() {
+    var sc = this.scroller;
+    return !sc || sc.scrollTop + sc.clientHeight >= sc.scrollHeight - 60;
+  }
+  scrollToPhase(pi, smooth) {
+    var sc = this.scroller;
+    if (!sc) return;
+    var el = sc.querySelector('[data-phase="' + (pi + 1) + '"]');
+    if (el) sc.scrollTo({ top: el.offsetTop, behavior: smooth ? 'smooth' : 'auto' });
+  }
+  scrollToStep(i) {
+    var sc = this.scroller;
+    if (!sc) return;
+    var el = sc.querySelector('[data-stepmark="' + (i + 1) + '"]');
+    if (el && el.offsetTop + el.offsetHeight > sc.scrollTop + sc.clientHeight - 140) {
+      sc.scrollTo({ top: el.offsetTop - 16, behavior: 'smooth' });
+    }
+  }
+  complete() {
+    var self = this;
+    var f = this.flat();
+    if (this.state.checking || this.state.current >= f.length) return;
+    clearTimeout(this.autoTimer);
+    this.setState({ checking: true, live: true });
+    this.timer = setTimeout(function () {
+      var fl = self.flat();
+      var c = self.state.current;
+      var last = c + 1 >= fl.length;
+      var phaseChange = last || fl[c + 1].phase !== fl[c].phase;
+      var bottom = self.atBottom();
+      var pending = '';
+      if (!bottom) pending = last ? 'All done' : phaseChange ? 'Phase ' + (fl[c + 1].phase + 1) + ' is ready' : 'Step ' + (c + 2) + ' is ready';
+      var ex = Object.assign({}, self.state.extra);
+      ex[c] = (ex[c] || []).concat([{ who: 'coach', text: fl[c].step.confirm || 'Done.' }]);
+      self.setState({ checking: false, current: c + 1, extra: ex, pending: pending, scrollMode: bottom ? (phaseChange ? 'phase' : 'step') : '' });
+    }, 1200);
+  }
+  renderVals() {
+    var self = this;
+    var t = PH_THEMES[this.props.palette] || PH_THEMES.Graphite;
+    var plan = this.state.plan;
+    var flat = phFlat(plan);
+    var cur = this.state.current;
+    var curPhase = this.phaseOf(cur);
+    var checking = this.state.checking;
+    var extra = this.state.extra;
+    var idx = 0;
+    var phases = plan.map(function (p, pi) {
+      var isDone = pi < curPhase, isCurrent = pi === curPhase;
+      var dots = [];
+      var steps = [];
+      p.steps.forEach(function (s) {
+        var gi = idx++;
+        var sDone = gi < cur, sCur = gi === cur;
+        var dot = 'width: 6px; height: 6px; border-radius: 50%; background: ' + (sDone ? t.doneFill : sCur ? t.accent : t.muted);
+        if (s.isNew && !sDone) dot += '; box-shadow: 0 0 0 2px ' + t.rail + ', 0 0 0 3.5px ' + t.accent;
+        dots.push({ style: dot });
+        if (gi > cur) return;
+        var msgs = s.msgs.concat(extra[gi] || []).map(function (m, j) {
+          var lead = sCur && j === 0 && m.who === 'coach';
+          var textStyle = lead
+            ? 'margin: 0; font-size: 21px; line-height: 1.35; font-weight: 600; letter-spacing: -0.3px; color: ' + t.ink
+            : 'margin: 0; font-size: 13.5px; line-height: 1.5; color: ' + (isDone ? t.ink2 : t.ink);
+          return { text: m.text, code: m.code || '', hasCode: !!m.code, isCoach: m.who === 'coach', isYou: m.who === 'you', isNote: m.who === 'note', textStyle: textStyle };
+        });
+        steps.push({
+          num: gi + 1, title: s.title, msgs: msgs, isDone: sDone, isCurrent: sCur, isNew: !!s.isNew,
+          labelStyle: sCur ? 'font-size: 13px; font-weight: 700' : 'font-size: 13px; font-weight: 600; color: ' + t.ink2
+        });
+      });
+      return {
+        num: pi + 1, title: p.title, steps: steps, dots: dots,
+        isDone: isDone, isCurrent: isCurrent, isUpcoming: pi > curPhase, notFirst: pi > 0, visible: pi <= curPhase,
+        lineColor: pi <= curPhase ? (pi === curPhase ? t.accent : t.doneFill) : t.line,
+        sectionStyle: isCurrent
+          ? 'min-height: 100%; box-sizing: border-box; padding: 24px 20px 18px; display: flex; flex-direction: column; gap: 12px; background: ' + t.card
+          : 'box-sizing: border-box; padding: 20px 20px 20px; display: flex; flex-direction: column; gap: 10px; border-bottom: 1px solid ' + t.line,
+        titleStyle: isCurrent ? 'font-size: 18px; font-weight: 700; margin-top: -4px' : 'font-size: 15px; font-weight: 600; margin-top: -4px; color: ' + t.ink2,
+        label: 'Phase ' + (pi + 1) + (isDone ? ', done: ' : isCurrent ? ', current: ' : ': ') + p.title,
+        go: function () {
+          if (pi > curPhase) return;
+          self.setState({ live: true });
+          self.scrollToPhase(pi, true);
+        }
+      };
+    });
+    var allDone = cur >= flat.length;
+    var status = checking ? 'Checking' : 'Watching';
+    return {
+      t: t,
+      rail: phases,
+      visible: phases.filter(function (p) { return p.visible; }),
+      phaseCount: plan.length,
+      doneMarker: plan.length + 1,
+      checking: checking,
+      notChecking: !checking,
+      allDone: allDone,
+      statusWord: status,
+      pending: this.state.pending,
+      hasPending: !!this.state.pending,
+      headerStatus: allDone ? 'Done · all ' + plan.length + ' phases' : 'Phase ' + (curPhase + 1) + ' of ' + plan.length + ' · step ' + (cur + 1) + ' of ' + flat.length + ' · ' + status,
+      placeholder: allDone ? 'Ask a follow-up' : 'Ask about step ' + (cur + 1),
+      setScroller: function (el) { self.scroller = el; },
+      onScroll: function () {
+        if (self.state.pending && self.atBottom()) self.setState({ pending: '' });
+      },
+      jump: function () {
+        var c = self.state.current;
+        self.setState({ pending: '' });
+        var f = self.flat();
+        if (c >= f.length || (c > 0 && f[c].phase !== f[c - 1].phase)) self.scrollToPhase(self.phaseOf(c), true);
+        else {
+          var sc = self.scroller;
+          if (sc) sc.scrollTo({ top: sc.scrollHeight, behavior: 'smooth' });
+        }
+      },
+      markDone: function () { self.complete(); },
+      stuck: function () {
+        var c = self.state.current;
+        var f = self.flat();
+        if (c >= f.length) return;
+        var ex = Object.assign({}, self.state.extra);
+        var add = [{ who: 'you', text: "I'm stuck" }];
+        var next = { live: true, extra: ex };
+        if (!self.state.inserted) {
+          var plan2 = phClonePlan(self.state.plan);
+          plan2[f[c].phase].steps.splice(f[c].local + 1, 0, PH_CERT);
+          add.push({ who: 'coach', text: 'This network wants the company certificate before it will connect. I added that as the next step.' });
+          add.push({ who: 'note', text: 'Plan updated: added "Install the work certificate"' });
+          next.plan = plan2;
+          next.inserted = true;
+        } else {
+          add.push({ who: 'coach', text: "Look at the spot I've outlined. If it isn't there, tell me what you see instead." });
+        }
+        ex[c] = (ex[c] || []).concat(add);
+        self.setState(next);
+        setTimeout(function () { var sc = self.scroller; if (sc) sc.scrollTo({ top: sc.scrollHeight, behavior: 'smooth' }); }, 40);
+      },
+      replay: function () {
+        clearTimeout(self.timer);
+        clearTimeout(self.autoTimer);
+        self.setState({ plan: phClonePlan(PH_PLAN), current: 2, checking: false, extra: {}, pending: '', scrollMode: 'phase', inserted: false, live: false });
+        setTimeout(function () { self.scrollToPhase(1, true); }, 40);
+      }
+    };
+  }
+}
+</script>
+</body>
+</html>

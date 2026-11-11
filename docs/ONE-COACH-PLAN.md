@@ -1,7 +1,7 @@
 # One coach: build plan
 
 Branch: `one-coach` (nothing on `main` changes until you decide to merge).
-What we are building: [REDESIGN-BRIEF.md](REDESIGN-BRIEF.md).
+What we are building: [REDESIGN-BRIEF.md](REDESIGN-BRIEF.md). How the main screen will look: [redesign/](redesign/README.md).
 Date: 9 November 2026.
 
 ## In short
@@ -24,6 +24,23 @@ SightLine becomes one coach with one input box and a list of chats you can reope
 | 11 | Stop re-sending what doesn't change | Lower cost per look, same behaviour |
 | 12 | Wrap up | Docs match the app; decide whether to merge |
 
+**Then the redesign** (added 10 November 2026, when the design came back). The new main screen is designed in [redesign/](redesign/README.md): a numbered rail down the left showing the plan, and one conversation per phase on the right. It changes how an open chat looks, not what the coach does. It is ten more steps, one per work package in [redesign/IMPLEMENTATION.md](redesign/IMPLEMENTATION.md):
+
+| # | Step | What you try when it's done |
+| --- | --- | --- |
+| 13 | Colours and type | The new font, and the outline on your screen in the new green. Little else changes yet |
+| 14 | Messages know their step | Nothing to see. Chats save and reopen exactly as before |
+| 15 | The rail | Collapse the docked panel: the numbered rail replaces the thin strip |
+| 16 | The phase chat | Nothing new on screen yet. Built and tested, switched on in step 18 |
+| 17 | Replies, the "ready" pill, scrolling | Nothing new on screen yet. Switched on in step 18 |
+| 18 | Header, message box, quick answers, switch-over | The new screen: a quick question (no rail), a walkthrough (step circles), a long goal (phases) |
+| 19 | Every state | Pause, no key, spending cap, reopening a chat and finishing a goal each look right |
+| 20 | Remove what the redesign replaces | Same screen, less app |
+| 21 | Recolour the other screens | Home, About this chat, Settings and the privacy notice in the new colours; pick Graphite, Porcelain or Midnight in Settings |
+| 22 | Check it | The checklist a machine can run, then your own run: three kinds of chat, docked and collapsed, in all three colour sets |
+
+Step 12's merge decision now comes after step 22, so the documents are finished once and `main` gets one tested change.
+
 ## Progress
 
 - **Built, 9 November 2026:** steps 0 to 4. Each is its own commit on `one-coach`. Tests, type-check and build pass. None of it has been run live yet, so pacing, voice and the on-screen flow are unconfirmed.
@@ -35,7 +52,9 @@ SightLine becomes one coach with one input box and a list of chats you can reope
 - **Built so far:** every step. 506 tests, type-check and build pass. Steps 7, 9, 10 and 11 have not been reviewed by anyone else.
 - **First live run, 10 November:** the owner ran one walkthrough on Sonnet 5.5 and it worked end to end. The findings are in the next section and are the work that remains.
 - **Fixes from the first live run, 10 November, later:** all four are built, each its own commit: the "good question" filler, agreeing the goal, showing the model, and the voice (what it says, and a more natural voice model). What was decided is in "Fixes after the first live run" below. 536 tests, type-check and build pass. Agreeing the goal and the new wording were checked against the live service on Sonnet 5.5, and the new voice model against the owner's ElevenLabs account. **None of the four has been through a live run by the owner yet, and nobody has listened to the new voice.**
-- **Next:** the owner's second test, then the results table, and merging `one-coach` into `main` or dropping it. Testing Opus 5.5 was put off by the owner; it is not blocking.
+- **The redesign arrived, 10 November, evening:** the owner designed the new main screen in parallel; it is in [redesign/](redesign/README.md). It is woven into this plan as steps 13 to 22. The design was drawn before the four fixes above, so it says nothing about agreeing the goal or showing the model, and it assumes a menu the app does not have. "The redesign: phase chats" below settles each of those.
+- **Overnight, 10 to 11 November:** at the owner's request, steps 13 to 21 and the machine half of step 22 are being built by three cloud sessions, five hours apart from 11:00 PM Eastern. They share one branch and one pull request against `one-coach`, and never commit to `one-coach` or `main`. The brief is [overnight/2026-11-10](overnight/2026-11-10/README.md); each session leaves a report there.
+- **Next:** read the overnight reports and the pull request. The owner's live test (the four fixes and the new screen can be judged in the same run, or the fixes first on `one-coach` as it stands). Then the owner's half of step 22, the results table, and merging `one-coach` into `main` or dropping it. Testing Opus 5.5 was put off by the owner; it is not blocking.
 
 ## First live run, 10 November 2026
 
@@ -93,6 +112,31 @@ Built 10 November 2026, in the order the owner asked for. The owner said to make
 - The new model ignores a requested speed, so the Pace slider in Settings now works by playing the audio faster or slower. It behaves the same as before from the owner's side.
 - Nobody has heard it yet. This is a change made from the documentation and from timings, and the owner's next test decides whether it stays. Going back is one line (`ELEVEN_MODEL` in `electron/tts/shared.ts`). If the model is better but "Sarah" is still wrong, Settings has a voice list with a Preview button.
 
+## The redesign: phase chats
+
+The design, its reasons and its measurements are in [redesign/](redesign/README.md): read `README.md`, `DECISIONS.md`, `SPEC.md`, `DATA.md` and `IMPLEMENTATION.md` there, in that order. This section does not repeat them. It says where the redesign sits in this plan, and settles what the design does not cover.
+
+**Where it sits.**
+- It is built on top of `one-coach`, because it draws chats, stages, the step log and the agreed goal, which only exist here.
+- It is screen work plus one small addition to saved chats (each message records which step it belongs to). The coach, the loop, screen capture, docking and speech do not change.
+- It goes on one branch with one pull request against `one-coach`, so the look can be judged, and dropped, separately from the coach's behaviour. (The design's own hand-off note suggests the branch name `redesign/phase-chats`; the overnight sessions use `claude/overnight-2026-11-10-redesign`, the kind of name cloud sessions are allowed to push.)
+
+**What the design does not cover, and what I decided.** The design was drawn before the fixes from the first live run, and against a slightly older picture of the app. These are my calls so the build is not left guessing. Overrule any of them.
+
+1. **Agreeing the goal has no place in the design.** While the goal is waiting on your yes, the current section shows the goal at the large "lead" size with "Done when: …" under it, and one filled button, "Yes, start", in the footer with the line "Not quite? Type or say what you want instead." The status word is "Waiting for you" and the halo is off, because the coach really is not looking. Once agreed, the header title is the agreed goal, and "done when" stays in About this chat.
+2. **The model name has no place in the design.** It stays as one quiet line under the message box, in the new type, and beside Start on Home. You asked to be able to see it, so it does not go into a menu.
+3. **The design opens a menu that does not exist.** Today's screen has a row of buttons top and bottom; the new screen has room for a rail and a "⋯" button. So the "⋯" opens a plain list holding everything that otherwise has no home: About this chat, Attach a file, See what the coach sees, Switch screen (with two or more screens), Dock to the side or Float, Settings, what this sitting has cost so far, Minimize, and Quit. Without it there would be no way to reach Settings or close the app. **This is the largest thing I added that you did not design; look at it first.**
+4. **The spend meter is no longer always on screen.** It moves into that menu. At the spending cap the "needs you" banner still appears. The amber "getting close" warning is lost; say if you want it back.
+5. **Three states the design's table leaves out:** fixing a problem (status word "Fixing a problem"), checking earlier chats (status row "Checking earlier chats"), and waiting on the goal (item 1).
+6. **"Add a key" has nowhere to go**, because there is still no key-entry screen. The banner says where the key goes, as today, and its button opens Settings.
+7. **Suggested follow-ups on a quick answer** are in the design "if the coach provides them". The coach does not, and teaching it to is a change to the coach, so none are shown.
+8. **The one-tap replies send exactly the words they send today,** from the one list in `src/lib/quickReplies.ts`, so the spoken acknowledgement from fix 1 keeps working. "Yes, start" joins "I did it", "Check my work" and "I'm stuck".
+9. **Dark is the new default.** The design makes Graphite (dark) the default and your current colour setting maps to it. The design itself warns that a dark strip beside bright programs may draw the eye; that comparison is yours to make in step 22.
+
+**What only you can do** (step 22, second half): run it. A quick question, a short walkthrough and a long goal, docked and collapsed, in all three colour sets; Graphite against Porcelain beside a bright program; and the keyboard-only and reduced-motion passes in `redesign/IMPLEMENTATION.md` (WP10). No cloud session can see a screen or hear a voice.
+
+**Still not designed** (unchanged by this work, recoloured only): new layouts for Home, first run, About this chat and About you; the floating window's see-through look and its one-line bar; the key-entry screen.
+
 ## Calls I made
 
 1. **One coach, two stances.** It either *guides* (step by step, speaks when a step is done) or *watches* (silent until asked). The coach picks, and "just watch" or "talk me through it" switches it. Waiting is the default in both.
@@ -100,8 +144,8 @@ Built 10 November 2026, in the order the owner asked for. The owner said to make
 3. **A chat replaces both the session and the training plan.** Old history and training plans are not carried over. New data goes in a new folder; the old folder is left untouched, so switching back to `main` is clean. Your "about you" facts are copied across once.
 4. **Memory comes before long projects** (steps 6 and 7), because memory is the focus. Long tasks already work after step 4 as a running step list with notes; step 7 adds stages.
 5. **Nothing visual is ever saved.** The one stored screenshot per "Check my work" goes away with the training code.
-6. **Plain working screens now, redesign later.** New screens on this branch use today's look. The redesign is applied when it comes back, as a separate job.
-7. **No key-entry screen in this plan.** It belongs with the redesign. This plan only fixes the dead end: a missing key will say where the key goes.
+6. **Plain working screens now, redesign later.** New screens on this branch use today's look. The redesign is applied when it comes back, as a separate job. (It came back on 10 November and is steps 13 to 22.)
+7. **No key-entry screen in this plan.** It belongs with the redesign. This plan only fixes the dead end: a missing key will say where the key goes. (The redesign that came back does not include a key-entry screen either, so this still stands.)
 8. **The "Keep session history" switch goes.** Chats are the product; deleting a chat is the control. The "Remember me" switch stays.
 9. **The AI model stays as it is until step 10**, where it is changed only if the numbers say so.
 10. **Every chat keeps a step log** (added 9 November at your request). It is a running, timestamped record of each step done, the same for every kind of chat, and it only ever grows. It is saved with the chat and shown as a scrolling list at the top. It arrives in step 3.
@@ -358,12 +402,50 @@ Sonnet 5.5 is from six looks; the other two are one look each, so treat them as 
 - Rewrite the Agents, Session loop and Persistence sections of `CLAUDE.md`.
 - Correct `docs/PRODUCTION.md`, `.env.example` and the README where they describe removed features or the wrong key storage.
 - Fill in the results table below.
-- Decide: merge `one-coach` into `main`, or drop it.
+- Decide: merge `one-coach` into `main`, or drop it. (Now taken after step 22.)
+
+## Steps 13 to 22: the redesign
+
+**Outcome.** The open chat is the phase-chat screen in [redesign/SPEC.md](redesign/SPEC.md). Every measurement and colour comes from `SPEC.md` and `redesign/tokens.ts`; where they are silent, the reference prototypes; where those are silent, "The redesign: phase chats" above.
+
+Each step is one work package in [redesign/IMPLEMENTATION.md](redesign/IMPLEMENTATION.md), in its order, one commit each, ending with `npm run lint` and `npm test` green:
+
+| Step | Work package |
+| --- | --- |
+| 13 | WP1 · Tokens, palette setting, font |
+| 14 | WP2 · Turn tags and the phase view model |
+| 15 | WP3 · Phase rail |
+| 16 | WP4 · Phase chat |
+| 17 | WP5 · Footer, ready pill, auto-scroll |
+| 18 | WP6 · Header, composer, quick layout, layout switch |
+| 19 | WP7 · States |
+| 20 | WP8 · Remove what the redesign replaces |
+| 21 | WP9 · Restyle the other screens |
+| 22 | WP10 · Verify, and the acceptance checklist |
+
+**Where the work packages do not match the app as it is now.** Checked against the code on 10 November 2026. Follow these where they differ from `IMPLEMENTATION.md` and `DATA.md`.
+
+- **WP2.** The store's method is `appendTurn`, not `addTurn`. For a coach turn the order is already right in `useSessionLoop.ts`: `applyCompletedSteps`, then `applyStages`, then the turn is appended. Pin it with a test; do not reorder the loop. User turns are appended in `App.tsx` (`startSession`, `submitFollowUp`). Turns are stored as JSON, so the Postgres text needs no new columns; add the two fields to the comment beside it. The round-trip tests go in `chatRecord.test.ts` (there is no `sessionRecord` any more).
+- **WP4.** A `confirm_goal` turn never sets `currentInstruction`, so there is no lead line from the coach while the goal waits. The goal-waiting section (item 1 above) reads `agreedGoal`, `doneWhen` and `goalPending` from the store and replaces `GoalCard.tsx`.
+- **WP5.** There is no state in the renderer for "a pointer box is on screen": the main process draws it and takes it down by itself. Add one store flag, set where the loop already calls `flashHighlight` and cleared when the instruction changes. That single added line is the only edit allowed in `useSessionLoop.ts`; no guard, gate or log line changes. Wire the replies from `src/lib/quickReplies.ts`; never retype the strings.
+- **WP6.** There is no menu today, and `Composer.tsx` has no attach control. Build the "⋯" menu in item 3 above. It takes over everything in today's header and bottom bar that the rail does not: About this chat, attach, peek, screen switch, dock toggle, Settings, the cost line, minimize, and quit with today's confirmation when a chat is open. `ModelCaption` stays under the composer.
+- **WP7.** `pendingFollowUp` is cleared the moment a look starts, so it cannot tell "looking because you asked" from a routine look. Derive it from the conversation instead: while `thinking`, if the newest turn is the user's, the coach is answering them, and if that turn is the "I did it" reply the word is "Checking". `resumePending` is likewise consumed by the first look, so capture the time away when the chat is opened and keep it for the divider. Add the three states in item 5 above, and "Waiting for you" for `goalPending`.
+- **WP8.** Also remove `GoalCard.tsx`, and the `ControlBar`, `CostPill`, `ContextPanel` and `PanelHeader` functions inside `App.tsx` once the menu and the new header replace them. Keep `PeekOverlay` (the menu opens it), `CollapsedBar` (the floating bar, recoloured), `ModelCaption` and `quickReplies.ts`.
+- **WP9.** `ModelCaption` on Home is recoloured with everything else.
+- **Tests that pin today's screen.** `muteConsistency.test.ts` reads component source for the mute controls; update it on purpose when the controls move to the rail. `dockSettings.test.ts` locks the settings defaults; add `palette` there.
+- **One new dependency is allowed:** `@fontsource-variable/manrope` (WP1). Nothing else.
+- **Not part of this work:** the optional `current_step` phrase in `DATA.md` §3.2 and coach-suggested follow-ups. Both change the coach's cached request and need a live run.
+
+**Things that must stay true** are the list near the top of this section plus the invariants at the head of `redesign/IMPLEMENTATION.md`. The ones most at risk here: one-tap replies go through `submitFollowUp`; the hold-to-talk logic in `Composer.tsx` is recoloured, not rewritten; collapsing still goes through the existing dock code so the strip cut out of every screenshot matches what is on screen; the `[loop]` and `[timing]` log lines stay.
+
+**Check.** The acceptance checklist at the end of `redesign/IMPLEMENTATION.md`. A machine can check the tests, the contrast test, the layout rule, the wording and the removals. The manual run (WP10, points 1 to 9) is the owner's.
+
+**After step 22.** Rewrite the renderer section of `CLAUDE.md` for the new components, and mark the open questions in `REDESIGN-BRIEF.md` as answered by `redesign/DECISIONS.md`.
 
 ## Not in this plan
 
-- Applying the redesign. It starts when the design comes back.
-- A key-entry screen. It is in the design brief.
+- A key-entry screen. It is in the design brief, and not in the redesign that came back.
+- New layouts for Home, first run, About this chat and About you, and the floating window's see-through look. Not designed yet.
 - Sign-in, cloud storage, payments, monitoring.
 
 ## Results
