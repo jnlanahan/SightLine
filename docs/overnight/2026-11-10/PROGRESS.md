@@ -13,4 +13,4 @@ Kept current by the overnight sessions, after every step. See [README.md](README
 | 19 | WP7 · States | done | 109d533 |
 | 20 | WP8 · Remove what the redesign replaces | done | 3f00f43 |
 | 21 | WP9 · Restyle the other screens | done | 4013281 |
-| 22 | WP10 · Verify (machine half) and `MORNING.md` | not started | |
+| 22 | WP10 · Verify (machine half) and `MORNING.md` | partly: the machine half is done (e17dd4f, `MORNING.md`); the owner's manual run, default colours and merging are left for the owner | e17dd4f |
