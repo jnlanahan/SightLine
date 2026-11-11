@@ -67,7 +67,7 @@ export function ConversationHistory({
               }}
             >
               {turn.content}
-              {turn.code && <CodeBlock code={turn.code} />}
+              {turn.code && <CodeBlock code={turn.code} legacy />}
             </div>
           </div>
         );

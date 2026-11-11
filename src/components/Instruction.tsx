@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from "react";
 import { useTheme } from "../design/ThemeProvider";
 import { lt } from "../design/theme";
 import { CodeBlock } from "./CodeBlock";
+import { useTypewriter } from "./phase/LeadLine";
 
 interface Props {
   instruction: string;
@@ -16,34 +16,6 @@ interface Props {
   troubleshooting?: boolean;
   // "I did this" — tells the coach the step is complete without typing.
   onStepDone?: () => void;
-}
-
-// Soft typewriter reveal — caps at ~140 chars so longer responses don't
-// drag, and gracefully skips animation for unchanged text.
-function useTypewriter(text: string): string {
-  const [shown, setShown] = useState(text);
-  const lastRef = useRef(text);
-
-  useEffect(() => {
-    if (text === lastRef.current) return;
-    lastRef.current = text;
-    if (!text) { setShown(""); return; }
-    let i = 0;
-    setShown("");
-    const stepSize = Math.max(2, Math.ceil(text.length / 60));
-    const id = window.setInterval(() => {
-      i += stepSize;
-      if (i >= text.length) {
-        setShown(text);
-        window.clearInterval(id);
-      } else {
-        setShown(text.slice(0, i));
-      }
-    }, 16);
-    return () => window.clearInterval(id);
-  }, [text]);
-
-  return shown;
 }
 
 export function Instruction({ instruction, code = "", status, done, error, activeTool, troubleshooting, onStepDone }: Props) {
@@ -175,7 +147,7 @@ export function Instruction({ instruction, code = "", status, done, error, activ
           />
         )}
       </div>
-      {code && <CodeBlock code={code} onDark />}
+      {code && <CodeBlock code={code} legacy onDark />}
       {onStepDone && (
         <button
           type="button"

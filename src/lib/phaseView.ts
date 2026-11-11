@@ -379,3 +379,36 @@ export function buildPhaseView(input: PhaseInput, opts: PhaseViewOptions = {}): 
 
   return { layout, phases, currentPhase, currentStep, stepInPhase, done: input.done };
 }
+
+// ── Wording helpers (SPEC §6.5, §6.6, §10) ──
+
+/** The resume divider: "Picked up where you left off · 2 days ago". */
+export function resumeDividerText(awayMinutes: number): string {
+  const m = Math.max(1, Math.round(Number.isFinite(awayMinutes) ? awayMinutes : 1));
+  let ago: string;
+  if (m < 60) ago = `${m} minute${m === 1 ? "" : "s"}`;
+  else if (m < 48 * 60) {
+    const h = Math.round(m / 60);
+    ago = `${h} hour${h === 1 ? "" : "s"}`;
+  } else {
+    const d = Math.round(m / (24 * 60));
+    ago = `${d} day${d === 1 ? "" : "s"}`;
+  }
+  return `Picked up where you left off · ${ago} ago`;
+}
+
+/** The goal-reached headline: the coach's last line if it is short, else "Done." */
+export function completionHeadline(lastCoachLine: string | undefined): string {
+  const line = (lastCoachLine ?? "").trim();
+  return line && line.length < 60 ? line : "Done.";
+}
+
+export const COMPLETION_BODY =
+  "This chat stays open. Ask anything about it later and I'll pick up from here.";
+
+/** The goal turn the app records first ("Goal: …"), or null. */
+export function goalTurnText(turn: ConversationTurn): string | null {
+  return turn.role === "user" && turn.content.startsWith("Goal:")
+    ? turn.content.slice("Goal:".length).trim()
+    : null;
+}

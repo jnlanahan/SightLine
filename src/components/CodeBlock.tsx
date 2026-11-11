@@ -1,9 +1,13 @@
 import { useEffect, useState } from "react";
 import { api } from "../lib/api";
+import { useTokens } from "../design/ThemeProvider";
 
 interface Props {
   code: string;
-  // The voice card is dark ink; history bubbles are light. Pick the palette.
+  // The pre-redesign screen's look, for its two remaining callers
+  // (Instruction, ConversationHistory) until WP8 removes them.
+  legacy?: boolean;
+  // Legacy only: the voice card is dark ink; history bubbles are light.
   onDark?: boolean;
 }
 
@@ -12,8 +16,9 @@ interface Props {
  * indentation intact, with a Copy button — selecting it by hand collapsed a
  * whole YAML file into one line.
  */
-export function CodeBlock({ code, onDark = false }: Props) {
+export function CodeBlock({ code, legacy = false, onDark = false }: Props) {
   const [copied, setCopied] = useState<"idle" | "done" | "failed">("idle");
+  const tokens = useTokens();
 
   useEffect(() => {
     if (copied === "idle") return;
@@ -33,6 +38,50 @@ export function CodeBlock({ code, onDark = false }: Props) {
     } catch {
       setCopied("failed");
     }
+  }
+
+  const label = copied === "done" ? "Copied" : copied === "failed" ? "Couldn't copy" : "Copy";
+
+  if (!legacy) {
+    // Redesign (SPEC §4.5): code on the palette's code surface with a solid
+    // Copy button beside it. A long line scrolls sideways inside the block;
+    // the panel never scrolls sideways.
+    const t = tokens.palette;
+    return (
+      <div
+        className="no-drag"
+        style={{
+          display: "flex", alignItems: "flex-start", gap: 8,
+          padding: "4px 4px 4px 12px", borderRadius: tokens.radius.code,
+          background: t.code, border: `1px solid ${t.line}`, minWidth: 0,
+        }}
+      >
+        <pre
+          className="sl-selectable"
+          style={{
+            flex: 1, minWidth: 0, margin: 0, padding: "7px 0",
+            maxHeight: 260, overflow: "auto",
+            fontFamily: tokens.font.mono, fontSize: 13, lineHeight: 1.45,
+            color: t.ink, whiteSpace: "pre", tabSize: 2,
+          }}
+        >
+          {code}
+        </pre>
+        <button
+          type="button"
+          className="sl-focus"
+          onClick={() => void copy()}
+          aria-live="polite"
+          style={{
+            flexShrink: 0, border: 0, borderRadius: 8, minHeight: 34, padding: "0 12px",
+            background: t.btn, color: t.btnInk, fontSize: 12, fontWeight: 600,
+            cursor: "pointer",
+          }}
+        >
+          {label}
+        </button>
+      </div>
+    );
   }
 
   return (
@@ -61,7 +110,7 @@ export function CodeBlock({ code, onDark = false }: Props) {
             letterSpacing: "0.02em", cursor: "pointer",
           }}
         >
-          {copied === "done" ? "Copied" : copied === "failed" ? "Couldn't copy" : "Copy"}
+          {label}
         </button>
       </div>
       <pre
