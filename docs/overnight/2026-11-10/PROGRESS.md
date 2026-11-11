@@ -9,7 +9,7 @@ Kept current by the overnight sessions, after every step. See [README.md](README
 | 15 | WP3 · Phase rail | done | a5a523a |
 | 16 | WP4 · Phase chat | done | d94ce05 |
 | 17 | WP5 · Footer, ready pill, auto-scroll | done | e677fa2 |
-| 18 | WP6 · Header, composer, quick layout, layout switch | not started | |
+| 18 | WP6 · Header, composer, quick layout, layout switch | done | 8447698 |
 | 19 | WP7 · States | not started | |
 | 20 | WP8 · Remove what the redesign replaces | not started | |
 | 21 | WP9 · Restyle the other screens | not started | |
