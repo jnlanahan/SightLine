@@ -28,7 +28,8 @@ import { GoalCard } from "./components/GoalCard";
 import { ModelCaption } from "./components/ModelCaption";
 import { PrivacyNotice } from "./components/PrivacyNotice";
 import { Settings as SettingsView } from "./components/Settings";
-import { DockRail } from "./components/DockRail";
+import { PhaseRail } from "./components/PhaseRail";
+import { usePhaseView } from "./hooks/usePhaseView";
 import { ConversationHistory } from "./components/ConversationHistory";
 import {
   buildChatRecord,
@@ -140,6 +141,10 @@ export default function App() {
   }, [conversation.length, instruction]);
 
   const rateLimitCountdown = useRateLimitCountdown();
+  // The phase-chat view model, tracked for the sitting (plan changes, the
+  // current step's title, the layout floor). Called on every render so the
+  // tracking is continuous while the panel is collapsed too.
+  const { view: phaseView } = usePhaseView();
   const { cancel: cancelTts } = useTts();
 
   const openSettings = useCallback(() => setView("settings"), []);
@@ -511,17 +516,26 @@ export default function App() {
     if (docked) {
       return (
         <PanelShell docked animate={focused}>
-          <DockRail
-            status={status}
-            statusText={statusText}
-            dotColor={statusDot}
-            instruction={instruction}
-            ttsEnabled={settings?.ttsEnabled ?? false}
-            isPaused={status === "paused"}
-            onToggleVoice={toggleVoice}
-            onPause={pause}
-            onResume={resume}
-            onExpand={() => void toggleCollapsed()}
+          {/* The phase rail on its own (redesign SPEC §3.6). The collapse
+              wiring — window resize and the AppBar strip — is unchanged. */}
+          <PhaseRail
+            view={phaseView}
+            collapsed
+            muted={!(settings?.ttsEnabled ?? false)}
+            paused={status === "paused"}
+            needsYou={status === "error" || Boolean(error) || rateLimitCountdown !== null}
+            latestLine={instruction}
+            onAllChats={() => {
+              // Home does not fit in 64 px: expand, then leave the chat.
+              void toggleCollapsed().then(leaveChat);
+            }}
+            // Expanding is all a circle can do until the phase chat exists
+            // (WP4/WP5 add scrolling to the phase or step).
+            onPhase={() => void toggleCollapsed()}
+            onStep={() => void toggleCollapsed()}
+            onMute={toggleVoice}
+            onPause={status === "paused" ? resume : pause}
+            onCollapse={() => void toggleCollapsed()}
           />
         </PanelShell>
       );
