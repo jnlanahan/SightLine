@@ -4,9 +4,11 @@ Three cloud sessions build the redesign, steps 13 to 22 of [the plan](../../ONE-
 
 | Session | Starts (Eastern) | Aim | 
 | --- | --- | --- |
-| 1 | 11:00 PM, 10 Nov | Steps 13, 14, 15 (colours and type; messages know their step; the rail) |
+| 1 | 1:00 AM, 11 Nov | Steps 13, 14, 15 (colours and type; messages know their step; the rail) |
 | 2 | 4:00 AM, 11 Nov | Steps 16, 17, 18 (phase chat; replies, pill and scrolling; header, message box, quick layout, switch-over) |
 | 3 | 9:00 AM, 11 Nov | Steps 19, 20, 21, then the machine half of step 22 (states; removals; recolour the other screens; check) |
+
+Session 1 was first set for 11:00 PM and moved to 1:00 AM. The evening's own work had used most of that five-hour usage window, and the night before, the 11:00 PM job was refused for exactly that reason. The jobs themselves are small against the limit: a comparable build job the night before took twelve minutes.
 
 The aims are a guide, not a boundary. **Every session starts at the first step that is not marked done in `PROGRESS.md` and works forward in order.** If an earlier session fell short or never ran, the next one picks up where things actually stand. If a session finishes its aim with time to spare, it carries on with the next step. No step is ever skipped.
 
