@@ -1,6 +1,10 @@
 import { create } from "zustand";
 import { EMPTY_USAGE, addUsage } from "../../electron/usage";
-import { appendToStepLog, type RestoredSession } from "../../electron/chat-record";
+import {
+  appendToStepLog,
+  clampStage,
+  type RestoredSession,
+} from "../../electron/chat-record";
 import { addNote, editNote, forgetNote, newNoteId } from "../../electron/chat-notes";
 import type { ChatNote } from "../../electron/db/schema";
 import type {
@@ -62,6 +66,10 @@ export interface SessionState {
   // How the coach is helping right now: guiding step by step, or watching
   // quietly. Set by the coach; picks the loop cadence and the bounce rule.
   stance: Stance;
+  // A long goal's stage titles and which one the user is on (0-based). Empty
+  // for a quick question or a short walkthrough. Set by the coach.
+  stages: string[];
+  stageIndex: number;
   // Set when a saved chat is reopened and consumed by the first look, which
   // greets the user with where things stood.
   resumePending: { awayMinutes: number; whereWeLeftOff: string } | null;
@@ -128,6 +136,9 @@ export interface SessionState {
   setLastCheckInAt(t: number | null): void;
   setCurrentPace(p: StepPace): void;
   setStance(s: Stance): void;
+  // The coach laid out, changed, or advanced the stages of a long plan.
+  // `stageNumber` counts from 1; null for either means "unchanged".
+  applyStages(stages: string[] | null, stageNumber: number | null): void;
   setResumePending(r: { awayMinutes: number; whereWeLeftOff: string } | null): void;
   setTroubleshooting(v: boolean): void;
   setLastExpectedResult(s: string | null): void;
@@ -169,6 +180,8 @@ const initial = {
   lastCheckInAt: null as number | null,
   currentPace: "medium" as StepPace,
   stance: "guide" as Stance,
+  stages: [] as string[],
+  stageIndex: 0,
   resumePending: null as { awayMinutes: number; whereWeLeftOff: string } | null,
   troubleshooting: false,
   lastExpectedResult: null as string | null,
@@ -192,7 +205,12 @@ export const useSession = create<SessionState>((set) => ({
   setCompletedSteps: (steps) => set({ completedSteps: steps }),
   applyCompletedSteps: (steps, now) =>
     set((state) => {
-      const stepLog = appendToStepLog(state.stepLog, steps, now);
+      const stepLog = appendToStepLog(
+        state.stepLog,
+        steps,
+        now,
+        state.stages[state.stageIndex],
+      );
       if (stepLog === state.stepLog) return state;
       // The coach is shown the log's own wording next look, so its list and
       // the log cannot drift apart.
@@ -249,6 +267,12 @@ export const useSession = create<SessionState>((set) => ({
   setLastCheckInAt: (t) => set({ lastCheckInAt: t }),
   setCurrentPace: (p) => set({ currentPace: p }),
   setStance: (s) => set({ stance: s }),
+  applyStages: (stages, stageNumber) =>
+    set((state) => {
+      const next = stages && stages.length > 0 ? stages : state.stages;
+      const wanted = stageNumber !== null ? stageNumber - 1 : state.stageIndex;
+      return { stages: next, stageIndex: clampStage(wanted, next.length) };
+    }),
   setResumePending: (r) => set({ resumePending: r }),
   setTroubleshooting: (v) => set({ troubleshooting: v }),
   setLastExpectedResult: (s) => set({ lastExpectedResult: s }),

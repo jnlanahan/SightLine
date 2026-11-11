@@ -108,6 +108,10 @@ export interface TurnContext {
   // The coach's current stance. Per-tick data: it belongs in the context
   // header, never in the cached prompt.
   stance?: Stance;
+  // A long goal's stages and which one the user is on (0-based). Empty for a
+  // quick question or a short walkthrough.
+  stages?: string[];
+  stageIndex?: number;
   // The first look after a saved chat is reopened: how long the user was
   // away, and the where-we-left-off line saved with the chat.
   resuming?: { awayMinutes: number; whereWeLeftOff: string };

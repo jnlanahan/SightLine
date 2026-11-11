@@ -45,12 +45,14 @@ export function appendToStepLog(
   log: readonly StepLogEntry[],
   completedSteps: readonly string[],
   now: number,
+  // The stage of a long plan the user is on, by title. New entries carry it.
+  stage?: string,
 ): StepLogEntry[] {
   const fresh = completedSteps
     .slice(log.length)
     .map((s) => s.trim())
     .filter((s) => s.length > 0)
-    .map((text) => ({ text, at: now }));
+    .map((text) => ({ text, at: now, ...(stage ? { stage } : {}) }));
   return fresh.length === 0 ? (log as StepLogEntry[]) : [...log, ...fresh];
 }
 
@@ -78,6 +80,20 @@ function clip(text: string, max: number): string {
  * Shown in the chat list, and handed to the coach when the chat is reopened.
  */
 export function buildWhereWeLeftOff(input: {
+  stepLog: readonly StepLogEntry[];
+  currentStep: string;
+  done: boolean;
+  stages?: readonly string[];
+  stageIndex?: number;
+}): string {
+  const line = whereWeLeftOffLine(input);
+  const stages = input.stages ?? [];
+  if (stages.length === 0 || input.done) return line;
+  const i = clampStage(input.stageIndex, stages.length);
+  return `Stage ${i + 1} of ${stages.length}: ${stages[i]}. ${line}`;
+}
+
+function whereWeLeftOffLine(input: {
   stepLog: readonly StepLogEntry[];
   currentStep: string;
   done: boolean;
@@ -112,6 +128,8 @@ export interface ChatSnapshot {
   currentCode: string;
   expectedResult: string | null;
   upcomingSteps: readonly string[];
+  stages: readonly string[];
+  stageIndex: number;
   // Live and retired alike: a retired note is what stops the coach writing a
   // forgotten one straight back.
   notes: readonly ChatNote[];
@@ -146,10 +164,14 @@ export function buildChatRecord(snapshot: ChatSnapshot): ChatRecord {
     currentCode: snapshot.currentCode,
     expectedResult: snapshot.expectedResult,
     upcomingSteps: [...snapshot.upcomingSteps],
+    stages: [...snapshot.stages],
+    stageIndex: snapshot.stageIndex,
     whereWeLeftOff: buildWhereWeLeftOff({
       stepLog: snapshot.stepLog,
       currentStep: snapshot.currentStep,
       done: snapshot.done,
+      stages: snapshot.stages,
+      stageIndex: snapshot.stageIndex,
     }),
     notes: snapshot.notes.map((n) => ({ ...n })),
     turns,
@@ -192,7 +214,22 @@ export function summarizeChat(record: ChatRecord): ChatSummary {
  * saved in the ordinary way.
  */
 export function normalizeChatRecord(record: ChatRecord): ChatRecord {
-  return { ...record, notes: normalizeNotes(record.notes, record.createdAt) };
+  const stages = Array.isArray(record.stages)
+    ? record.stages.filter((s): s is string => typeof s === "string")
+    : [];
+  return {
+    ...record,
+    notes: normalizeNotes(record.notes, record.createdAt),
+    // Chats saved before stages existed have neither field.
+    stages,
+    stageIndex: clampStage(record.stageIndex, stages.length),
+  };
+}
+
+/** A usable 0-based stage index for a list of `count` stages. */
+export function clampStage(index: unknown, count: number): number {
+  const i = typeof index === "number" && Number.isInteger(index) ? index : 0;
+  return Math.min(Math.max(i, 0), Math.max(count - 1, 0));
 }
 
 /** The session-store fields a reopened chat restores. */
@@ -202,6 +239,8 @@ export interface RestoredSession {
   stepLog: StepLogEntry[];
   completedSteps: string[];
   upcomingSteps: string[];
+  stages: string[];
+  stageIndex: number;
   currentInstruction: string;
   currentCode: string;
   lastExpectedResult: string | null;
@@ -213,7 +252,10 @@ export interface RestoredSession {
   done: boolean;
 }
 
-export function chatToSession(record: ChatRecord): RestoredSession {
+export function chatToSession(saved: ChatRecord): RestoredSession {
+  // Normalized here as well as on read, so a record from anywhere (an older
+  // file, a test) restores in today's shape.
+  const record = normalizeChatRecord(saved);
   const conversation: ConversationTurn[] = record.turns.map((t) => ({
     role: t.role,
     content: t.content,
@@ -228,6 +270,8 @@ export function chatToSession(record: ChatRecord): RestoredSession {
     // The coach is shown the log's own wording, so its list and the log agree.
     completedSteps: record.stepLog.map((e) => e.text),
     upcomingSteps: [...record.upcomingSteps],
+    stages: [...record.stages],
+    stageIndex: record.stageIndex,
     currentInstruction: record.currentStep,
     currentCode: record.currentCode,
     lastExpectedResult: record.expectedResult,

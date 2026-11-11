@@ -67,6 +67,9 @@ export interface ChatNote {
 export interface StepLogEntry {
   text: string;
   at: number;
+  // The stage of a long plan this step belonged to, by title. Absent for
+  // chats without stages.
+  stage?: string;
 }
 
 /** One message in a chat's transcript. */
@@ -103,6 +106,11 @@ export interface ChatRecord {
   currentCode: string;
   expectedResult: string | null;
   upcomingSteps: string[];
+  // A long goal's stage titles and which one the user is on (0-based). Empty
+  // for a quick question or a short walkthrough. Chats saved before stages
+  // existed have neither field; chat-record.ts fills them in on read.
+  stages: string[];
+  stageIndex: number;
   // One or two sentences, rebuilt on every save with no model call.
   whereWeLeftOff: string;
   // What the coach noted to itself in this chat, live and retired. Chats
@@ -183,6 +191,8 @@ create table if not exists chats (
   current_code         text not null default '',
   expected_result      text,
   upcoming_steps       jsonb not null default '[]'::jsonb,
+  stages               jsonb not null default '[]'::jsonb,
+  stage_index          integer not null default 0,
   where_we_left_off    text not null default '',
   -- [{ id, text, seen, at, retiredAt }], live and retired alike
   notes                jsonb not null default '[]'::jsonb,

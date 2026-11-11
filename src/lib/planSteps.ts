@@ -12,6 +12,8 @@ export interface PlanStep {
   state: PlanStepState;
   // When a completed step was done, from the chat's step log.
   at?: number;
+  // The stage of a long plan it belonged to, by title.
+  stage?: string;
 }
 
 export interface PlanInput {
@@ -19,6 +21,8 @@ export interface PlanInput {
   // Parallel to completedSteps: when each was done. Optional — a list with no
   // log behind it simply shows no times.
   completedAt?: number[];
+  // Parallel to completedSteps: the stage each belonged to, where there is one.
+  completedStage?: (string | undefined)[];
   // The instruction currently in flight. This is a spoken sentence rather
   // than a short phrase, so it gets shortened for list display.
   currentInstruction: string;
@@ -54,6 +58,7 @@ export function toPlanSteps(input: PlanInput): PlanStep[] {
       description: d.trim(),
       state: "completed" as const,
       ...(input.completedAt?.[i] !== undefined ? { at: input.completedAt[i] } : {}),
+      ...(input.completedStage?.[i] ? { stage: input.completedStage[i] } : {}),
     }))
     .filter((s) => s.description.length > 0);
 

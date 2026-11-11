@@ -41,6 +41,25 @@ function stepsArray(v: unknown, previous: string[]): string[] {
   return v.map(String);
 }
 
+// A plan with more stages than this is not a plan anyone will follow; the
+// prompt asks for 3 to 8.
+const MAX_STAGES = 12;
+
+/** Stage titles, when the coach sent a usable list. Null means "unchanged". */
+function stageList(v: unknown): string[] | null {
+  if (!Array.isArray(v)) return null;
+  const titles = v
+    .map((s) => (typeof s === "string" ? s.trim() : ""))
+    .filter((s) => s.length > 0)
+    .slice(0, MAX_STAGES);
+  return titles.length > 0 ? titles : null;
+}
+
+/** The current stage, counting from 1. Null means "unchanged". */
+function stageNumber(v: unknown): number | null {
+  return typeof v === "number" && Number.isInteger(v) && v >= 1 ? v : null;
+}
+
 /**
  * Build the turn result from whichever terminal tool the model called.
  *
@@ -89,6 +108,8 @@ export function parseTerminalTool(
     stance: VALID_STANCES.has(str(input.stance))
       ? (str(input.stance) as InstructionResponse["stance"])
       : null,
+    stages: stageList(input.stages),
+    stageNumber: stageNumber(input.stage),
     done: action === "done",
     notes: str(input.notes),
     // Strictly true: a string "true" or a missing field reads as not seen,

@@ -134,6 +134,11 @@ export interface InstructionResponse {
   digression: boolean;
   // The stance the coach asked to be in from now on. Null/absent = unchanged.
   stance?: Stance | null;
+  // A long goal's stage titles, when the coach laid them out or changed them
+  // this turn, and the stage the user is now on (counting from 1).
+  // Null/absent = unchanged.
+  stages?: string[] | null;
+  stageNumber?: number | null;
   done: boolean;
   notes: string;
   // The note records something the coach read on screen this turn.

@@ -33,6 +33,7 @@ import { researchSkill } from "./skills/research";
 import { screenReadingSkill } from "./skills/screen-reading";
 import { pastChatsSkill } from "./skills/past-chats";
 import { planSkill } from "./skills/plan";
+import { stagesSkill } from "./skills/stages";
 import { pointingSkill } from "./skills/pointing";
 import { notesSkill } from "./skills/notes";
 import { memorySkill } from "./skills/memory";
@@ -95,6 +96,7 @@ export const coachAgent: Agent = {
       upcomingMeaning: "the steps you intend to come after the current one —",
       extraRules: PLAN_RULES,
     }),
+    stagesSkill,
     pointingSkill,
     notesSkill,
     memorySkill(COACH_MEMORY),

@@ -9,6 +9,8 @@ export interface PlanStep {
   state: "completed" | "current" | "upcoming";
   // When a completed step was done, from the chat's step log.
   at?: number;
+  // The stage of a long plan it belonged to, by title.
+  stage?: string;
 }
 
 interface Props {
@@ -207,6 +209,8 @@ export function PlanList({ steps }: { steps: PlanStep[] }) {
         const prevAt = steps[i - 1]?.at;
         const newDay =
           day !== null && (prevAt === undefined || dayLabel(prevAt, now) !== day);
+        // In a long plan, mark where each stage's steps begin.
+        const newStage = Boolean(step.stage) && steps[i - 1]?.stage !== step.stage;
         return (
           <Fragment key={`${step.state}-${i}`}>
             {newDay && (
@@ -221,6 +225,18 @@ export function PlanList({ steps }: { steps: PlanStep[] }) {
                 }}
               >
                 {day}
+              </li>
+            )}
+            {newStage && (
+              <li
+                style={{
+                  padding: "4px 0 1px",
+                  fontSize: 11,
+                  fontWeight: 600,
+                  color: T.ink2,
+                }}
+              >
+                {step.stage}
               </li>
             )}
             <li
@@ -266,6 +282,57 @@ export function PlanList({ steps }: { steps: PlanStep[] }) {
               )}
             </li>
           </Fragment>
+        );
+      })}
+    </ol>
+  );
+}
+
+/**
+ * The stages of a long plan, above the step list: which are done, which one
+ * the user is on, and what is still to come. Renders nothing for a chat
+ * without stages.
+ */
+export function StageList({ stages, current }: { stages: string[]; current: number }) {
+  const T = useTheme();
+  if (stages.length === 0) return null;
+  return (
+    <ol
+      className="sl-selectable"
+      style={{
+        flexShrink: 0,
+        margin: 0,
+        padding: "8px 16px 6px",
+        listStyle: "none",
+        display: "flex",
+        flexDirection: "column",
+        gap: 1,
+        borderBottom: `1px solid ${lt(0.08)}`,
+      }}
+    >
+      {stages.map((title, i) => {
+        const state: PlanStep["state"] =
+          i < current ? "completed" : i === current ? "current" : "upcoming";
+        return (
+          <li
+            key={`${i}-${title}`}
+            style={{ display: "flex", alignItems: "flex-start", gap: 9, padding: "3px 0" }}
+          >
+            <StepMarker state={state} />
+            <span
+              style={{
+                flex: 1,
+                minWidth: 0,
+                fontSize: 12,
+                lineHeight: 1.45,
+                color: state === "current" ? T.ink : state === "completed" ? T.ink3 : T.ink2,
+                fontWeight: state === "current" ? 600 : 400,
+                opacity: state === "upcoming" ? 0.75 : 1,
+              }}
+            >
+              {i + 1}. {title}
+            </span>
+          </li>
         );
       })}
     </ol>

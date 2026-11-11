@@ -49,6 +49,7 @@ describe("the coach's cached prefix", () => {
       // lens, on purpose; it moved the cache prefix once.
       "pastChats",
       "plan",
+      "stages",
       "pointing",
       "notes",
       "memory",
@@ -110,7 +111,8 @@ describe("what the coach fills in each turn", () => {
   it("fills exactly these fields, in this order", () => {
     // Pinned on purpose: these schemas sit in the cached prefix, so any change
     // re-writes the cache once. Step 6 added note_seen (and "seen" inside
-    // remember) — the deliberate change that last moved this pin.
+    // remember); step 7 added stages and stage — the deliberate change that
+    // last moved this pin.
     expect(sayFields).toEqual([
       "action",
       "instruction",
@@ -122,6 +124,8 @@ describe("what the coach fills in each turn", () => {
       "completed_steps",
       "upcoming_steps",
       "digression",
+      "stages",
+      "stage",
       "highlight",
       "notes",
       "note_seen",
@@ -133,6 +137,8 @@ describe("what the coach fills in each turn", () => {
       "completed_steps",
       "upcoming_steps",
       "digression",
+      "stages",
+      "stage",
       "notes",
       "note_seen",
       "remember",
@@ -358,5 +364,58 @@ describe("parsing a coach turn", () => {
     expect(
       parseTerminalTool("wait", { upcoming_steps: ["Sort by total"] }, [], plan).upcomingSteps,
     ).toEqual(["Sort by total"]);
+  });
+});
+
+describe("a long goal has stages", () => {
+  const prompt = systemPrompt(coachAgent);
+
+  it("lays out a few stages and plans only the current one in detail", () => {
+    expect(prompt).toContain("3 to 8 stages");
+    expect(prompt).toContain('"upcoming_steps" holds the steps of the CURRENT stage only');
+    expect(prompt).toContain("A quick question or a short walkthrough has no stages");
+  });
+
+  it("shows the coach where the user is in the plan, each look", () => {
+    const header = buildContextHeader(
+      coachAgent,
+      ctx({ stages: ["Shape the data", "Build the table", "Group by month"], stageIndex: 1 }),
+      1,
+    );
+    expect(header).toContain("Plan stages (the user is on stage 2 of 3):");
+    expect(header).toContain("1. Shape the data — done");
+    expect(header).toContain("2. Build the table — current");
+    expect(header).toContain("3. Group by month");
+    expect(header).not.toContain("3. Group by month —");
+  });
+
+  it("says nothing about stages for a chat without them", () => {
+    expect(buildContextHeader(coachAgent, ctx(), 1)).not.toContain("Plan stages");
+  });
+
+  it("reads the stage list and the current stage from either kind of turn", () => {
+    const laidOut = parseTerminalTool(
+      "say",
+      {
+        action: "instruct",
+        instruction: "Here's the plan.",
+        stages: ["Shape the data", " Build the table ", ""],
+        stage: 1,
+      },
+      [],
+    );
+    expect(laidOut.stages).toEqual(["Shape the data", "Build the table"]);
+    expect(laidOut.stageNumber).toBe(1);
+    expect(parseTerminalTool("wait", { stage: 2 }, []).stageNumber).toBe(2);
+  });
+
+  it("treats anything unusable as no change", () => {
+    const silent = parseTerminalTool("wait", {}, []);
+    expect(silent.stages).toBeNull();
+    expect(silent.stageNumber).toBeNull();
+    expect(parseTerminalTool("wait", { stages: [], stage: 0 }, []).stages).toBeNull();
+    expect(parseTerminalTool("wait", { stage: 0 }, []).stageNumber).toBeNull();
+    expect(parseTerminalTool("wait", { stage: "2" }, []).stageNumber).toBeNull();
+    expect(parseTerminalTool("wait", { stage: 1.5 }, []).stageNumber).toBeNull();
   });
 });

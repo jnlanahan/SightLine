@@ -378,6 +378,8 @@ export function useSessionLoop(onNeedsApiKey: () => void) {
           goal: s.goal!,
           completedSteps: s.completedSteps,
           upcomingSteps: s.upcomingSteps,
+          stages: s.stages,
+          stageIndex: s.stageIndex,
           conversation: s.conversation,
           frames: s.frames.slice(-FRAMES_PER_CALL),
           followUp,
@@ -482,6 +484,17 @@ export function useSessionLoop(onNeedsApiKey: () => void) {
           .getState()
           .applyCompletedSteps(result.completedSteps, Date.now());
         useSession.getState().setUpcomingSteps(result.upcomingSteps ?? []);
+        // After the steps: a step finished on the turn that moves to the next
+        // stage belongs to the stage being left.
+        if (result.stages || typeof result.stageNumber === "number") {
+          useSession
+            .getState()
+            .applyStages(result.stages ?? null, result.stageNumber ?? null);
+          const after = useSession.getState();
+          log(
+            `stage ${after.stageIndex + 1} of ${after.stages.length}: "${(after.stages[after.stageIndex] ?? "").slice(0, 50)}"`,
+          );
+        }
         useSession.getState().setTroubleshooting(Boolean(result.troubleshooting));
         // The coach changed how it is helping. Takes effect from the next
         // look: the cadence, the input trigger, and the finished-step bounce

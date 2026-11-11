@@ -7,7 +7,7 @@ import { useTts } from "./hooks/useTts";
 import { api } from "./lib/api";
 import { markAsk, sinceAsk } from "./lib/askClock";
 import { Composer } from "./components/Composer";
-import { ProgressRail, PlanList } from "./components/ProgressRail";
+import { ProgressRail, PlanList, StageList } from "./components/ProgressRail";
 import { Home } from "./components/Home";
 import { AboutChat } from "./components/AboutChat";
 import { liveNotes } from "../electron/chat-notes";
@@ -91,6 +91,8 @@ export default function App() {
   const troubleshooting = useSession((s) => s.troubleshooting);
   const stance         = useSession((s) => s.stance);
   const stepLog        = useSession((s) => s.stepLog);
+  const stages         = useSession((s) => s.stages);
+  const stageIndex     = useSession((s) => s.stageIndex);
 
   const settings      = useSettings((s) => s.settings);
   const keyStatus     = useSettings((s) => s.keyStatus);
@@ -144,6 +146,7 @@ export default function App() {
     completedSteps,
     // The step log runs parallel to completedSteps and carries the times.
     completedAt: stepLog.map((e) => e.at),
+    completedStage: stepLog.map((e) => e.stage),
     currentInstruction: instruction,
     upcomingSteps,
     done,
@@ -352,6 +355,8 @@ export default function App() {
       currentCode: s.currentCode,
       expectedResult: s.lastExpectedResult,
       upcomingSteps: s.upcomingSteps,
+      stages: s.stages,
+      stageIndex: s.stageIndex,
       notes: s.agentNotes,
       conversation: s.conversation,
       uploadedContext: s.uploadedContext,
@@ -380,7 +385,7 @@ export default function App() {
     if (conversationLength === 0) return;
     if (!useSession.getState().sessionId) return;
     void persistChat();
-  }, [conversationLength, stepLogLength, agentNotes, stance, done, persistChat]);
+  }, [conversationLength, stepLogLength, agentNotes, stance, stages, stageIndex, done, persistChat]);
 
   /** Back to the chat list. Nothing is lost: the chat is saved as it stands. */
   function leaveChat() {
@@ -587,8 +592,10 @@ export default function App() {
            conversation instead of burying it. */
         <div className="flex flex-1 flex-col" style={{ minHeight: 0 }}>
           <ProgressRail
-            label="Goal"
-            goal={goal}
+            // A long plan shows where the user is in it; anything shorter
+            // just shows the goal.
+            label={stages.length > 0 ? `Stage ${stageIndex + 1} of ${stages.length}` : "Goal"}
+            goal={stages.length > 0 ? (stages[stageIndex] ?? goal) : goal}
             steps={planSteps}
             open={planOpen}
             docked={docked}
@@ -597,6 +604,7 @@ export default function App() {
 
           {planOpen && (
             <>
+              <StageList stages={stages} current={stageIndex} />
               <PlanList steps={planSteps} />
               <div style={{ flexShrink: 0, padding: "8px 16px 10px", borderBottom: `1px solid ${lt(0.08)}` }}>
                 <ContextPanel

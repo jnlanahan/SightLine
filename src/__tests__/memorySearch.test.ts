@@ -60,6 +60,8 @@ function chat(id: string, overrides: Partial<ChatRecord> = {}): ChatRecord {
     currentCode: "",
     expectedResult: null,
     upcomingSteps: [],
+    stages: [],
+    stageIndex: 0,
     whereWeLeftOff: "",
     notes: [],
     turns: [],

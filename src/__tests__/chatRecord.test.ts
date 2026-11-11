@@ -8,6 +8,7 @@ import {
   buildChatRecord,
   buildWhereWeLeftOff,
   chatToSession,
+  clampStage,
   isChatId,
   isWorthSaving,
   normalizeChatRecord,
@@ -35,6 +36,8 @@ function snapshot(overrides: Partial<ChatSnapshot> = {}): ChatSnapshot {
     currentCode: "",
     expectedResult: "the sign-in screen is showing",
     upcomingSteps: ["Sign in", "Connect to a server"],
+    stages: [],
+    stageIndex: 0,
     notes: [
       { id: "note_a", text: "They're on Windows 11", seen: true, at: 3_000, retiredAt: null },
       { id: "note_b", text: "Their old VPN client was removed", seen: false, at: 4_000, retiredAt: 6_000 },
@@ -365,5 +368,70 @@ describe("the user's note edits and the next autosave", () => {
       "They're on Windows 10, not 11",
     );
     expect(saved.notes.find((n) => n.id === "note_a")!.seen).toBe(true);
+  });
+});
+
+describe("a long plan's stages", () => {
+  const stages = ["Shape the data", "Build the table", "Group by month"];
+
+  beforeEach(() => useSession.getState().reset());
+
+  it("are saved with the chat and restored with it", () => {
+    const record = buildChatRecord(snapshot({ stages, stageIndex: 1 }));
+    expect(record.stages).toEqual(stages);
+    expect(record.stageIndex).toBe(1);
+    const restored = chatToSession(JSON.parse(JSON.stringify(record)));
+    expect(restored.stages).toEqual(stages);
+    expect(restored.stageIndex).toBe(1);
+  });
+
+  it("lead the where-we-left-off line", () => {
+    const record = buildChatRecord(snapshot({ stages, stageIndex: 1 }));
+    expect(record.whereWeLeftOff.startsWith("Stage 2 of 3: Build the table. ")).toBe(true);
+    expect(buildChatRecord(snapshot()).whereWeLeftOff.startsWith("Done so far")).toBe(true);
+  });
+
+  it("default to none for a chat saved before stages existed", () => {
+    const old = JSON.parse(JSON.stringify(buildChatRecord(snapshot())));
+    delete old.stages;
+    delete old.stageIndex;
+    const restored = chatToSession(old);
+    expect(restored.stages).toEqual([]);
+    expect(restored.stageIndex).toBe(0);
+  });
+
+  it("never point outside the list", () => {
+    expect(clampStage(7, 3)).toBe(2);
+    expect(clampStage(-1, 3)).toBe(0);
+    expect(clampStage(undefined, 3)).toBe(0);
+    expect(clampStage(2, 0)).toBe(0);
+  });
+
+  it("are laid out and advanced by the coach, counting from 1", () => {
+    useSession.getState().applyStages(stages, 1);
+    expect(useSession.getState().stageIndex).toBe(0);
+    useSession.getState().applyStages(null, 2);
+    expect(useSession.getState().stages).toEqual(stages);
+    expect(useSession.getState().stageIndex).toBe(1);
+    useSession.getState().applyStages(null, 9);
+    expect(useSession.getState().stageIndex).toBe(2);
+  });
+
+  it("tag each logged step with the stage it was done in", () => {
+    useSession.getState().applyStages(stages, 1);
+    useSession.getState().applyCompletedSteps(["Removed blank rows"], 1_000);
+    useSession.getState().applyStages(null, 2);
+    useSession
+      .getState()
+      .applyCompletedSteps(["Removed blank rows", "Inserted the pivot table"], 2_000);
+    expect(useSession.getState().stepLog).toEqual([
+      { text: "Removed blank rows", at: 1_000, stage: "Shape the data" },
+      { text: "Inserted the pivot table", at: 2_000, stage: "Build the table" },
+    ]);
+  });
+
+  it("leave the log untagged in a chat without stages", () => {
+    useSession.getState().applyCompletedSteps(["Opened Settings"], 1_000);
+    expect(useSession.getState().stepLog).toEqual([{ text: "Opened Settings", at: 1_000 }]);
   });
 });
