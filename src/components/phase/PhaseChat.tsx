@@ -41,7 +41,12 @@ export interface PhaseChatProps {
   footer?: ReactNode;
   scrollRef?: Ref<HTMLDivElement>;
   onScroll?: UIEventHandler<HTMLDivElement>;
+  /** The user reached for the scroll (wheel, touch, key, press), so the
+   *  scroll events that follow are theirs and not the browser's or ours. */
+  onUserScroll?: () => void;
 }
+
+const SCROLL_KEYS = new Set(["PageUp", "PageDown", "Home", "End", "ArrowUp", "ArrowDown"]);
 
 type Item =
   | { kind: "turn"; at: number; turn: ConversationTurn; lead: boolean }
@@ -126,6 +131,17 @@ export function PhaseChat(props: PhaseChatProps) {
     <div
       ref={props.scrollRef}
       onScroll={props.onScroll}
+      onWheel={props.onUserScroll}
+      onTouchMove={props.onUserScroll}
+      // Only the keys that scroll, and only a press on the scroller's own box
+      // (its scrollbar). A tap on "I did it" is inside this element too, and
+      // is not the user scrolling.
+      onKeyDown={(e) => {
+        if (SCROLL_KEYS.has(e.key)) props.onUserScroll?.();
+      }}
+      onPointerDown={(e) => {
+        if (e.target === e.currentTarget) props.onUserScroll?.();
+      }}
       className="sl-scroll"
       style={{ flex: 1, minHeight: 0, overflowY: "auto", overflowX: "hidden", position: "relative" }}
     >

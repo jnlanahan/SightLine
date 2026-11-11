@@ -91,7 +91,7 @@ function Harness({ view, chat }: { view: PhaseView; chat: string }) {
   const steps = view.phases.flatMap((p) => p.steps).filter((s) => s.state !== "upcoming");
   return createElement(
     "div",
-    { ref: api.scrollRef, onScroll: api.onScroll, "data-testid": "scroller" },
+    { ref: api.scrollRef, onScroll: api.onScroll, onWheel: api.onUserScroll, "data-testid": "scroller" },
     ...view.phases.map((_, i) => createElement("section", { key: `p${i}`, "data-phase": i })),
     ...steps.map((s) => createElement("div", { key: `s${s.n}`, "data-step": s.n })),
     view.done ? createElement("section", { key: "done", "data-phase": view.phases.length }) : null,
@@ -103,8 +103,19 @@ function render(view: PhaseView, chat = "chat_a") {
   scroller = host.querySelector('[data-testid="scroller"]') as HTMLDivElement;
 }
 
+/** The user scrolls: a wheel turn, then the scroll it causes. */
 function scrollBy(user: number) {
   metrics.scrollTop = user;
+  act(() => {
+    scroller.dispatchEvent(new Event("wheel", { bubbles: true }));
+    scroller.dispatchEvent(new Event("scroll", { bubbles: true }));
+  });
+}
+
+/** The position moves with no user input: the browser's own adjustment when
+ *  the page grows, or one of our smooth scrolls passing through. */
+function nudgedTo(top: number) {
+  metrics.scrollTop = top;
   act(() => {
     scroller.dispatchEvent(new Event("scroll", { bubbles: true }));
   });
@@ -156,6 +167,27 @@ describe("useFollowCurrent", () => {
     render(buildPhaseView(input({ stepLog: [...input({}).stepLog, { text: "c", at: 3, stage: "One" }] })));
     expect(scrollTo).not.toHaveBeenCalled();
     expect(api.pill).toBe("Step 4 is ready");
+  });
+
+  // Tapping "I did it" swaps the footer, the page grows, and the browser
+  // nudges the scroll position by itself. That is not the user scrolling
+  // away, and the next phase must still be followed.
+  it("a scroll the user did not make leaves following on", () => {
+    render(buildPhaseView(input({})));
+    nudgedTo(1380); // more than 60 px from the bottom, but nobody scrolled
+    scrollTo.mockClear();
+    render(buildPhaseView(input({ stageIndex: 1, stepLog: [...input({}).stepLog, { text: "c", at: 3, stage: "One" }] })));
+    expect(api.pill).toBeNull();
+    expect(scrollTo).toHaveBeenCalledTimes(1);
+  });
+
+  it("going back to an earlier phase on the rail is rereading: the view is not pulled away", () => {
+    render(buildPhaseView(input({ stageIndex: 1 })));
+    act(() => api.scrollToPhase(0));
+    scrollTo.mockClear();
+    render(buildPhaseView(input({ stageIndex: 1, stepLog: [...input({}).stepLog, { text: "c", at: 3, stage: "Two" }] })));
+    expect(scrollTo).not.toHaveBeenCalled();
+    expect(api.pill).not.toBeNull();
   });
 
   it("reaching the bottom by hand clears the pill", () => {

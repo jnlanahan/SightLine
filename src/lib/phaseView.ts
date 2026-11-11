@@ -182,6 +182,12 @@ export function diffPlan(
   prev: PlanSnapshot,
   next: PlanSnapshot,
   newlyCompleted: readonly string[],
+  // How many steps BEGAN this turn. The coach's list holds what comes after
+  // the step in progress, so when a step begins, the phrase queued at the
+  // front of the list leaves it — it is now the current step, not a removal.
+  // Without this, nearly every new step drew a false "Plan updated: removed"
+  // note (seen driving the real screen, 11 November 2026).
+  started = 0,
 ): PlanDiff {
   const completed = new Set(newlyCompleted.map(norm));
   const prevList = prev.upcomingSteps.map((s) => s.trim()).filter(Boolean);
@@ -195,8 +201,16 @@ export function diffPlan(
   // An empty list after a non-empty one says nothing about the plan (a turn
   // that leaves the list out keeps the plan), so it is never a change.
   if (nextList.length > 0) {
-    // What was still ahead after this turn's finished steps came off.
-    const stillAhead = prevList.filter((s) => !completed.has(norm(s)));
+    // What was still ahead after this turn's finished steps came off, and
+    // after the steps that began this turn came off the front. Only phrases
+    // that really left the list count as begun: if the coach started a step
+    // it had not queued, the queue is untouched.
+    const afterFinished = prevList.filter((s) => !completed.has(norm(s)));
+    let begun = 0;
+    while (begun < started && begun < afterFinished.length && !nextSet.has(norm(afterFinished[begun]))) {
+      begun++;
+    }
+    const stillAhead = afterFinished.slice(begun);
     nextList.forEach((s, i) => {
       const k = norm(s);
       if (!prevSet.has(k) && !completed.has(k) && i < stillAhead.length) added.push(s);

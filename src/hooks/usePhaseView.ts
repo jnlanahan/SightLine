@@ -42,6 +42,8 @@ interface Tracker {
   upcoming: readonly string[];
   stages: readonly string[];
   stepCount: number;
+  /** Steps begun so far: the finished ones plus the one in progress. */
+  started: number;
   added: Set<string>;
   notes: PlanNote[];
   planArrivedAt: number | null;
@@ -60,6 +62,8 @@ export function usePhaseView(): LivePhaseView {
   const ref = useRef<Tracker | null>(null);
   const input = { stages, stageIndex, stepLog, currentInstruction, upcomingSteps, conversation, done };
 
+  const started = stepLog.length + (currentInstruction.trim() && !done ? 1 : 0);
+
   // Updated during render on purpose: every step is a comparison against the
   // last snapshot, so running it twice with the same input changes nothing.
   let t = ref.current;
@@ -73,6 +77,7 @@ export function usePhaseView(): LivePhaseView {
       upcoming: upcomingSteps,
       stages,
       stepCount: stepLog.length,
+      started,
       added: new Set(),
       notes: [],
       planArrivedAt: null,
@@ -84,6 +89,7 @@ export function usePhaseView(): LivePhaseView {
       { upcomingSteps: t.upcoming, stages: t.stages },
       { upcomingSteps, stages },
       newlyCompleted,
+      Math.max(0, started - t.started),
     );
     const now = Date.now();
     const step = stepLog.length + (done ? 0 : 1);
@@ -95,6 +101,11 @@ export function usePhaseView(): LivePhaseView {
     t.upcoming = upcomingSteps;
     t.stages = stages;
     t.stepCount = stepLog.length;
+    t.started = started;
+  } else {
+    // Nothing about the plan moved; keep the count current so a later turn
+    // measures only its own new step.
+    t.started = started;
   }
   const nextFloor = stickyLayout(layoutOf(input), t.floor);
   if (t.floor === "quick" && nextFloor !== "quick") {

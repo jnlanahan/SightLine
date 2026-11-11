@@ -98,9 +98,17 @@ function selectorFor(target: FollowTarget, view: PhaseView): string {
   return `[data-phase="${view.phases.length}"]`;
 }
 
+/**
+ * How long after a wheel, touch, key or press a scroll still counts as the
+ * user's own. Long enough for a flick to coast to a stop.
+ */
+export const USER_SCROLL_WINDOW_MS = 1500;
+
 export interface FollowCurrent {
   scrollRef: RefObject<HTMLDivElement>;
   onScroll(): void;
+  /** The user reached for the scroll: a wheel, a touch, a key, a press. */
+  onUserScroll(): void;
   /** The ready pill's words, or null when it is not shown. */
   pill: string | null;
   onPillClick(): void;
@@ -165,15 +173,31 @@ export function useFollowCurrent(view: PhaseView, chatKey: string | null): Follo
     }
   }, [view.currentPhase, view.currentStep, view.done, view.layout, chatKey, scrollTo]);
 
+  const userScrollAtRef = useRef(0);
+  const onUserScroll = useCallback(() => {
+    userScrollAtRef.current = Date.now();
+  }, []);
+
   const onScroll = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
+    // Only the user's own scrolling says whether they are following. The
+    // browser also fires scroll events by itself: when the page grows it
+    // nudges the position to hold the text steady, and our own smooth scrolls
+    // pass through every point on the way. Tapping "I did it" swaps the
+    // footer, the page grows a little, the browser nudges — and that used to
+    // be read as the user scrolling away, so the next phase got a pill
+    // instead of being followed (seen driving the real screen, 11 Nov 2026).
+    if (Date.now() - userScrollAtRef.current > USER_SCROLL_WINDOW_MS) return;
     const bottom = isAtBottom(el);
     atBottomRef.current = bottom;
     if (bottom) setPill(null);
   }, []);
 
   const scrollToPhase = useCallback((index: number) => {
+    // A rail click is the user choosing where to look. Going back to an
+    // earlier phase is rereading: the view must not be pulled away from it.
+    atBottomRef.current = index >= viewRef.current.currentPhase;
     const el = scrollRef.current;
     const node = el?.querySelector(`[data-phase="${index}"]`);
     if (!el || !node) return;
@@ -181,6 +205,7 @@ export function useFollowCurrent(view: PhaseView, chatKey: string | null): Follo
   }, []);
 
   const scrollToStep = useCallback((n: number) => {
+    atBottomRef.current = n >= viewRef.current.currentStep;
     const el = scrollRef.current;
     const node = el?.querySelector(`[data-step="${n}"]`);
     if (!el || !node) return;
@@ -211,5 +236,5 @@ export function useFollowCurrent(view: PhaseView, chatKey: string | null): Follo
     }
   }, [scrollTo]);
 
-  return { scrollRef, onScroll, landOnCurrent, pill: pill?.label ?? null, onPillClick, scrollToPhase, scrollToStep };
+  return { scrollRef, onScroll, onUserScroll, landOnCurrent, pill: pill?.label ?? null, onPillClick, scrollToPhase, scrollToStep };
 }

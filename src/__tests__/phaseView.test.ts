@@ -202,6 +202,46 @@ describe("diffPlan (DATA §4)", () => {
   it("ignores case and spacing", () => {
     expect(diffPlan(plan(["Open  Settings"]), plan(["open settings", "Next"]), []).notes).toEqual([]);
   });
+
+  // The coach's list holds what comes AFTER the step in progress, so the
+  // phrase at the front leaves the list the moment that step begins. Driving
+  // the real screen on 11 November 2026 showed a false "removed" note on
+  // nearly every new step until the diff was told how many steps had begun.
+  describe("a step beginning is progress, not a removal", () => {
+    it("the first step after the goal is agreed", () => {
+      expect(diffPlan(plan(["Open Settings", "Open Network"]), plan(["Open Network"]), [], 1).notes).toEqual([]);
+    });
+
+    it("ordinary progress: one step finishes, the next one begins, the window slides", () => {
+      const d = diffPlan(plan(["B", "C", "D"]), plan(["C", "D", "E"]), ["Did A"], 1);
+      expect(d.notes).toEqual([]);
+      expect(d.added).toEqual([]);
+      expect(d.removed).toEqual([]);
+    });
+
+    it("an insertion on the same turn is still an insertion, and only that", () => {
+      const d = diffPlan(plan(["Name it", "Save"]), plan(["Install the certificate", "Save"]), ["Clicked Add"], 1);
+      expect(d.added).toEqual(["Install the certificate"]);
+      expect(d.notes).toEqual(['Plan updated: added "Install the certificate"']);
+    });
+
+    it("the inserted step later beginning is not its removal", () => {
+      expect(diffPlan(plan(["Install the certificate", "Save"]), plan(["Save"]), ["Named it"], 1).notes).toEqual([]);
+    });
+
+    it("a step the coach had not queued leaves the queue alone", () => {
+      expect(diffPlan(plan(["B", "C"]), plan(["B", "C"]), [], 1).notes).toEqual([]);
+    });
+
+    it("a real removal further down the list is still noted", () => {
+      const d = diffPlan(plan(["B", "C", "D"]), plan(["C"]), ["Did A"], 1);
+      expect(d.removed).toEqual(["D"]);
+    });
+
+    it("with no step begun, a phrase leaving the front is a removal as before", () => {
+      expect(diffPlan(plan(["B", "C"]), plan(["C"]), [], 0).removed).toEqual(["B"]);
+    });
+  });
 });
 
 describe("turn grouping (DATA §5)", () => {

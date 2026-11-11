@@ -760,6 +760,7 @@ export default function App() {
                 pendingGoal={goalPending && !done ? { goal: agreedGoal || goal || "", doneWhen } : null}
                 scrollRef={follow.scrollRef}
                 onScroll={follow.onScroll}
+                onUserScroll={follow.onUserScroll}
                 resume={resumeDivider}
                 banner={need ? <NeedsYouBanner message={need.message} detail={need.detail} action={needAction} /> : undefined}
                 footer={

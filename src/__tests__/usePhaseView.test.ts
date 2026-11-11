@@ -65,6 +65,59 @@ describe("usePhaseView", () => {
     expect(cur.title).toBe("Click Network");
   });
 
+  // The loop applies one look in this order, in one go: finished steps, the
+  // coach's list, then the new instruction. A plain walkthrough, start to
+  // finish, must draw no "Plan updated" note at all.
+  it("a plain walkthrough draws no plan-change note, from the goal to the last step", () => {
+    // The goal said back: the whole route is queued, nothing is in progress.
+    step(() => s().setUpcomingSteps(["Open Settings", "Click Network", "Click VPN"]));
+    // The user agrees; step one begins and leaves the queue.
+    step(() => {
+      s().setUpcomingSteps(["Click Network", "Click VPN"]);
+      s().setInstruction("Press Windows and I to open Settings.");
+    });
+    // Each step finishes and the next begins.
+    step(() => {
+      s().applyCompletedSteps(["Opened Settings"], 10);
+      s().setUpcomingSteps(["Click VPN", "Add a connection"]);
+      s().setInstruction("Click Network & internet.");
+    });
+    step(() => {
+      s().applyCompletedSteps(["Opened Settings", "Clicked Network"], 20);
+      s().setUpcomingSteps(["Add a connection"]);
+      s().setInstruction("Click VPN.");
+    });
+    // A silent look in between changes nothing.
+    step(() => s().setUpcomingSteps(["Add a connection"]));
+    step(() => {
+      s().applyCompletedSteps(["Opened Settings", "Clicked Network", "Clicked VPN"], 30);
+      s().setUpcomingSteps([]);
+      s().setInstruction("Click Add VPN.");
+    });
+    expect(live.notes.map((n) => n.text).filter((t) => t.startsWith("Plan updated"))).toEqual([]);
+    expect(live.addedSteps.size).toBe(0);
+  });
+
+  it("a step inserted as the next one begins is noted once, as added", () => {
+    step(() => {
+      s().setInstruction("Click Add VPN.");
+      s().setUpcomingSteps(["Name the connection", "Save"]);
+    });
+    step(() => {
+      s().applyCompletedSteps(["Clicked Add VPN"], 10);
+      s().setUpcomingSteps(["Install the certificate", "Save"]);
+      s().setInstruction("Type Work in the name box.");
+    });
+    step(() => {
+      s().applyCompletedSteps(["Clicked Add VPN", "Named it"], 20);
+      s().setUpcomingSteps(["Save"]);
+      s().setInstruction("Open the certificate file and click Install.");
+    });
+    expect(live.notes.map((n) => n.text).filter((t) => t.startsWith("Plan updated"))).toEqual([
+      'Plan updated: added "Install the certificate"',
+    ]);
+  });
+
   it("an inserted step is marked Added and noted; tail growth is not", () => {
     step(() => {
       s().setInstruction("Open Settings.");

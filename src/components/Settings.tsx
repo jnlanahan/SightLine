@@ -161,7 +161,7 @@ export function Settings({ onClose }: Props) {
               </span>
             </div>
             <p style={{ fontSize: 10, color: T.ink3, margin: 0, lineHeight: 1.5 }}>
-              Click <strong>Adjust</strong> → drag the purple box handles → click <strong>Done</strong> to set a capture zone.
+              Click <strong>Adjust</strong> → drag the handles of the box on your screen → click <strong>Done</strong> to set a capture zone.
             </p>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <button
