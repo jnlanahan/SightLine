@@ -30,8 +30,10 @@ SightLine becomes one coach with one input box and a list of chats you can reope
 - **Baseline:** the step 0 commit is tagged `one-coach-baseline`. It still has the old setup flow, so one run of that build gives the "before" numbers. The `[timing]` lines land in the activity log.
 - **Overnight, 9 to 10 November:** three cloud jobs built steps 5, 6 and 8, each on its own branch. Briefs and reports are in [overnight/2026-11-09](overnight/2026-11-09/README.md). A fourth job, a read-only review of steps 0 to 4, never ran: it started while the account was over its usage limit and was refused. No independent review has been done yet.
 - **Merged, 10 November:** pull requests 6, 7 and 8 are merged into `one-coach`, at the owner's request, after the reports were read, the main integration points were checked, and tests (429), type-check and build passed on the combined result. The state before the merge (steps 0 to 4 only) is tagged `one-coach-steps-0-4`.
-- **Built so far:** steps 0 to 6 and step 8. **None of it has been run live.**
-- **Next:** a live try of everything built. Then steps 7 and 9 to 12, which need a live run or a decision.
+- **10 November, later:** steps 7 (stages), 9 (tidy-up) and 11 (caching attached files, counting search cost) are built. The independent review ran against steps 0 to 6 and 8; its report is [overnight/2026-11-09/REVIEW.md](overnight/2026-11-09/REVIEW.md). It found no way to lose a chat. Ten of its eleven findings are fixed; the one left (the step log detects new steps by list length) it judged unlikely. `CLAUDE.md` is rewritten to describe the app as it now is.
+- **Built so far:** every step except 10. 489 tests, type-check and build pass. **None of it has been run live**, and steps 7, 9 and 11 have not been reviewed by anyone else.
+- **Step 10 (the model) is a decision, not a swap.** See that step below: the newest models reject the one API feature the coach's turn is built on.
+- **Next:** a live try of everything built. Then the step 10 decision, and merging `one-coach` into `main` or dropping it.
 
 ## Calls I made
 
@@ -248,6 +250,18 @@ Read `CLAUDE.md` first. It describes the app before this work; where the two dis
 - Update the price table in `electron/usage.ts` and drop its unused rows. Take model ids, prices and request options from the Claude API reference at build time, not from memory.
 
 **Check.** First-words time, turn time, and cost per look from the log, plus the user's judgement of answer quality. Keep the faster model only if quality is at least as good.
+
+**Status, 10 November: partly done, and the rest is a decision.**
+
+Done: the model is one constant per role (`MODEL`, `BACKGROUND_MODEL` in `electron/claude.ts`); the tidy-up uses `claude-haiku-5-5` and falls back to the coach's model if the account rejects it; the price table has the current models.
+
+Not done: the coach is still on `claude-sonnet-4-6`. Checking the Claude API reference showed that moving it is not a one-line change:
+
+- **The newest models reject forced tool choice.** `claude-sonnet-5-5` and `claude-opus-5-5` return an error for `tool_choice: any`. The coach's whole turn is built on it: every look must end in exactly one of `say` or `wait`, which is what makes silence certain and lets speech start mid-reply. On those models the request has to use `auto` with the rule stated in the prompt, and the runner has to cope with a reply that calls no tool. The runner already ends such a reply silently, so it is workable, but "the coach said nothing" would become something the model can do by accident.
+- **Thinking cannot be turned off on them.** That adds time before the first word unless effort is set low, and speed is the first priority here.
+- **The smaller move is `claude-sonnet-5`.** Per the reference it still accepts forced tool choice, and it is cheaper than the current model ($2 and $10 per million tokens, against $3 and $15). Thinking is on by default there, so the request would turn it off explicitly to keep the current speed.
+
+Recommendation: try `claude-sonnet-5` first, as a config change measured against the step 0 numbers. Treat the 5.5 models as a separate piece of work with its own live comparison. Read the migration guide for the target model before changing anything.
 
 ## Step 11: Stop re-sending what doesn't change
 
