@@ -14,6 +14,7 @@ import {
 } from "../../electron/agents/harness/schema";
 import { buildContextHeader, describeAway } from "../../electron/agents/harness/context";
 import { parseTerminalTool } from "../../electron/agents/harness/parse-turn";
+import { systemBlocks } from "../../electron/agents/harness/runner";
 import type { TurnContext } from "../../electron/agents/harness/types";
 import { policyFor } from "../lib/agentPolicy";
 
@@ -417,5 +418,41 @@ describe("a long goal has stages", () => {
     expect(parseTerminalTool("wait", { stage: 0 }, []).stageNumber).toBeNull();
     expect(parseTerminalTool("wait", { stage: "2" }, []).stageNumber).toBeNull();
     expect(parseTerminalTool("wait", { stage: 1.5 }, []).stageNumber).toBeNull();
+  });
+});
+
+describe("attached reference files are cached, not re-sent every look", () => {
+  const file = "--- notes.md ---\nThe VPN server is vpn.example.com.";
+
+  it("sends only the coach's prompt when nothing is attached", () => {
+    const blocks = systemBlocks(coachAgent, {});
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0].text).toBe(systemPrompt(coachAgent));
+    expect(blocks[0].cache_control).toEqual({ type: "ephemeral" });
+  });
+
+  it("puts attached material in a second block with its own breakpoint", () => {
+    const blocks = systemBlocks(coachAgent, { uploadedContext: file });
+    expect(blocks).toHaveLength(2);
+    expect(blocks[1].text).toContain("vpn.example.com");
+    expect(blocks[1].cache_control).toEqual({ type: "ephemeral" });
+  });
+
+  it("leaves the first block byte-identical, so its cache entry survives an attachment", () => {
+    expect(systemBlocks(coachAgent, { uploadedContext: file })[0]).toEqual(
+      systemBlocks(coachAgent, {})[0],
+    );
+  });
+
+  it("is byte-identical from look to look while the files are unchanged", () => {
+    expect(JSON.stringify(systemBlocks(coachAgent, { uploadedContext: file }))).toBe(
+      JSON.stringify(systemBlocks(coachAgent, { uploadedContext: file })),
+    );
+  });
+
+  it("no longer repeats the material in the per-look message", () => {
+    const header = buildContextHeader(coachAgent, ctx({ uploadedContext: file }), 1);
+    expect(header).not.toContain("vpn.example.com");
+    expect(header).toContain("attached reference material");
   });
 });

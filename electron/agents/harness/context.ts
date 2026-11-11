@@ -44,10 +44,11 @@ function baseBlocks(ctx: TurnContext, frameCount: number): string[] {
     );
   }
 
+  // Attached reference files are NOT here. They are large and do not change
+  // from look to look, so they ride in their own cached system block
+  // (runner.ts → systemBlocks) instead of being re-sent in full every time.
   if (ctx.uploadedContext && ctx.uploadedContext.trim().length > 0) {
-    parts.push(
-      `Reference material the user attached:\n${ctx.uploadedContext.trim()}`,
-    );
+    parts.push("The user attached reference material to this chat (above).");
   }
 
   const lastAssistant = [...ctx.conversation]

@@ -21,7 +21,13 @@ import {
   tidyPrompt,
   type TidyProposal,
 } from "./chat-tidy";
-import { estimateCostUsd, normalizeUsage, type TokenUsage } from "./usage";
+import {
+  EMPTY_USAGE,
+  addUsage,
+  estimateCostUsd,
+  normalizeUsage,
+  type TokenUsage,
+} from "./usage";
 
 // Re-exported so main.ts's error handling is unaffected by the harness move.
 export { MissingApiKeyError, RateLimitError } from "./agents/harness/errors";
@@ -168,6 +174,10 @@ export async function getNextInstruction(
   const agent = getAgent();
   const log = runtime?.log ?? (() => {});
 
+  // A web search inside a look is a model call of its own. It used to be
+  // invisible to the cost meter and to the spending cap.
+  let toolUsage: TokenUsage = { ...EMPTY_USAGE };
+
   const deps: ToolDeps = {
     // Without a runtime the zoom tool degrades to "look at what you have"
     // rather than failing the turn — a missing capability must never take the
@@ -177,8 +187,15 @@ export async function getNextInstruction(
       (async () => null),
     // Bounded: the runner turns a throw into an is_error tool result, so a
     // hung search costs the agent one short wait, not the whole tick.
-    research: (query) =>
-      withDeadline(runQuickWebResearch(query), RESEARCH_TIMEOUT_MS, "research_timeout"),
+    research: async (query) => {
+      const found = await withDeadline(
+        runQuickWebResearch(query),
+        RESEARCH_TIMEOUT_MS,
+        "research_timeout",
+      );
+      toolUsage = addUsage(toolUsage, found.usage);
+      return found.text;
+    },
     // Without a runtime there is nothing to search: an empty result, never a
     // failed turn.
     searchMemory: (query) =>
@@ -188,7 +205,7 @@ export async function getNextInstruction(
     log,
   };
 
-  return runAgentTurn({
+  const result = await runAgentTurn({
     client,
     model: MODEL,
     agent,
@@ -199,6 +216,12 @@ export async function getNextInstruction(
     onToolStart: runtime?.onToolStart,
     log,
   });
+
+  if (toolUsage.inputTokens + toolUsage.outputTokens > 0) {
+    result.usage = addUsage(result.usage ?? { ...EMPTY_USAGE }, toolUsage);
+    result.costUsd = (result.costUsd ?? 0) + estimateCostUsd(MODEL, toolUsage);
+  }
+  return result;
 }
 
 function withDeadline<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
@@ -297,7 +320,9 @@ Search the web, then answer the query with a tight, factual summary under 250 wo
  * user is waiting in silence for this, so a thin answer now beats a thorough
  * one that never arrives.
  */
-export async function runQuickWebResearch(query: string): Promise<string> {
+export async function runQuickWebResearch(
+  query: string,
+): Promise<{ text: string; usage: TokenUsage }> {
   return research(query, QUICK_RESEARCH_LIMITS, 400);
 }
 
@@ -305,7 +330,7 @@ async function research(
   query: string,
   limits: ServerToolLimits,
   maxTokens: number,
-): Promise<string> {
+): Promise<{ text: string; usage: TokenUsage }> {
   const client = await anthropicClient();
   const resp = await withServerTools(
     client,
@@ -320,7 +345,7 @@ async function research(
   );
   const text = extractText(resp);
   if (!text) throw new Error("web research returned no text");
-  return text;
+  return { text, usage: normalizeUsage(resp.usage) };
 }
 
 export interface TidyCallResult {

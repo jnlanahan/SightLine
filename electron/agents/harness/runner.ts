@@ -172,6 +172,38 @@ function toolResultBlock(
   };
 }
 
+/**
+ * The system blocks for a look, with their cache breakpoints.
+ *
+ * Block one is the coach's own prompt — byte-identical on every look of every
+ * chat, and (because tools render ahead of it) the breakpoint that caches the
+ * tool definitions too.
+ *
+ * Block two exists only when the user attached reference files. That text
+ * can run to tens of thousands of tokens and does not change from look to
+ * look, yet it used to ride in the per-look message, uncached, and was paid
+ * for in full every few seconds. With its own breakpoint it is written once
+ * and read back after that. Attaching another file mid-chat re-writes this
+ * block once; block one's entry is untouched.
+ */
+export function systemBlocks(
+  agent: Agent,
+  ctx: Pick<TurnContext, "uploadedContext">,
+): Array<{ type: "text"; text: string; cache_control: { type: "ephemeral" } }> {
+  const blocks: Array<{ type: "text"; text: string; cache_control: { type: "ephemeral" } }> = [
+    { type: "text", text: systemPrompt(agent), cache_control: { type: "ephemeral" } },
+  ];
+  const reference = ctx.uploadedContext?.trim();
+  if (reference) {
+    blocks.push({
+      type: "text",
+      text: `Reference material the user attached to this chat:\n${reference}`,
+      cache_control: { type: "ephemeral" },
+    });
+  }
+  return blocks;
+}
+
 interface StreamOutcome {
   message: Anthropic.Messages.Message;
   usage: TokenUsage;
@@ -195,13 +227,7 @@ async function streamOnce(
       // Cache breakpoint on the system prompt. Tools render BEFORE system, so
       // this one marker covers the tool definitions too — which is exactly why
       // the tool list has to stay a fixed literal per agent.
-      system: [
-        {
-          type: "text",
-          text: systemPrompt(agent),
-          cache_control: { type: "ephemeral" },
-        } as unknown as Anthropic.Messages.TextBlockParam,
-      ],
+      system: systemBlocks(agent, opts.ctx) as unknown as Anthropic.Messages.TextBlockParam[],
       tools: tools as unknown as Anthropic.Messages.Tool[],
       // Exactly one tool per response: the model either looks something up or
       // ends its turn, never both. Makes "is the turn over?" a single check.

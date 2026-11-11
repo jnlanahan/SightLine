@@ -76,6 +76,8 @@ describe("estimateCostUsd", () => {
 describe("rateFor", () => {
   it("knows the model the session loop actually runs on", () => {
     expect(rateFor("claude-sonnet-4-6")).toEqual({ input: 3, output: 15 });
+    // The background tidy-up's model.
+    expect(rateFor("claude-haiku-5-5")).toEqual({ input: 0.1, output: 0.5 });
   });
 });
 

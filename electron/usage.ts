@@ -31,7 +31,7 @@ interface ModelRate {
   output: number;
 }
 
-// Verified against Anthropic's published pricing, July 2026. Sonnet 4.6 is
+// Checked against the Claude API model reference, October 2026. Sonnet 4.6 is
 // what the session loop runs on: Opus-tier costs ~1.7x more per token for a
 // task that is mostly "look at this screenshot and decide whether to speak",
 // and its extra depth does not pay for itself against time-to-first-token —
@@ -40,7 +40,10 @@ const RATES: Record<string, ModelRate> = {
   // The background tidy-up's model.
   "claude-haiku-5-5": { input: 0.1, output: 0.5 },
   "claude-sonnet-4-6": { input: 3, output: 15 },
-  "claude-sonnet-5": { input: 3, output: 15 },
+  // Candidates for the coach, not in use yet (docs/ONE-COACH-PLAN.md, step 10).
+  "claude-sonnet-5": { input: 2, output: 10 },
+  "claude-sonnet-5-5": { input: 2, output: 10 },
+  "claude-opus-5-5": { input: 4, output: 20 },
   "claude-haiku-4-5": { input: 1, output: 5 },
   "claude-opus-5": { input: 5, output: 25 },
   "claude-opus-4-8": { input: 5, output: 25 },
