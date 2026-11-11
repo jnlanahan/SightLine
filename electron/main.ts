@@ -42,8 +42,12 @@ import {
   getNextInstruction,
   MissingApiKeyError,
   RateLimitError,
+  tidyChat,
   type NextInstructionArgs,
 } from "./claude";
+import { applyTidy, needsTidy } from "./chat-tidy";
+import { newNoteId } from "./chat-notes";
+import { addUsage } from "./usage";
 import { describeAgent } from "./agents/registry";
 import { MissingOpenAIKeyError, transcribe } from "./whisper";
 import { hasGoogleCredentials } from "./google-tts";
@@ -1439,6 +1443,90 @@ function registerIpc() {
   ipcMain.handle("chats:delete", (_e, payload: { id: string }) => ({
     deleted: deleteChat(payload.id),
   }));
+
+  // The background tidy-up of a chat the user has left. Best-effort from end
+  // to end: any failure leaves the chat exactly as it was.
+  const tidying = new Set<string>();
+  ipcMain.handle("chats:tidy", async (_e, payload: { id: string }) => {
+    const id = payload?.id;
+    const before = getChat(id);
+    if (!before) return { tidied: false, reason: "not_found" };
+    if (!needsTidy(before)) return { tidied: false, reason: "nothing_new" };
+    if (tidying.has(id)) return { tidied: false, reason: "in_progress" };
+    tidying.add(id);
+    const startedAt = Date.now();
+    try {
+      const facts = listFacts();
+      const call = await tidyChat(before, facts);
+      if (!call.proposal) return { tidied: false, reason: "no_answer" };
+
+      // The call took seconds. If the chat was reopened or saved meanwhile,
+      // what was proposed describes a chat that has moved on — drop it. The
+      // next time the chat is left it will be tidied from its new state.
+      const current = getChat(id);
+      if (
+        !current ||
+        current.turns.length !== before.turns.length ||
+        current.lastActiveAt !== before.lastActiveAt
+      ) {
+        logLine(`[tidy] ${id} changed while tidying — discarded`);
+        return { tidied: false, reason: "changed_meanwhile" };
+      }
+
+      const now = Date.now();
+      const outcome = applyTidy(current, call.proposal, facts, now, (n) =>
+        newNoteId(now + n),
+      );
+      if (!outcome) {
+        logLine(`[tidy] ${id} proposal failed the checks — nothing changed`);
+        return { tidied: false, reason: "rejected" };
+      }
+
+      // The money was spent on this chat, so it counts toward its total.
+      const saved = saveChat({
+        ...outcome.record,
+        usage: addUsage(current.usage, call.usage),
+        costUsd: current.costUsd + call.costUsd,
+        claudeCalls: current.claudeCalls + 1,
+      });
+      if (!saved) return { tidied: false, reason: "write_failed" };
+
+      let learned = 0;
+      if (loadSettings().memoryEnabled) {
+        for (const fact of outcome.newFacts) {
+          addFact({
+            id: newId("fact"),
+            userId: null,
+            kind: fact.kind,
+            content: fact.content,
+            sourceSessionId: id,
+            createdAt: now,
+            lastUsedAt: now,
+            useCount: 0,
+            archived: false,
+            // Read from a conversation, not seen on screen.
+            verified: false,
+          });
+          learned++;
+        }
+      }
+      logLine(
+        `[tidy] ${id} tidied on ${call.model} in ${Date.now() - startedAt}ms: ` +
+          `"${outcome.record.title}", ${outcome.retired} note(s) retired, ${outcome.added} added, ` +
+          `${learned} fact(s) learned, $${call.costUsd.toFixed(4)}`,
+      );
+      return { tidied: true, changed: outcome.record.tidy?.changed ?? "" };
+    } catch (err) {
+      if (err instanceof MissingApiKeyError) {
+        return { tidied: false, reason: "no_key" };
+      }
+      const msg = err instanceof Error ? err.message : String(err);
+      logLine(`[tidy] ${id} FAILED after ${Date.now() - startedAt}ms: ${msg}`);
+      return { tidied: false, reason: "failed" };
+    } finally {
+      tidying.delete(id);
+    }
+  });
 
   // Recall: rank what we know against this goal and return both the prompt
   // text and the ids, so the renderer can show the user what was recalled.

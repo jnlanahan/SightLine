@@ -13,11 +13,13 @@ import type {
   ChatNote,
   ChatRecord,
   ChatSummary,
+  ChatTidy,
   ChatTurnRecord,
   StepLogEntry,
 } from "./db/schema";
 import type { ConversationTurn, Stance } from "./types";
 import type { TokenUsage } from "./usage";
+import { needsTidy } from "./chat-tidy";
 
 // ── Ids ──
 
@@ -140,6 +142,8 @@ export interface ChatSnapshot {
   usage: TokenUsage;
   costUsd: number;
   claudeCalls: number;
+  // What the last tidy-up left, carried through so a save does not drop it.
+  tidy?: ChatTidy | null;
 }
 
 export function buildChatRecord(snapshot: ChatSnapshot): ChatRecord {
@@ -166,13 +170,20 @@ export function buildChatRecord(snapshot: ChatSnapshot): ChatRecord {
     upcomingSteps: [...snapshot.upcomingSteps],
     stages: [...snapshot.stages],
     stageIndex: snapshot.stageIndex,
-    whereWeLeftOff: buildWhereWeLeftOff({
-      stepLog: snapshot.stepLog,
-      currentStep: snapshot.currentStep,
-      done: snapshot.done,
-      stages: snapshot.stages,
-      stageIndex: snapshot.stageIndex,
-    }),
+    // The tidy-up's summary reads better than the mechanical one, but only
+    // while nothing has been said since it was written.
+    whereWeLeftOff:
+      snapshot.tidy &&
+      snapshot.tidy.whereWeLeftOff &&
+      snapshot.tidy.turns === turns.length
+        ? snapshot.tidy.whereWeLeftOff
+        : buildWhereWeLeftOff({
+            stepLog: snapshot.stepLog,
+            currentStep: snapshot.currentStep,
+            done: snapshot.done,
+            stages: snapshot.stages,
+            stageIndex: snapshot.stageIndex,
+          }),
     notes: snapshot.notes.map((n) => ({ ...n })),
     turns,
     uploadedContext: snapshot.uploadedContext,
@@ -180,6 +191,7 @@ export function buildChatRecord(snapshot: ChatSnapshot): ChatRecord {
     usage: { ...snapshot.usage },
     costUsd: snapshot.costUsd,
     claudeCalls: snapshot.claudeCalls,
+    ...(snapshot.tidy ? { tidy: { ...snapshot.tidy } } : {}),
   };
 }
 
@@ -202,6 +214,7 @@ export function summarizeChat(record: ChatRecord): ChatSummary {
     lastActiveAt: record.lastActiveAt,
     whereWeLeftOff: record.whereWeLeftOff,
     stepsDone: record.stepLog.length,
+    needsTidy: needsTidy(record),
   };
 }
 
@@ -250,6 +263,7 @@ export interface RestoredSession {
   uploadedContext: string;
   attachedFileNames: string[];
   done: boolean;
+  tidy: ChatTidy | null;
 }
 
 export function chatToSession(saved: ChatRecord): RestoredSession {
@@ -284,5 +298,6 @@ export function chatToSession(saved: ChatRecord): RestoredSession {
     uploadedContext: record.uploadedContext,
     attachedFileNames: [...record.attachedFileNames],
     done: record.state === "done",
+    tidy: record.tidy ? { ...record.tidy } : null,
   };
 }

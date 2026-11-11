@@ -16,6 +16,7 @@ import type { ChatNote } from "../../electron/db/schema";
 export function AboutChat({
   goal,
   whereWeLeftOff,
+  tidyNote,
   notes,
   fileNames,
   done,
@@ -27,6 +28,9 @@ export function AboutChat({
 }: {
   goal: string;
   whereWeLeftOff: string;
+  // What the background tidy-up did after the last visit, in a sentence.
+  // Empty when the chat has never been tidied.
+  tidyNote: string;
   // Live notes only, oldest first.
   notes: ChatNote[];
   fileNames: string[];
@@ -73,6 +77,11 @@ export function AboutChat({
       <section style={{ display: "flex", flexDirection: "column", gap: 4 }}>
         <p style={heading}>Where it was left</p>
         <p style={body}>{whereWeLeftOff}</p>
+        {tidyNote && (
+          <p style={{ ...body, marginTop: 6, fontSize: 11, opacity: 0.75 }}>
+            Tidied after your last visit: {tidyNote}
+          </p>
+        )}
       </section>
 
       <section style={{ display: "flex", flexDirection: "column", gap: 6 }}>

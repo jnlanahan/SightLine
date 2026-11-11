@@ -93,6 +93,7 @@ export default function App() {
   const stepLog        = useSession((s) => s.stepLog);
   const stages         = useSession((s) => s.stages);
   const stageIndex     = useSession((s) => s.stageIndex);
+  const tidy           = useSession((s) => s.tidy);
 
   const settings      = useSettings((s) => s.settings);
   const keyStatus     = useSettings((s) => s.keyStatus);
@@ -357,6 +358,7 @@ export default function App() {
       upcomingSteps: s.upcomingSteps,
       stages: s.stages,
       stageIndex: s.stageIndex,
+      tidy: s.tidy,
       notes: s.agentNotes,
       conversation: s.conversation,
       uploadedContext: s.uploadedContext,
@@ -620,11 +622,19 @@ export default function App() {
             <div className="flex-1 overflow-y-auto sl-scroll" style={{ minHeight: 0 }}>
               <AboutChat
                 goal={goal}
-                whereWeLeftOff={buildWhereWeLeftOff({
-                  stepLog,
-                  currentStep: instruction,
-                  done,
-                })}
+                whereWeLeftOff={
+                  // The tidy-up's summary, until the chat moves on from it.
+                  tidy && tidy.whereWeLeftOff && tidy.turns === conversation.length
+                    ? tidy.whereWeLeftOff
+                    : buildWhereWeLeftOff({
+                        stepLog,
+                        currentStep: instruction,
+                        done,
+                        stages,
+                        stageIndex,
+                      })
+                }
+                tidyNote={tidy?.changed ?? ""}
                 notes={liveNotes(agentNotes)}
                 fileNames={attachedFileNames}
                 done={done}

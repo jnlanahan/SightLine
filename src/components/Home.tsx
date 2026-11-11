@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useVoice } from "../hooks/useVoice";
 import { api } from "../lib/api";
 import type { ChatSummary } from "../lib/api";
@@ -30,11 +30,45 @@ export function Home({ onStart, onOpen }: Props) {
     setValue((prev) => (prev ? `${prev} ${text}` : text)),
   );
 
+  // Tidy-up runs here and only here: Home is where the user lands after
+  // leaving a chat, and at launch after a quit. Once per visit, in the
+  // background, for the couple of most recent chats that have moved on since
+  // they were last tidied. The list is shown first and refreshed after.
+  const tidied = useRef(false);
   useEffect(() => {
-    void api()
-      .chats.list()
-      .then(setChats)
-      .catch(() => setChats([]));
+    let cancelled = false;
+    void (async () => {
+      let list: ChatSummary[] = [];
+      try {
+        list = await api().chats.list();
+      } catch {
+        // an empty list is the fallback
+      }
+      if (cancelled) return;
+      setChats(list);
+      if (tidied.current) return;
+      tidied.current = true;
+      let changed = false;
+      for (const chat of list.filter((c) => c.needsTidy).slice(0, 2)) {
+        try {
+          const result = await api().chats.tidy(chat.id);
+          changed = changed || result.tidied;
+        } catch {
+          // tidy-up is never load-bearing
+        }
+        if (cancelled) return;
+      }
+      if (!changed) return;
+      try {
+        const fresh = await api().chats.list();
+        if (!cancelled) setChats(fresh);
+      } catch {
+        // keep the list already shown
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   function start() {

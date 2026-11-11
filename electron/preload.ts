@@ -121,6 +121,9 @@ export interface SightLineApi {
     get(id: string): Promise<ChatRecord | null>;
     save(record: ChatRecord): Promise<{ saved: boolean }>;
     delete(id: string): Promise<{ deleted: boolean }>;
+    // Tidy a chat the user has left: a better title and summary, merged
+    // notes. Runs in the background; a refusal for any reason changes nothing.
+    tidy(id: string): Promise<{ tidied: boolean; reason?: string; changed?: string }>;
   };
   memory: {
     // Rank what's known against this goal. Returns the prompt text to hand
@@ -254,6 +257,7 @@ const api: SightLineApi = {
     get: (id) => ipcRenderer.invoke("chats:get", { id }),
     save: (record) => ipcRenderer.invoke("chats:save", record),
     delete: (id) => ipcRenderer.invoke("chats:delete", { id }),
+    tidy: (id) => ipcRenderer.invoke("chats:tidy", { id }),
   },
   memory: {
     recall: (goal) => ipcRenderer.invoke("memory:recall", { goal }),

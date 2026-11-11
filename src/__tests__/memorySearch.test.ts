@@ -268,6 +268,7 @@ describe("limits", () => {
       lastActiveAt: i, // chat_149 is the most recent
       whereWeLeftOff: "",
       stepsDone: 0,
+      needsTidy: false,
     }));
     const picked = chatsToSearch(index, "chat_149");
     expect(picked).toHaveLength(MAX_CHATS_SEARCHED);

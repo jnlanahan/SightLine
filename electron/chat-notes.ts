@@ -70,6 +70,9 @@ export function normalizeNotes(raw: unknown, fallbackAt: number): ChatNote[] {
             typeof o.retiredAt === "number" && Number.isFinite(o.retiredAt)
               ? o.retiredAt
               : null,
+          // Kept across a save and reload, or the tidy-up would lose track of
+          // which notes are in the user's own words.
+          ...(o.edited === true ? { edited: true } : {}),
         };
       }
     }
@@ -143,7 +146,8 @@ export function editNote(
   const next = notes.map((n) => {
     if (n.id !== id || n.retiredAt !== null || n.text === clean) return n;
     changed = true;
-    return { ...n, text: clean };
+    // Marked so the background tidy-up leaves the user's wording alone.
+    return { ...n, text: clean, edited: true };
   });
   return changed ? next : (notes as ChatNote[]);
 }

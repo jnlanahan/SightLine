@@ -37,6 +37,8 @@ interface ModelRate {
 // and its extra depth does not pay for itself against time-to-first-token —
 // which the user feels on every single tick.
 const RATES: Record<string, ModelRate> = {
+  // The background tidy-up's model.
+  "claude-haiku-5-5": { input: 0.1, output: 0.5 },
   "claude-sonnet-4-6": { input: 3, output: 15 },
   "claude-sonnet-5": { input: 3, output: 15 },
   "claude-haiku-4-5": { input: 1, output: 5 },

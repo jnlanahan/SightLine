@@ -61,6 +61,22 @@ export interface ChatNote {
   at: number;
   // When it was forgotten or pushed out by the cap. Null while live.
   retiredAt: number | null;
+  // The user corrected the wording by hand. The tidy-up never retires or
+  // rewrites such a note.
+  edited?: boolean;
+}
+
+/**
+ * What the background tidy-up left on a chat the last time it ran: a better
+ * summary than the mechanical one, and a line telling the user what it did.
+ * `turns` is how long the transcript was at that point — once the chat has
+ * moved on, the summary is stale and the mechanical one takes over again.
+ */
+export interface ChatTidy {
+  turns: number;
+  at: number;
+  whereWeLeftOff: string;
+  changed: string;
 }
 
 /** One finished step and when it was done. The step log only ever grows. */
@@ -125,6 +141,8 @@ export interface ChatRecord {
   usage: TokenUsage;
   costUsd: number;
   claudeCalls: number;
+  // Absent until the chat has been tidied once.
+  tidy?: ChatTidy;
 }
 
 /** Lightweight row for the chat list — no transcript, no log. */
@@ -138,6 +156,8 @@ export interface ChatSummary {
   lastActiveAt: number;
   whereWeLeftOff: string;
   stepsDone: number;
+  // Enough has happened since the last tidy-up to run another.
+  needsTidy: boolean;
 }
 
 /**
@@ -193,6 +213,7 @@ create table if not exists chats (
   upcoming_steps       jsonb not null default '[]'::jsonb,
   stages               jsonb not null default '[]'::jsonb,
   stage_index          integer not null default 0,
+  tidy                 jsonb,
   where_we_left_off    text not null default '',
   -- [{ id, text, seen, at, retiredAt }], live and retired alike
   notes                jsonb not null default '[]'::jsonb,

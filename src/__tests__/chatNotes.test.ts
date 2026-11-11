@@ -90,7 +90,15 @@ describe("the user correcting a note", () => {
 
   it("changes the text and keeps the id, time and mark", () => {
     const edited = editNote(base, "a", " They're on Windows 10 ");
-    expect(edited[0]).toEqual({ id: "a", text: "They're on Windows 10", seen: true, at: 1, retiredAt: null });
+    // `edited` marks the user's own wording, which the tidy-up must leave alone.
+    expect(edited[0]).toEqual({
+      id: "a",
+      text: "They're on Windows 10",
+      seen: true,
+      at: 1,
+      retiredAt: null,
+      edited: true,
+    });
   });
 
   it("ignores an empty edit, an unknown id, and a retired note", () => {

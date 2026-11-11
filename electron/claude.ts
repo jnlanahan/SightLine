@@ -13,12 +13,26 @@ import { getAgent } from "./agents/registry";
 import { runAgentTurn } from "./agents/harness/runner";
 import type { ToolDeps } from "./agents/harness/types";
 import type { MemorySearchHit } from "./memory-search";
+import type { ChatRecord, MemoryFact } from "./db/schema";
+import {
+  TIDY_SCHEMA,
+  TIDY_SYSTEM,
+  parseTidyProposal,
+  tidyPrompt,
+  type TidyProposal,
+} from "./chat-tidy";
+import { estimateCostUsd, normalizeUsage, type TokenUsage } from "./usage";
 
 // Re-exported so main.ts's error handling is unaffected by the harness move.
 export { MissingApiKeyError, RateLimitError } from "./agents/harness/errors";
 import { MissingApiKeyError } from "./agents/harness/errors";
 
 const MODEL = "claude-sonnet-4-6";
+
+// Background work nobody is waiting on (the tidy-up after a chat is left).
+// A small, cheap model is plenty for rewriting a summary and merging notes.
+const BACKGROUND_MODEL = "claude-haiku-5-5";
+const TIDY_TIMEOUT_MS = 60_000;
 
 // Anthropic's server-side web search. The agent's mid-turn search_web tool is
 // built on it. This is the variant with dynamic filtering, supported on
@@ -307,4 +321,76 @@ async function research(
   const text = extractText(resp);
   if (!text) throw new Error("web research returned no text");
   return text;
+}
+
+export interface TidyCallResult {
+  /** Null when the model declined, ran out of room, or answered off-shape. */
+  proposal: TidyProposal | null;
+  usage: TokenUsage;
+  model: string;
+  costUsd: number;
+}
+
+/**
+ * The background tidy-up of a chat the user has left: one non-streamed call
+ * that proposes a title, a summary, note merges and durable facts. It only
+ * proposes — chat-tidy.ts decides what is actually written.
+ *
+ * Structured output keeps the answer parseable; if the small model is not
+ * available to this account, the coach's own model is tried once instead.
+ */
+export async function tidyChat(
+  record: ChatRecord,
+  facts: readonly MemoryFact[],
+): Promise<TidyCallResult> {
+  const client = await anthropicClient();
+  const run = (model: string) =>
+    client.messages.create(
+      {
+        model,
+        // Room for the small model's own reasoning as well as the answer.
+        max_tokens: 8000,
+        system: TIDY_SYSTEM,
+        messages: [{ role: "user", content: tidyPrompt(record, facts) }],
+        output_config: {
+          format: { type: "json_schema", schema: { ...TIDY_SCHEMA } },
+        },
+      },
+      { timeout: TIDY_TIMEOUT_MS, maxRetries: 1 },
+    );
+
+  let model = BACKGROUND_MODEL;
+  let resp: Anthropic.Messages.Message;
+  try {
+    resp = await run(model);
+  } catch (err) {
+    if (
+      err instanceof Anthropic.NotFoundError ||
+      err instanceof Anthropic.PermissionDeniedError ||
+      err instanceof Anthropic.BadRequestError
+    ) {
+      logLine(
+        `[claude:tidy] ${model} rejected (${describeError(err)}); retrying on ${MODEL}`,
+      );
+      model = MODEL;
+      resp = await run(model);
+    } else {
+      throw err;
+    }
+  }
+
+  const usage = normalizeUsage(resp.usage);
+  const costUsd = estimateCostUsd(model, usage);
+  const stop = resp.stop_reason as string | null;
+  if (stop === "refusal" || stop === "max_tokens") {
+    logLine(`[claude:tidy] no usable answer (stop=${stop})`);
+    return { proposal: null, usage, model, costUsd };
+  }
+  let parsed: unknown = null;
+  try {
+    parsed = JSON.parse(extractText(resp));
+  } catch {
+    logLine("[claude:tidy] answer was not JSON");
+  }
+  return { proposal: parseTidyProposal(parsed), usage, model, costUsd };
 }

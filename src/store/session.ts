@@ -6,7 +6,7 @@ import {
   type RestoredSession,
 } from "../../electron/chat-record";
 import { addNote, editNote, forgetNote, newNoteId } from "../../electron/chat-notes";
-import type { ChatNote } from "../../electron/db/schema";
+import type { ChatNote, ChatTidy } from "../../electron/db/schema";
 import type {
   CaptureFrame,
   ConversationTurn,
@@ -70,6 +70,9 @@ export interface SessionState {
   // for a quick question or a short walkthrough. Set by the coach.
   stages: string[];
   stageIndex: number;
+  // What the background tidy-up left on this chat, restored on reopen and
+  // carried through every save.
+  tidy: ChatTidy | null;
   // Set when a saved chat is reopened and consumed by the first look, which
   // greets the user with where things stood.
   resumePending: { awayMinutes: number; whereWeLeftOff: string } | null;
@@ -182,6 +185,7 @@ const initial = {
   stance: "guide" as Stance,
   stages: [] as string[],
   stageIndex: 0,
+  tidy: null as ChatTidy | null,
   resumePending: null as { awayMinutes: number; whereWeLeftOff: string } | null,
   troubleshooting: false,
   lastExpectedResult: null as string | null,
