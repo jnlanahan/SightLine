@@ -32,8 +32,24 @@ SightLine becomes one coach with one input box and a list of chats you can reope
 - **Merged, 10 November:** pull requests 6, 7 and 8 are merged into `one-coach`, at the owner's request, after the reports were read, the main integration points were checked, and tests (429), type-check and build passed on the combined result. The state before the merge (steps 0 to 4 only) is tagged `one-coach-steps-0-4`.
 - **10 November, later:** steps 7 (stages), 9 (tidy-up) and 11 (caching attached files, counting search cost) are built. The independent review ran against steps 0 to 6 and 8; its report is [overnight/2026-11-09/REVIEW.md](overnight/2026-11-09/REVIEW.md). It found no way to lose a chat. Ten of its eleven findings are fixed; the one left (the step log detects new steps by list length) it judged unlikely. `CLAUDE.md` is rewritten to describe the app as it now is.
 - **Step 10 done, 10 November, at the owner's request:** the coach runs on Sonnet 5.5 by default, with Opus 5.5 as a choice in Settings. The runner was changed to cope with what those models withdrew (see the step below). Checked against the live service: the real coach, with its real prompt and tools, produced a spoken first look on Sonnet 5.5, Opus 5.5 and the Sonnet 5 fallback, and the tidy-up's request works on Haiku 5.5.
-- **Built so far:** every step. 506 tests, type-check and build pass. **The app itself has not been run**: nobody has yet heard it, seen its screens, or watched it follow a real screen. Steps 7, 9, 10 and 11 have not been reviewed by anyone else.
-- **Next:** a live try of the app. Then merging `one-coach` into `main` or dropping it.
+- **Built so far:** every step. 506 tests, type-check and build pass. Steps 7, 9, 10 and 11 have not been reviewed by anyone else.
+- **First live run, 10 November:** the owner ran one walkthrough on Sonnet 5.5 and it worked end to end. The findings are in the next section and are the work that remains.
+- **Next:** the four fixes in "First live run" below. Then the owner's second test, the results table, and merging `one-coach` into `main` or dropping it. Testing Opus 5.5 was put off by the owner; it is not blocking.
+
+## First live run, 10 November 2026
+
+The owner asked how to get the Windows score on their computer, on Sonnet 5.5 (the default; the log shows no fallback). One chat, 16 looks, 12 steps logged, 25 cents, cache hit rate 94%, no errors. Reopening a chat, the watch stance, stages, memory screens, search and the tidy-up were not exercised.
+
+**What the owner said, and what to do about each:**
+
+1. **"It keeps saying good question when I click done with a task."** Confirmed in the log. Every follow-up plays a random thinking filler before the answer (`useSessionLoop.ts`, `randomThinkingPhrase()`), one of which is "Good question — one sec." (`electron/tts/shared.ts`, `THINKING_PHRASES`). The "I did this — next step" button sends its press as a follow-up, so pressing it gets a filler meant for a question. Fix: a button press, and "check my work" / "I'm stuck", should play no filler or a short neutral acknowledgement from its own set. A filler phrase is part of the pre-cached set, so a new one has to be added there too.
+2. **"The voice sounds so unnatural."** Not yet diagnosed, because it could be several different things. Ask which before changing anything: the voice itself (ElevenLabs, voice set in Settings); choppiness between sentences (each sentence is synthesized on its own, `electron/tts/elevenlabs.ts`); the pace; or the coach's wording ("Easy one.", "Nailed it, you're all set."), which comes from `agents/skills/speech.ts` and the fixed phrases. The filler in item 1 is probably part of it.
+3. **"The agent needs to align on a goal before it starts… The user needs to know the goal and then start the session."** In the run the coach never said what the goal was or what done would look like; it gave step one and kept going for 12 steps. Proposed fix, with no extra AI call: the coach's first reply states the goal as one clear outcome and what done looks like, with its short plan; the panel shows that goal at the top in place of the user's raw words; and the user confirms with one tap or one word (or corrects it) before the coach gives step one. This is a deliberate step back from "no setup at all": one confirmation, zero forms. A quick question with an obvious answer should probably skip the confirmation; decide that with the owner.
+4. **"I'm not even sure what model I was just on."** Nothing on screen says. Show the model's name somewhere quiet (the header status line or About this chat), and log it on every look.
+
+**What was good:** "The response time is pretty good." Measured in that run: first words 2.9 s after the goal was submitted (audible at 3.4 s), and 2.5 s after a follow-up (audible at 2.8 s), with screenshots attached.
+
+**Also seen in the log:** once, the model replied without calling a tool; the runner asked again in the same look and got a proper answer about three seconds later. That is the recovery working as designed, at the cost of one slower reply. Worth watching how often it happens.
 
 ## Calls I made
 
@@ -312,8 +328,10 @@ Sonnet 5.5 is from six looks; the other two are one look each, so treat them as 
 
 | Measure | Before (step 0) | After step 1 | After step 10 |
 | --- | --- | --- | --- |
-| Goal submitted to first spoken words, machine time | | | |
-| Follow-up asked to first spoken words | | | |
+| Goal submitted to first spoken words, machine time | not measured | not measured | 2.9 s (heard at 3.4 s) |
+| Follow-up asked to first spoken words | not measured | not measured | 2.5 s (heard at 2.8 s) |
 | Typical turn time | | | |
-| Cost per look | | | |
+| Cost per look | not measured | not measured | about 1.6 cents (25 cents over 16 looks) |
 | Lines of source, excluding tests | | | |
+
+The last column is one live run on Sonnet 5.5, 10 November 2026: one sample of each. The "before" numbers were never taken; the build that still has the old setup flow is tagged `one-coach-baseline` if they are wanted.
