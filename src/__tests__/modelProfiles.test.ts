@@ -11,6 +11,7 @@ import {
   COACH_MODELS,
   FALLBACK_COACH_MODEL,
   coachModelFor,
+  modelLabel,
   profileFor,
 } from "../../electron/agents/harness/models";
 import type { SpeechChunk } from "../../electron/speech-chunker";
@@ -126,6 +127,24 @@ describe("which model the coach runs on", () => {
   it("falls back to a model that still accepts a forced tool call", () => {
     expect(FALLBACK_COACH_MODEL).toBe("claude-sonnet-5");
     expect(profileFor(FALLBACK_COACH_MODEL).forcedToolChoice).toBe(true);
+  });
+
+  // "I'm not even sure what model I was just on." The panel names it, using
+  // the same names as the Settings picker, and names the fallback too.
+  it("has a plain name for every model the coach can end up on", () => {
+    expect(modelLabel(COACH_MODELS.sonnet)).toBe("Sonnet 5.5");
+    expect(modelLabel(COACH_MODELS.opus)).toBe("Opus 5.5");
+    expect(modelLabel(FALLBACK_COACH_MODEL)).toBe("Sonnet 5");
+    expect(modelLabel("some-future-model")).toBe("some-future-model");
+  });
+
+  it("reports the model a look ran on with its answer, and the loop logs it", async () => {
+    const { client } = fake([say("Open Settings.")]);
+    const result = await runAgentTurn(opts(client, "claude-opus-5-5"));
+    expect(result.model).toBe("claude-opus-5-5");
+    const loop = (await import("../hooks/useSessionLoop?raw")) as unknown as { default: string };
+    expect(loop.default).toContain("useSession.getState().setModel(result.model);");
+    expect(loop.default).toContain("model=${result.model");
   });
 });
 

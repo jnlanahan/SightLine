@@ -8,6 +8,7 @@ import { useTheme } from "../design/ThemeProvider";
 import { Eyebrow } from "../design/primitives";
 import { ar, lt } from "../design/theme";
 import { ScreenPicker } from "./ScreenPicker";
+import { ModelCaption } from "./ModelCaption";
 
 interface Props {
   onStart(goal: string): void;
@@ -137,12 +138,14 @@ export function Home({ onStart, onOpen }: Props) {
               ? "Transcribing…"
               : "🎤 Speak"}
         </button>
+        {/* So the model is known before the chat starts, not only during it. */}
+        <ModelCaption style={{ marginLeft: "auto" }} />
         <button
           type="button"
           onClick={start}
           disabled={value.trim().length === 0}
           style={{
-            marginLeft: "auto", borderRadius: 9, border: 0,
+            borderRadius: 9, border: 0,
             background: `linear-gradient(180deg, ${T.accent}, ${T.accentDeep})`,
             color: T.onAccent,
             fontSize: 12, fontWeight: 600, padding: "7px 20px",

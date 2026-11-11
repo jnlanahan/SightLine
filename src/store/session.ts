@@ -107,6 +107,9 @@ export interface SessionState {
   // Number of Claude calls this session — the denominator for "cost per call"
   // and a cheap sanity check on loop behaviour in the logs.
   claudeCalls: number;
+  // The model the coach's last look actually ran on, as reported back with
+  // the answer. Null until the first look of this sitting.
+  model: string | null;
   // The open chat's id, minted at start (or restored on reopen) so autosave
   // and any memory learned mid-chat can be attributed to it. Null between
   // chats — the loop and its input trigger key off this.
@@ -162,6 +165,7 @@ export interface SessionState {
   setTranscribing(v: boolean): void;
   setLastTranscript(t: string | null): void;
   recordUsage(usage: TokenUsage, costUsd: number): void;
+  setModel(model: string): void;
   setSessionId(id: string | null): void;
   setRecalledMemory(text: string): void;
   reset(): void;
@@ -211,6 +215,7 @@ const initial = {
   usage: { ...EMPTY_USAGE },
   costUsd: 0,
   claudeCalls: 0,
+  model: null as string | null,
   sessionId: null as string | null,
   recalledMemory: "",
 };
@@ -310,5 +315,6 @@ export const useSession = create<SessionState>((set) => ({
       costUsd: state.costUsd + costUsd,
       claudeCalls: state.claudeCalls + 1,
     })),
+  setModel: (model) => set({ model }),
   reset: () => set({ ...initial }),
 }));

@@ -482,8 +482,15 @@ export function useSessionLoop(onNeedsApiKey: () => void) {
           );
         }
 
+        // Which model answered — shown in the panel, and logged every look.
+        // It can differ from the Settings choice when the account could not
+        // use that model and the coach fell back.
+        if (result.model && useSession.getState().sessionId === sessionId) {
+          useSession.getState().setModel(result.model);
+        }
+
         log(
-          `Claude ← action=${result.action} in ${Date.now() - callStartedAt}ms digression=${result.digression} troubleshooting=${result.troubleshooting} pace=${result.expectedPace} highlight=${result.highlight ? "yes" : "no"} instr="${(result.instruction ?? "").slice(0, 60)}"`,
+          `Claude ← action=${result.action} model=${result.model ?? "unknown"} in ${Date.now() - callStartedAt}ms digression=${result.digression} troubleshooting=${result.troubleshooting} pace=${result.expectedPace} highlight=${result.highlight ? "yes" : "no"} instr="${(result.instruction ?? "").slice(0, 60)}"`,
         );
 
         // The user paused, stopped, or pressed Done while we were waiting.

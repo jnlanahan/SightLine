@@ -25,6 +25,7 @@ import type {
 } from "./lib/api";
 import { Instruction } from "./components/Instruction";
 import { GoalCard } from "./components/GoalCard";
+import { ModelCaption } from "./components/ModelCaption";
 import { PrivacyNotice } from "./components/PrivacyNotice";
 import { Settings as SettingsView } from "./components/Settings";
 import { DockRail } from "./components/DockRail";
@@ -748,6 +749,7 @@ export default function App() {
               onStartTalking={startTalking}
               onStopTalking={stopTalking}
             />
+            <ModelCaption style={{ display: "block", padding: "5px 4px 0" }} />
           </div>
           </>
           )}

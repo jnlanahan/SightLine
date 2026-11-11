@@ -88,6 +88,18 @@ export function profileFor(model: string): ModelProfile {
   return PROFILES[model] ?? LEGACY;
 }
 
+/** What the panel calls each model. The same names as the Settings picker. */
+const MODEL_LABELS: Record<string, string> = {
+  [COACH_MODELS.sonnet]: "Sonnet 5.5",
+  [COACH_MODELS.opus]: "Opus 5.5",
+  [FALLBACK_COACH_MODEL]: "Sonnet 5",
+};
+
+/** A model's name as shown to the user. An unknown id is shown as it is. */
+export function modelLabel(model: string): string {
+  return MODEL_LABELS[model] ?? model;
+}
+
 /** The model id for a Settings choice. Anything unrecognised means Sonnet. */
 export function coachModelFor(choice: unknown): string {
   return choice === "opus" ? COACH_MODELS.opus : COACH_MODELS.sonnet;
