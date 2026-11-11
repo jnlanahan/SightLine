@@ -5,7 +5,7 @@ Kept current by the overnight sessions, after every step. See [README.md](README
 | Step | Work package | Status | Commit |
 | --- | --- | --- | --- |
 | 13 | WP1 · Tokens, palette setting, font | done | 76936cd |
-| 14 | WP2 · Turn tags and the phase view model | not started | |
+| 14 | WP2 · Turn tags and the phase view model | done | 4073a23 |
 | 15 | WP3 · Phase rail | not started | |
 | 16 | WP4 · Phase chat | not started | |
 | 17 | WP5 · Footer, ready pill, auto-scroll | not started | |
