@@ -637,13 +637,18 @@ export default function App() {
       conversation.some((t) => t.role === "assistant" && t.timestamp >= resumeMark.at)
         ? resumeMark
         : null;
-    const title = (!goalPending && agreedGoal) || goal || "";
+    // The agreed goal once there is one; otherwise the chat's title (which the
+    // tidy-up may have improved), and the user's own words only as a last resort.
+    const title = (!goalPending && agreedGoal) || chatBaseRef.current?.title || goal || "";
     const placeholder =
       done || quick
         ? conversation.length <= 1 && !instruction
           ? "Ask or tell it anything"
           : "Ask a follow-up"
-        : `Ask about step ${phaseView.currentStep}`;
+        : goalPending
+          ? // No step is in progress while the goal waits on a yes.
+            "Ask or tell it anything"
+          : `Ask about step ${phaseView.currentStep}`;
     const railEntering = planArrivedAt !== null && Date.now() - planArrivedAt < 1000;
     const onQuit = () => {
       if (goal) setShowQuitConfirm(true);
@@ -778,7 +783,9 @@ export default function App() {
                         </div>
                       )}
                     </div>
-                  ) : (
+                  ) : done ? // A finished goal has nothing left to tick off: the completion
+                  // section stands alone (SPEC §6.6, §7 "Done").
+                  undefined : (
                     <PhaseFooter
                       stance={stance}
                       pointing={pointing}

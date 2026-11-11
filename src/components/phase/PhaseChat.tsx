@@ -49,11 +49,23 @@ type Item =
   | { kind: "divider"; at: number; text: string };
 
 /** A step's messages, notes and divider in time order. */
-function stepItems(step: StepVM, props: PhaseChatProps, hideGoal: boolean): Item[] {
+function stepItems(step: StepVM, props: PhaseChatProps, hideGoal: boolean, quick: boolean): Item[] {
   const items: Item[] = [];
+  // A quick answer usually arrives as plain words with no instruction set, so
+  // nothing matches as the lead. Its first answer is the large line all the
+  // same (SPEC §5); follow-ups after it stay at body size.
+  const quickLead =
+    quick && step.leadIndex === null && !props.currentInstruction.trim()
+      ? step.turns.findIndex((t) => t.role === "assistant")
+      : -1;
   step.turns.forEach((turn, i) => {
     if (hideGoal && goalTurnText(turn) !== null) return;
-    items.push({ kind: "turn", at: turn.timestamp, turn, lead: step.isLeadHolder && i === step.leadIndex });
+    items.push({
+      kind: "turn",
+      at: turn.timestamp,
+      turn,
+      lead: (step.isLeadHolder && i === step.leadIndex) || i === quickLead,
+    });
   });
   for (const n of props.notes ?? []) {
     if (n.step === step.n) items.push({ kind: "note", at: n.at, text: n.text });
@@ -76,8 +88,8 @@ function renderItem(item: Item, key: number, past: boolean, code?: string): Reac
   return <CoachText key={key} text={turn.content} code={turn.code} past={past} />;
 }
 
-function StepMessages({ step, props, past, hideGoal }: { step: StepVM; props: PhaseChatProps; past: boolean; hideGoal: boolean }) {
-  const items = stepItems(step, props, hideGoal);
+function StepMessages({ step, props, past, hideGoal, quick = false }: { step: StepVM; props: PhaseChatProps; past: boolean; hideGoal: boolean; quick?: boolean }) {
+  const items = stepItems(step, props, hideGoal, quick);
   const nodes = items.map((it, i) => renderItem(it, i, past, props.currentCode));
   // The current step always shows its instruction once, large — even when the
   // transcript has no matching line (a reopened chat, a digression).
@@ -145,7 +157,7 @@ export function PhaseChat(props: PhaseChatProps) {
                   // A quick answer has no checkpoints: the messages sit
                   // straight in the section (SPEC §5).
                   <Fragment key={step.n}>
-                    <StepMessages step={step} props={props} past={past} hideGoal={false} />
+                    <StepMessages step={step} props={props} past={past} hideGoal={false} quick />
                   </Fragment>
                 ) : (
                   <StepCheckpoint key={step.n} step={step}>

@@ -175,6 +175,30 @@ describe("phase chat", () => {
     expect(count(html, "data-lead-line")).toBe(1);
   });
 
+  // Found by looking at the screen on 11 November: the coach usually answers
+  // a quick question in plain words without setting an instruction, and the
+  // answer then showed at body size.
+  it("quick: the first answer is the lead line even when no instruction was set", () => {
+    const html = render({
+      currentInstruction: "",
+      conversation: [
+        turn("user", "Goal: How do I freeze the top row?", 1),
+        turn("assistant", "Use View, then Freeze Panes.", 2),
+        turn("user", "And the first column?", 3),
+        turn("assistant", "Same menu, Freeze First Column.", 4),
+      ],
+    });
+    expect(count(html, "data-lead-line")).toBe(1);
+    const lead = html.slice(html.indexOf("data-lead-line"));
+    expect(lead.indexOf("Use View, then Freeze Panes.")).toBeLessThan(lead.indexOf("And the first column?"));
+    expect(html).toContain("Same menu, Freeze First Column.");
+  });
+
+  it("a finished goal shows no one-tap replies under the completion section", async () => {
+    const app = (await import("../App?raw")) as unknown as { default: string };
+    expect(app.default).toMatch(/\) : done \? [\s\S]{0,160}undefined : \(\s*<PhaseFooter/);
+  });
+
   it("uses no technical words", () => {
     const html = render(phased).toLowerCase();
     for (const w of ["session", "capture", "tokens", "stance", "stage"]) {
