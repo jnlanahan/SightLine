@@ -212,6 +212,9 @@ export interface WindowBounds {
 }
 
 export interface Settings {
+  // Which model the coach runs on. "sonnet" is the faster, cheaper default;
+  // "opus" is the stronger one, at about twice the cost per look.
+  coachModel: "sonnet" | "opus";
   opacity: number;
   selectedDisplayId: string | null;
   // Pin capture to a specific desktopCapturer source. When set, capture uses

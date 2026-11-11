@@ -31,9 +31,9 @@ SightLine becomes one coach with one input box and a list of chats you can reope
 - **Overnight, 9 to 10 November:** three cloud jobs built steps 5, 6 and 8, each on its own branch. Briefs and reports are in [overnight/2026-11-09](overnight/2026-11-09/README.md). A fourth job, a read-only review of steps 0 to 4, never ran: it started while the account was over its usage limit and was refused. No independent review has been done yet.
 - **Merged, 10 November:** pull requests 6, 7 and 8 are merged into `one-coach`, at the owner's request, after the reports were read, the main integration points were checked, and tests (429), type-check and build passed on the combined result. The state before the merge (steps 0 to 4 only) is tagged `one-coach-steps-0-4`.
 - **10 November, later:** steps 7 (stages), 9 (tidy-up) and 11 (caching attached files, counting search cost) are built. The independent review ran against steps 0 to 6 and 8; its report is [overnight/2026-11-09/REVIEW.md](overnight/2026-11-09/REVIEW.md). It found no way to lose a chat. Ten of its eleven findings are fixed; the one left (the step log detects new steps by list length) it judged unlikely. `CLAUDE.md` is rewritten to describe the app as it now is.
-- **Built so far:** every step except 10. 489 tests, type-check and build pass. **None of it has been run live**, and steps 7, 9 and 11 have not been reviewed by anyone else.
-- **Step 10 (the model) is a decision, not a swap.** See that step below: the newest models reject the one API feature the coach's turn is built on.
-- **Next:** a live try of everything built. Then the step 10 decision, and merging `one-coach` into `main` or dropping it.
+- **Step 10 done, 10 November, at the owner's request:** the coach runs on Sonnet 5.5 by default, with Opus 5.5 as a choice in Settings. The runner was changed to cope with what those models withdrew (see the step below). Checked against the live service: the real coach, with its real prompt and tools, produced a spoken first look on Sonnet 5.5, Opus 5.5 and the Sonnet 5 fallback, and the tidy-up's request works on Haiku 5.5.
+- **Built so far:** every step. 506 tests, type-check and build pass. **The app itself has not been run**: nobody has yet heard it, seen its screens, or watched it follow a real screen. Steps 7, 9, 10 and 11 have not been reviewed by anyone else.
+- **Next:** a live try of the app. Then merging `one-coach` into `main` or dropping it.
 
 ## Calls I made
 
@@ -262,6 +262,25 @@ Not done: the coach is still on `claude-sonnet-4-6`. Checking the Claude API ref
 - **The smaller move is `claude-sonnet-5`.** Per the reference it still accepts forced tool choice, and it is cheaper than the current model ($2 and $10 per million tokens, against $3 and $15). Thinking is on by default there, so the request would turn it off explicitly to keep the current speed.
 
 Recommendation: try `claude-sonnet-5` first, as a config change measured against the step 0 numbers. Treat the 5.5 models as a separate piece of work with its own live comparison. Read the migration guide for the target model before changing anything.
+
+**Update, later on 10 November: the owner chose the 5.5 models, with a choice between them.**
+
+- Settings has a Coach section: Sonnet 5.5 (default) or Opus 5.5. It takes effect on the next look.
+- `electron/agents/harness/models.ts` holds how a look is asked of each model. Sonnet 5.5: thinking at its lowest setting (`between_tools`), medium effort. Opus 5.5: no thinking setting (it always thinks), low effort, a larger token allowance.
+- The request asks for a tool call (`auto`) where it used to insist. A reply with no tool call is asked once more in the same look, then ends in silence. Raw text is never spoken.
+- The tool list no longer changes mid-look on these models; the limit on lookups is stated in the tool result.
+- A safety decline is retried by the service on another model inside the same call.
+- If the account rejects the chosen model, the coach falls back to Sonnet 5 for the rest of the run and logs it. The mid-look web search always runs on Sonnet 5.
+
+Live samples, first look, no screenshot attached, so real looks will be slower:
+
+| Model | To first words | Whole reply |
+| --- | --- | --- |
+| Sonnet 5.5 | 2.1 to 3.3 s | 3.0 to 4.7 s |
+| Opus 5.5 | 1.6 s | 2.9 s |
+| Sonnet 5 | 1.0 s | 2.3 s |
+
+Sonnet 5.5 is from six looks; the other two are one look each, so treat them as a rough guide only. In these samples the older Sonnet 5 was the quickest to its first word. Low effort on Sonnet 5.5 was no faster than medium.
 
 ## Step 11: Stop re-sending what doesn't change
 

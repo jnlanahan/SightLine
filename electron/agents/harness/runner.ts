@@ -47,6 +47,7 @@ import {
   type ToolOutput,
   type TurnContext,
 } from "./types";
+import { profileFor } from "./models";
 
 // Output ceiling per response. Output is billed only as generated, so this
 // costs nothing when the model is brief — it is purely the room a turn has.
@@ -55,7 +56,8 @@ import {
 // exceed; the SDK then hands back a PARTIAL tool input with no error, the
 // truncated step list silently replaced the real one, and speech cut off
 // mid-sentence. 2048 leaves headroom; a hit is also logged now.
-const MAX_TOKENS = 2048;
+// How many tokens a reply may use is per model (models.ts): the newer models
+// think before they answer, and that counts against the same allowance.
 /** Previous frame + latest frame. See the note in claude.ts on frame budget. */
 const MAX_FRAMES = 2;
 /** Text-only history turns sent with each tick. */
@@ -70,6 +72,16 @@ const REQUEST_TIMEOUT_MS = 60_000;
  * (see Agent.speakOnStepComplete). Written as a situation, not a scolding:
  * the model's step bookkeeping was right, only the silence was wrong.
  */
+/**
+ * Handed back when a reply called no tool at all. Only possible on models
+ * that will not accept a forced tool choice (see models.ts): there the request
+ * can only ask, and this is the one polite second ask.
+ */
+const NO_TOOL_NUDGE = `You wrote text without calling a tool. Text outside a tool call is never heard by the user. End your turn now by calling say (to speak) or wait (to stay silent).`;
+
+/** Appended to the last lookup's result on models whose tool list cannot be narrowed mid-look. */
+const LAST_LOOKUP_NOTE = `That was your last lookup this turn. End your turn now by calling say or wait.`;
+
 const SPEAK_ON_STEP_COMPLETE = `You recorded a newly completed step but called wait. The user just finished what you asked and is now waiting to hear from you — silence here feels like you stopped watching. Call say now: a 2-4 word acknowledgment, then the next step (action=instruct); or action=done if the goal is visibly achieved; or action=acknowledge if the screen shows something still in progress they should let finish. Only call wait again if they are already visibly working on the next step.`;
 
 export interface RunTurnOptions {
@@ -219,26 +231,49 @@ async function streamOnce(
   tools: ReturnType<typeof toolDefinitions>,
 ): Promise<StreamOutcome> {
   const { client, model, agent, onSpeechChunk } = opts;
+  const profile = profileFor(model);
 
-  const stream = client.messages.stream(
-    {
-      model,
-      max_tokens: MAX_TOKENS,
-      // Cache breakpoint on the system prompt. Tools render BEFORE system, so
-      // this one marker covers the tool definitions too — which is exactly why
-      // the tool list has to stay a fixed literal per agent.
-      system: systemBlocks(agent, opts.ctx) as unknown as Anthropic.Messages.TextBlockParam[],
-      tools: tools as unknown as Anthropic.Messages.Tool[],
-      // Exactly one tool per response: the model either looks something up or
-      // ends its turn, never both. Makes "is the turn over?" a single check.
-      tool_choice: {
-        type: "any",
-        disable_parallel_tool_use: true,
-      } as unknown as Anthropic.Messages.ToolChoice,
-      messages,
+  const params = {
+    model,
+    max_tokens: profile.maxTokens,
+    // Stated rather than omitted wherever the model allows it: on the newer
+    // models an omitted `thinking` means thinking is ON, and a look has to
+    // reach its first spoken word fast.
+    ...(profile.thinking ? { thinking: profile.thinking } : {}),
+    ...(profile.effort ? { output_config: { effort: profile.effort } } : {}),
+    // Cache breakpoint on the system prompt. Tools render BEFORE system, so
+    // this one marker covers the tool definitions too — which is exactly why
+    // the tool list has to stay a fixed literal per agent.
+    system: systemBlocks(agent, opts.ctx),
+    tools,
+    // At most one tool per response: the model either looks something up or
+    // ends its turn, never both. Where the model accepts it the call is
+    // forced ("any"), which makes "is the turn over?" a single check; where
+    // it does not, the request can only ask ("auto") and the loop below
+    // checks that a tool was actually called.
+    tool_choice: {
+      type: profile.forcedToolChoice ? "any" : "auto",
+      disable_parallel_tool_use: true,
     },
-    { timeout: REQUEST_TIMEOUT_MS },
-  );
+    messages,
+    // A safety decline is retried on another model inside the same call,
+    // rather than the look coming back empty.
+    ...(profile.serverFallback
+      ? { betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" }
+      : {}),
+  };
+
+  // The fallback option only exists on the beta endpoint. The installed SDK's
+  // types predate several of these fields; the API accepts them (checked live).
+  const endpoint = (profile.serverFallback ? client.beta.messages : client.messages) as unknown as {
+    stream(
+      body: unknown,
+      options: { timeout: number },
+    ): AsyncIterable<Anthropic.Messages.RawMessageStreamEvent> & {
+      finalMessage(): Promise<Anthropic.Messages.Message>;
+    };
+  };
+  const stream = endpoint.stream(params, { timeout: REQUEST_TIMEOUT_MS });
 
   const chunker = new InstructionChunker();
   // Index of the `say` block, if this response is one. Only deltas carrying
@@ -338,6 +373,10 @@ export async function runAgentTurn(opts: RunTurnOptions): Promise<TurnResult> {
   // search handed back as "Tool failed" used to be retried verbatim, doubling
   // the silence the user sat through.
   const failedTools = new Set<string>();
+  const profile = profileFor(model);
+  // One second ask per turn when a reply called no tool (models without a
+  // forced tool choice only).
+  let nudged = false;
   // One bounce per turn. If the model waits again after being asked to
   // speak, that is its answer — looping would burn the whole iteration
   // budget on the same question.
@@ -350,7 +389,7 @@ export async function runAgentTurn(opts: RunTurnOptions): Promise<TurnResult> {
   const finish = (parsed: InstructionResponse, truncated: boolean): TurnResult => {
     if (truncated) {
       log(
-        `[agent:${agent.id}] response hit max_tokens (${MAX_TOKENS}) — keeping the previous step list`,
+        `[agent:${agent.id}] response hit max_tokens (${profile.maxTokens}) — keeping the previous step list`,
       );
       parsed = {
         ...parsed,
@@ -382,9 +421,17 @@ export async function runAgentTurn(opts: RunTurnOptions): Promise<TurnResult> {
       // the cache, but this only fires on a turn that already spent its whole
       // budget looking things up — a rare path, and finishing beats caching.
       const lastChance = iteration === agent.maxToolIterations - 1;
-      const activeTools = lastChance
-        ? tools.filter((t) => t.name === SAY_TOOL || t.name === WAIT_TOOL)
-        : tools.filter((t) => !failedTools.has(t.name));
+      // Models with a forced tool choice get their tool list narrowed: a
+      // failed tool is withdrawn, and the last look is offered only say and
+      // wait. Models whose thinking is tied to the exact request cannot have
+      // the list changed mid-look — it invalidates the reasoning they are
+      // carrying — so for them the list stays whole and the limits are stated
+      // in the tool results instead.
+      const activeTools = !profile.forcedToolChoice
+        ? tools
+        : lastChance
+          ? tools.filter((t) => t.name === SAY_TOOL || t.name === WAIT_TOOL)
+          : tools.filter((t) => !failedTools.has(t.name));
       if (lastChance && toolsByName.size > 0) {
         log(`[agent:${agent.id}] tool budget spent — forcing a terminal turn`);
       }
@@ -413,6 +460,23 @@ export async function runAgentTurn(opts: RunTurnOptions): Promise<TurnResult> {
           .map((b) => b.text)
           .join("")
           .trim();
+        // Without a forced tool choice a reply can simply be text. Ask once
+        // more, in the same look, before settling for silence — but not after
+        // a safety decline, a cut-off reply, or an empty one.
+        if (
+          !profile.forcedToolChoice &&
+          !nudged &&
+          !lastChance &&
+          !truncated &&
+          (message.stop_reason as string) !== "refusal" &&
+          message.content.length > 0
+        ) {
+          nudged = true;
+          log(`[agent:${agent.id}] reply called no tool — asking once more`);
+          messages.push({ role: "assistant", content: message.content });
+          messages.push({ role: "user", content: [{ type: "text", text: NO_TOOL_NUDGE }] });
+          continue;
+        }
         log(
           `[agent:${agent.id}] no tool call (stop=${message.stop_reason}) — ${extractJson(text) ? "parsing text as JSON" : "ending the turn silently"}`,
         );
@@ -461,6 +525,17 @@ export async function runAgentTurn(opts: RunTurnOptions): Promise<TurnResult> {
         return finish(parsed, truncated);
       }
 
+      // A lookup on the look that had to end the turn. Only reachable where
+      // the tool list could not be narrowed; the budget is spent, so the turn
+      // ends in silence rather than running past it.
+      if (lastChance) {
+        log(`[agent:${agent.id}] asked for ${toolUse.name} with no lookups left — ending the turn silently`);
+        return finish(
+          parseTerminalTool(WAIT_TOOL, {}, ctx.completedSteps, ctx.upcomingSteps),
+          truncated,
+        );
+      }
+
       // Mid-turn tool. Run it, feed the result back, go again.
       const tool = toolsByName.get(toolUse.name);
       toolsUsed.push(toolUse.name);
@@ -491,7 +566,16 @@ export async function runAgentTurn(opts: RunTurnOptions): Promise<TurnResult> {
       }
 
       messages.push({ role: "assistant", content: message.content });
-      messages.push({ role: "user", content: [toolResultBlock(toolUse.id, out)] });
+      // Where the list could not be narrowed, say in words that the next
+      // reply has to end the turn.
+      const nextIsLast = iteration + 1 === agent.maxToolIterations - 1;
+      messages.push({
+        role: "user",
+        content:
+          !profile.forcedToolChoice && nextIsLast
+            ? [toolResultBlock(toolUse.id, out), { type: "text", text: LAST_LOOKUP_NOTE }]
+            : [toolResultBlock(toolUse.id, out)],
+      });
     }
   } catch (err) {
     const rate = asRateLimit(err);

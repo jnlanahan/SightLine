@@ -6,6 +6,7 @@ import { DEFAULT_ELEVEN_VOICE_ID } from "./tts/shared";
 import { logLine } from "./log";
 
 const DEFAULTS: Settings = {
+  coachModel: "sonnet",
   opacity: 1,
   selectedDisplayId: null,
   selectedSourceId: null,

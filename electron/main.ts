@@ -49,6 +49,7 @@ import { applyTidy, needsTidy } from "./chat-tidy";
 import { newNoteId } from "./chat-notes";
 import { addUsage } from "./usage";
 import { describeAgent } from "./agents/registry";
+import { coachModelFor } from "./agents/harness/models";
 import { MissingOpenAIKeyError, transcribe } from "./whisper";
 import { hasGoogleCredentials } from "./google-tts";
 import { speak as synthesizeSpeech, warmPhraseCache } from "./tts";
@@ -1088,6 +1089,8 @@ function registerIpc() {
             }
           },
           {
+            // The user's choice of model for the coach (Settings).
+            model: coachModelFor(loadSettings().coachModel),
             // The agent's zoom lens. Re-captures at near-native resolution
             // and crops, so small on-screen text becomes readable. Geometry
             // recording is off: the glow overlay maps highlight fractions

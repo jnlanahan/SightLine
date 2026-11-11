@@ -31,19 +31,20 @@ interface ModelRate {
   output: number;
 }
 
-// Checked against the Claude API model reference, October 2026. Sonnet 4.6 is
-// what the session loop runs on: Opus-tier costs ~1.7x more per token for a
-// task that is mostly "look at this screenshot and decide whether to speak",
-// and its extra depth does not pay for itself against time-to-first-token —
-// which the user feels on every single tick.
+// Checked against the Claude API model reference, October 2026. The coach
+// runs on Sonnet 5.5 unless the user picks Opus 5.5 in Settings, which costs
+// twice as much per token for a task that is mostly "look at this screenshot
+// and decide whether to speak".
 const RATES: Record<string, ModelRate> = {
   // The background tidy-up's model.
   "claude-haiku-5-5": { input: 0.1, output: 0.5 },
-  "claude-sonnet-4-6": { input: 3, output: 15 },
-  // Candidates for the coach, not in use yet (docs/ONE-COACH-PLAN.md, step 10).
-  "claude-sonnet-5": { input: 2, output: 10 },
+  // The coach: the user picks between these two in Settings.
   "claude-sonnet-5-5": { input: 2, output: 10 },
   "claude-opus-5-5": { input: 4, output: 20 },
+  // The coach's fallback if the account cannot use the chosen model, and what
+  // the mid-look web search runs on.
+  "claude-sonnet-5": { input: 2, output: 10 },
+  "claude-sonnet-4-6": { input: 3, output: 15 },
   "claude-haiku-4-5": { input: 1, output: 5 },
   "claude-opus-5": { input: 5, output: 25 },
   "claude-opus-4-8": { input: 5, output: 25 },

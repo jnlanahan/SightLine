@@ -512,3 +512,21 @@ describe("the request is shaped for caching", () => {
     });
   });
 });
+
+describe("the request a look sends", () => {
+  it("turns thinking off explicitly and forces exactly one tool call", async () => {
+    // On the coach's model an omitted `thinking` means thinking is ON, which
+    // would delay the first spoken word on every look. And the whole turn
+    // design rests on the reply being one of say or wait.
+    const { client, requests } = fakeClient([
+      { tool: "wait", inputChunks: ["{}"] },
+    ]);
+    await runAgentTurn(baseOpts(client));
+    expect(requests[0].thinking).toEqual({ type: "disabled" });
+    expect(requests[0].tool_choice).toEqual({
+      type: "any",
+      disable_parallel_tool_use: true,
+    });
+    expect(requests[0].max_tokens).toBe(3072);
+  });
+});

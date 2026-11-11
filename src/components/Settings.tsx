@@ -378,6 +378,31 @@ export function Settings({ onClose }: Props) {
           <MemoryList ghostBtnStyle={ghostBtnStyle} />
         </div>
 
+        {/* Coach */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <span style={sectionLabel}>Coach</span>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+            <div style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
+              <span style={{ fontSize: 12.5, fontWeight: 500, color: T.ink }}>
+                Model
+              </span>
+              <span style={{ marginTop: 2, fontSize: 10, color: T.ink3 }}>
+                Sonnet is the everyday choice. Opus is stronger on hard problems and costs about twice as much per look. Takes effect on the next look.
+              </span>
+            </div>
+            <select
+              value={settings.coachModel === "opus" ? "opus" : "sonnet"}
+              onChange={(e) =>
+                void patch({ coachModel: e.target.value === "opus" ? "opus" : "sonnet" })
+              }
+              style={{ ...selectStyle, width: 130, flexShrink: 0 }}
+            >
+              <option value="sonnet">Sonnet 5.5</option>
+              <option value="opus">Opus 5.5</option>
+            </select>
+          </div>
+        </div>
+
         {/* Spend */}
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           <span style={sectionLabel}>Spend</span>

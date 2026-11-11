@@ -11,6 +11,7 @@ import { logLine } from "./log";
 import type { SpeechChunk } from "./speech-chunker";
 import { getAgent } from "./agents/registry";
 import { runAgentTurn } from "./agents/harness/runner";
+import { COACH_MODELS, FALLBACK_COACH_MODEL } from "./agents/harness/models";
 import type { ToolDeps } from "./agents/harness/types";
 import type { MemorySearchHit } from "./memory-search";
 import type { ChatRecord, MemoryFact } from "./db/schema";
@@ -33,7 +34,17 @@ import {
 export { MissingApiKeyError, RateLimitError } from "./agents/harness/errors";
 import { MissingApiKeyError } from "./agents/harness/errors";
 
-const MODEL = "claude-sonnet-4-6";
+// What the coach runs on is the user's choice in Settings (Sonnet 5.5 or
+// Opus 5.5), passed in with each look. How a look is asked of each model is
+// in agents/harness/models.ts. This is the default when nothing is passed.
+const MODEL = COACH_MODELS.sonnet;
+// If this account cannot use a chosen model, the coach uses this one instead
+// for the rest of the run rather than going dark. It is also what the
+// mid-look web search runs on: a small, fixed job that should not change with
+// the user's choice.
+const FALLBACK_MODEL = FALLBACK_COACH_MODEL;
+// Models this account has rejected during this run.
+const rejectedModels = new Set<string>();
 
 // Background work nobody is waiting on (the tidy-up after a chat is left).
 // A small, cheap model is plenty for rewriting a summary and merging notes.
@@ -72,6 +83,8 @@ const QUICK_RESEARCH_LIMITS: ServerToolLimits = {
  * so the whole harness is unit-testable.
  */
 export interface AgentRuntime {
+  // The model id for the user's Settings choice. Absent = the default.
+  model?: string;
   captureRegion: ToolDeps["captureRegion"];
   // Searches saved facts and earlier chats, leaving out the open chat and any
   // fact already in the recalled-memory block.
@@ -205,21 +218,45 @@ export async function getNextInstruction(
     log,
   };
 
-  const result = await runAgentTurn({
-    client,
-    model: MODEL,
-    agent,
-    ctx: { ...args, upcomingSteps: args.upcomingSteps ?? [] },
-    deps,
-    toContextResolution,
-    onSpeechChunk,
-    onToolStart: runtime?.onToolStart,
-    log,
-  });
+  const turn = (model: string) =>
+    runAgentTurn({
+      client,
+      model,
+      agent,
+      ctx: { ...args, upcomingSteps: args.upcomingSteps ?? [] },
+      deps,
+      toContextResolution,
+      onSpeechChunk,
+      onToolStart: runtime?.onToolStart,
+      log,
+    });
+
+  const chosen = runtime?.model ?? MODEL;
+  let coachModel = rejectedModels.has(chosen) ? FALLBACK_MODEL : chosen;
+  let result;
+  try {
+    result = await turn(coachModel);
+  } catch (err) {
+    // The model id or the request shape was rejected outright — nothing was
+    // streamed, so nothing was spoken. Try the fallback once, and stay on it
+    // for this run: a coach on the previous model beats one that says nothing.
+    const rejected =
+      err instanceof Anthropic.NotFoundError ||
+      err instanceof Anthropic.PermissionDeniedError ||
+      err instanceof Anthropic.BadRequestError;
+    if (!rejected || coachModel === FALLBACK_MODEL) throw err;
+    logLine(
+      `[claude] ${coachModel} rejected the request (${describeError(err)}) — ` +
+        `falling back to ${FALLBACK_MODEL} for the rest of this run`,
+    );
+    rejectedModels.add(coachModel);
+    coachModel = FALLBACK_MODEL;
+    result = await turn(coachModel);
+  }
 
   if (toolUsage.inputTokens + toolUsage.outputTokens > 0) {
     result.usage = addUsage(result.usage ?? { ...EMPTY_USAGE }, toolUsage);
-    result.costUsd = (result.costUsd ?? 0) + estimateCostUsd(MODEL, toolUsage);
+    result.costUsd = (result.costUsd ?? 0) + estimateCostUsd(FALLBACK_MODEL, toolUsage);
   }
   return result;
 }
@@ -335,8 +372,14 @@ async function research(
   const resp = await withServerTools(
     client,
     {
-      model: MODEL,
+      // A fixed model, not the user's choice: this is a small lookup with a
+      // 10 s deadline, and this model lets thinking be switched off outright.
+      model: FALLBACK_MODEL,
       max_tokens: maxTokens,
+      // Off on purpose. An omitted `thinking` means thinking is ON, and it
+      // would eat this small token allowance and the 10 s the user is
+      // waiting through.
+      thinking: { type: "disabled" },
       system: RESEARCH_SYSTEM_PROMPT,
       messages: [{ role: "user", content: query }],
     },
@@ -395,9 +438,9 @@ export async function tidyChat(
       err instanceof Anthropic.BadRequestError
     ) {
       logLine(
-        `[claude:tidy] ${model} rejected (${describeError(err)}); retrying on ${MODEL}`,
+        `[claude:tidy] ${model} rejected (${describeError(err)}); retrying on ${FALLBACK_MODEL}`,
       );
-      model = MODEL;
+      model = FALLBACK_MODEL;
       resp = await run(model);
     } else {
       throw err;
