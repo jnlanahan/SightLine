@@ -9,6 +9,9 @@ body,
   margin: 0;
   background: transparent;
   color: #23271C;
+  /* font.sans in src/design/tokens.ts — Manrope is bundled (main.tsx imports
+     @fontsource-variable/manrope), so the app never fetches fonts. */
+  font-family: "Manrope Variable", "Manrope", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   overflow: hidden;

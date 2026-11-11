@@ -192,22 +192,24 @@ function stopWindowDrag() {
   }
 }
 
-// Accent palette for the glow overlay — mirrors src/design/theme.ts ACCENTS.
-const GLOW_ACCENTS: Record<string, { hex: string; rgb: string }> = {
-  lime: { hex: "#8FBE2E", rgb: "143,190,46" },
-  cobalt: { hex: "#4F8BF2", rgb: "79,139,242" },
-  rose: { hex: "#FF6B81", rgb: "255,107,129" },
-  slate: { hex: "#9FB2C8", rgb: "159,178,200" },
+// Glow colour per colour set — mirrors `glow` in src/design/tokens.ts PALETTES
+// (a test keeps the two equal).
+const PALETTE_GLOW: Record<string, string> = {
+  graphite: "#9BD45A",
+  porcelain: "#4F9A49",
+  midnight: "#6EE7B7",
 };
 
 function currentGlowAccent(): { hex: string; rgb: string } {
-  return GLOW_ACCENTS[loadSettings().accentColor] ?? GLOW_ACCENTS.lime;
+  const hex = PALETTE_GLOW[loadSettings().palette] ?? PALETTE_GLOW.graphite;
+  const n = parseInt(hex.slice(1), 16);
+  return { hex, rgb: `${(n >> 16) & 255},${(n >> 8) & 255},${n & 255}` };
 }
 
 // The glow overlay renders an always-visible highlighted box marking the
 // capture region. In "adjust" mode the box becomes draggable/resizable so the
 // user can pick exactly what gets captured (e.g. one application window).
-// Colors follow the user's accent so the box visibly belongs to SightLine.
+// Colors follow the user's colour set so the box visibly belongs to SightLine.
 const buildGlowHtml = (accent: { hex: string; rgb: string }) => `<!DOCTYPE html><html><head><meta charset="utf-8"><style>
 *{margin:0;padding:0;box-sizing:border-box;user-select:none}
 html,body{width:100vw;height:100vh;overflow:hidden;background:transparent;
@@ -997,11 +999,10 @@ function registerIpc() {
         // switches monitors, move the docked strip to the new screen.
         void dockToWatchedDisplay();
       }
-      // Moving the capture to a different screen (or recoloring the accent)
-      // means the glow overlay has to be recreated.
-      const accentChanged =
-        "accentColor" in patch && next.accentColor !== prev.accentColor;
-      if (screenChanged || accentChanged) {
+      // Moving the capture to a different screen (or changing the colour
+      // set) means the glow overlay has to be recreated.
+      const paletteChanged = "palette" in patch && next.palette !== prev.palette;
+      if (screenChanged || paletteChanged) {
         void resolveWatchedDisplayId().then(showGlowOverlay);
       } else if ("captureRegion" in patch) {
         // Region changed elsewhere (e.g. "Reset to full screen") — refresh the

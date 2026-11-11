@@ -1,8 +1,24 @@
 // sightline/theme.ts
 // Accent palettes + theme tokens for the SightLine overlay components.
 
-import type { AccentName } from "../../electron/types";
+// The pre-redesign theme. Screens not yet rebuilt still read this shape; new
+// components read the palette tokens (`useTokens()`, src/design/tokens.ts).
+// Removed in WP8 once nothing uses it.
+
+import type { AccentName, PaletteName } from "../../electron/types";
+import { font as tokenFont } from "./tokens";
 export type { AccentName };
+
+/**
+ * The old accent that keeps a not-yet-rebuilt screen closest to the chosen
+ * colour set until it is restyled (WP9). Both green sets → lime, Midnight's
+ * mint → cobalt's cool family.
+ */
+export const PALETTE_TO_LEGACY_ACCENT: Record<PaletteName, AccentName> = {
+  graphite: "lime",
+  porcelain: "lime",
+  midnight: "cobalt",
+};
 
 export interface AccentDef {
   accent: string;
@@ -89,7 +105,8 @@ export function makeTheme(name: AccentName = "lime"): SightLineTheme {
     // dark object on the light panel, so it's always the first thing read.
     instr: "linear-gradient(180deg, #262B1E 0%, #15180F 100%)",
     green: "#4F8A2C", greenRGB: "110,167,66", logoInk: "#0e1118",
-    font: '"Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, "Inter", sans-serif',
+    // Manrope (bundled), with Segoe UI behind it — the redesign's face.
+    font: tokenFont.sans,
     display: '"AW Conqueror Didot", "Didot", "Bodoni MT", "Playfair Display", Georgia, serif',
     accent: a.accent, accentDeep: a.deep, accentSoft: a.soft, accentText: a.text, gold: a.gold,
     accentRGB: a.rgb, onAccent: a.on, logoGrad: a.logo, waveStops: a.wave,

@@ -3,9 +3,10 @@ import { useSettings } from "../store/settings";
 import { api } from "../lib/api";
 import { useTheme } from "../design/ThemeProvider";
 import { ar, lt } from "../design/theme";
+import { DEFAULT_PALETTE, PALETTES } from "../design/tokens";
 import type {
-  AccentName,
   ElevenVoiceOption,
+  PaletteName,
   PushToTalkKey,
   TtsPlaybackEngine,
   TtsProviderChoice,
@@ -16,12 +17,7 @@ import { useTts, getTtsMode } from "../hooks/useTts";
 import { ScreenPicker } from "./ScreenPicker";
 import { SeenMark } from "./AboutChat";
 
-const ACCENT_OPTIONS: { name: AccentName; label: string; color: string; rgb: string }[] = [
-  { name: "lime",   label: "Lime",   color: "#C2E84B", rgb: "194,232,75"  },
-  { name: "cobalt", label: "Cobalt", color: "#4F8BF2", rgb: "79,139,242"  },
-  { name: "rose",   label: "Rose",   color: "#FF6B81", rgb: "255,107,129" },
-  { name: "slate",  label: "Slate",  color: "#9FB2C8", rgb: "159,178,200" },
-];
+const PALETTE_OPTIONS: PaletteName[] = ["graphite", "porcelain", "midnight"];
 
 const VOICE_OPTIONS: { id: TtsVoiceId; label: string; sample: string }[] = [
   { id: "nova",    label: "Ava — warm female (recommended)", sample: "Hey, I'm Ava. Ready when you are." },
@@ -192,30 +188,32 @@ export function Settings({ onClose }: Props) {
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           <span style={sectionLabel}>Appearance</span>
 
-          {/* Accent color */}
+          {/* Colour set (replaces the old accent swatches; restyled in WP9) */}
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            <span style={{ fontSize: 12.5, fontWeight: 500, color: T.ink }}>Accent color</span>
-            <div className="no-drag" style={{ display: "flex", gap: 6 }}>
-              {ACCENT_OPTIONS.map((opt) => {
-                const active = settings.accentColor === opt.name;
+            <span style={{ fontSize: 12.5, fontWeight: 500, color: T.ink }}>Colours</span>
+            <div className="no-drag" role="radiogroup" aria-label="Colours" style={{ display: "flex", gap: 6 }}>
+              {PALETTE_OPTIONS.map((name) => {
+                const opt = PALETTES[name];
+                const active = (settings.palette ?? DEFAULT_PALETTE) === name;
                 return (
                   <button
-                    key={opt.name}
+                    key={name}
                     type="button"
-                    title={opt.label}
-                    onClick={() => void patch({ accentColor: opt.name })}
+                    role="radio"
+                    aria-checked={active}
+                    onClick={() => void patch({ palette: name })}
                     style={{
                       flex: 1, padding: "8px 0",
                       borderRadius: 9,
-                      border: active ? `2px solid ${opt.color}` : `1px solid ${lt(0.08)}`,
-                      background: active ? `rgba(${opt.rgb},0.15)` : lt(0.04),
+                      border: active ? `2px solid ${opt.accent}` : `1px solid ${lt(0.08)}`,
+                      background: active ? opt.bg : lt(0.04),
                       cursor: "pointer",
                       display: "flex", flexDirection: "column", alignItems: "center", gap: 4,
                       transition: "all 140ms",
                     }}
                   >
-                    <span style={{ width: 14, height: 14, borderRadius: "50%", background: opt.color, display: "block" }} />
-                    <span style={{ fontSize: 10, color: active ? opt.color : T.ink3, fontWeight: active ? 600 : 400, fontFamily: "ui-monospace, monospace" }}>
+                    <span style={{ width: 14, height: 14, borderRadius: "50%", background: opt.accent, display: "block", border: `2px solid ${opt.rail}` }} />
+                    <span style={{ fontSize: 11, color: active ? opt.ink : T.ink2, fontWeight: active ? 700 : 500 }}>
                       {opt.label}
                     </span>
                   </button>

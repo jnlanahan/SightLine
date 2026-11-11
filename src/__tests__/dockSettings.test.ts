@@ -17,6 +17,12 @@ describe("dock settings defaults (settings-store.ts)", () => {
     expect(content).toContain('dockSide: "left"');
     expect(content).toContain("dockWidth: 400");
   });
+
+  it("defaults to the Graphite colour set (redesign D9)", async () => {
+    const src = await import("../../electron/settings-store?raw");
+    const content = (src as unknown as { default: string }).default;
+    expect(content).toContain('palette: "graphite"');
+  });
 });
 
 describe("dock geometry constants", () => {

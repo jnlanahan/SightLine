@@ -24,6 +24,7 @@ export type {
   InstructionAction,
   InstructionResponse,
   LoopPolicy,
+  PaletteName,
   PushToTalkKey,
   Settings,
   SessionStatus,

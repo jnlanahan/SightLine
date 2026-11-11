@@ -18,6 +18,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.125.0",
+    "@fontsource-variable/manrope": "^5.3.0",
     "@google-cloud/text-to-speech": "^6.4.1",
     "koffi": "^3.1.0",
     "openai": "^4.67.3",
