@@ -5,9 +5,12 @@ import { useTokens } from "../../design/ThemeProvider";
 
 export function NeedsYouBanner({
   message,
+  detail,
   action,
 }: {
   message: string;
+  /** The underlying error, as a tooltip only. */
+  detail?: string;
   action?: { label: string; onClick(): void } | null;
 }) {
   const { palette: t, radius } = useTokens();
@@ -25,7 +28,7 @@ export function NeedsYouBanner({
         gap: 10,
       }}
     >
-      <div className="sl-selectable" style={{ fontSize: 13.5, fontWeight: 600, lineHeight: 1.45, color: t.ink }}>
+      <div className="sl-selectable" title={detail} style={{ fontSize: 13.5, fontWeight: 600, lineHeight: 1.45, color: t.ink }}>
         {message}
       </div>
       {action ? (

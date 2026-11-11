@@ -412,3 +412,119 @@ export function goalTurnText(turn: ConversationTurn): string | null {
     ? turn.content.slice("Goal:".length).trim()
     : null;
 }
+
+// ── §7 Coach states ──
+
+export interface CoachStateInput {
+  status: "idle" | "watching" | "thinking" | "waiting" | "paused" | "error";
+  activeTool: string | null;
+  /** The newest turn in the conversation, if any. */
+  newest: Pick<ConversationTurn, "role" | "content"> | undefined;
+  goalPending: boolean;
+  done: boolean;
+  listening: boolean;
+  troubleshooting: boolean;
+  needsYou: boolean;
+  /** The words the "I did it" reply sends (quickReplies.STEP_DONE_REPLY). */
+  stepDoneReply: string;
+}
+
+export interface CoachState {
+  /** Header and section state word. */
+  word: string;
+  /** The footer's status row while the coach looks after the user asked
+   *  something; null shows the one-tap replies. */
+  statusRow: string | null;
+  /** The rail halo: breathing while it watches, off when it is not looking,
+   *  none once the goal is reached. */
+  halo: "breathing" | "off" | "none";
+}
+
+const TOOL_WORDS: Record<string, string> = {
+  read_screen_region: "Taking a closer look",
+  search_web: "Looking that up",
+  search_memory: "Checking earlier chats",
+};
+
+/**
+ * The state words of SPEC §7, plus the three the plan adds (fixing a problem,
+ * checking earlier chats, waiting on the goal). `pendingFollowUp` is cleared
+ * the moment a look starts, so "looking because you asked" is read from the
+ * conversation: while thinking, a newest turn from the user means the coach
+ * is answering them. A routine look still says "Watching" — it must not
+ * promise speech.
+ */
+export function coachState(s: CoachStateInput): CoachState {
+  if (s.done && s.status !== "thinking") return { word: "Done", statusRow: null, halo: "none" };
+  if (s.needsYou) return { word: "Needs you", statusRow: null, halo: "off" };
+  if (s.status === "paused") return { word: "Paused", statusRow: null, halo: "off" };
+  if (s.listening) return { word: "Listening", statusRow: null, halo: "breathing" };
+  if (s.status === "thinking") {
+    const tool = s.activeTool ? TOOL_WORDS[s.activeTool] ?? TOOL_WORDS.read_screen_region : null;
+    if (tool) return { word: tool, statusRow: tool, halo: "breathing" };
+    if (s.newest?.role === "user") {
+      return s.newest.content === s.stepDoneReply
+        ? { word: "Checking", statusRow: "Checking your screen", halo: "breathing" }
+        : { word: "Looking", statusRow: "Looking at your screen", halo: "breathing" };
+    }
+  }
+  if (s.goalPending && s.status !== "thinking") return { word: "Waiting for you", statusRow: null, halo: "off" };
+  if (s.troubleshooting && (s.status === "watching" || s.status === "thinking")) {
+    return { word: "Fixing a problem", statusRow: null, halo: "breathing" };
+  }
+  return { word: "Watching", statusRow: null, halo: "breathing" };
+}
+
+// ── §7 Needs you ──
+
+export type NeedsYouAction = "key" | "cap" | "screen" | "retry";
+
+export interface NeedsYou {
+  message: string;
+  action: NeedsYouAction | null;
+  /** The raw error, for a tooltip and the log — never the main words. */
+  detail?: string;
+}
+
+export const NEEDS_YOU_ACTION_LABEL: Record<NeedsYouAction, string> = {
+  key: "Add a key",
+  cap: "Raise the cap",
+  screen: "Pick the screen",
+  retry: "Try again",
+};
+
+/**
+ * What needs the user, in plain words (SPEC §10), from the state the loop
+ * already keeps. The loop's own error strings are technical and stay as they
+ * are (they are logged); this only decides what the screen says.
+ */
+export function needsYouOf(s: {
+  status: CoachStateInput["status"];
+  error: string | null;
+  hasKey: boolean;
+  capReached: boolean;
+  rateLimitSeconds: number | null;
+}): NeedsYou | null {
+  const err = s.error ?? "";
+  if (!s.hasKey || err.startsWith("No Anthropic API key")) {
+    return {
+      message: "No AI key yet. Add one to start. It goes in SightLine's .env file; restart after adding it.",
+      action: "key",
+    };
+  }
+  if (s.capReached) {
+    return { message: "You've reached your spending cap for this sitting.", action: "cap" };
+  }
+  // Repeated capture failure stops the loop with status "error"; a single
+  // failed grab just retries, and reads as the generic wait below.
+  if (s.status === "error") {
+    return { message: "I can't see the screen you picked.", action: "screen", detail: err || undefined };
+  }
+  if (s.rateLimitSeconds !== null) {
+    return err.startsWith("Rate limited") || !err
+      ? { message: `The AI service asked us to wait. Trying again in ${s.rateLimitSeconds}s.`, action: null }
+      : { message: `Something went wrong. Trying again in ${s.rateLimitSeconds}s.`, action: null, detail: err };
+  }
+  if (err) return { message: "Something went wrong.", action: "retry", detail: err };
+  return null;
+}

@@ -36,6 +36,12 @@ import { ReadyPill } from "./components/phase/ReadyPill";
 import { ChatMenu } from "./components/phase/ChatMenu";
 import { NeedsYouBanner } from "./components/phase/NeedsYouBanner";
 import { useFollowCurrent } from "./hooks/useFollowCurrent";
+import {
+  NEEDS_YOU_ACTION_LABEL,
+  coachState,
+  needsYouOf,
+  resumeDividerText,
+} from "./lib/phaseView";
 import { useTokens } from "./design/ThemeProvider";
 import { usePhaseView } from "./hooks/usePhaseView";
 import { ConversationHistory } from "./components/ConversationHistory";
@@ -129,6 +135,9 @@ export default function App() {
   const [planOpen, setPlanOpen]           = useState(false);
   const [aboutOpen, setAboutOpen]         = useState(false);
   const [menuOpen, setMenuOpen]           = useState(false);
+  // The resume divider (SPEC §6.5). resumePending is consumed by the first
+  // look, so the time away is captured here when the chat is opened.
+  const [resumeMark, setResumeMark] = useState<{ chat: string; step: number; at: number; text: string } | null>(null);
   // What the open chat had already run up before this sitting, and when it
   // began. The store counts one sitting — that is what the spending cap
   // applies to — while the saved chat carries the running total.
@@ -309,6 +318,12 @@ export default function App() {
     // The first look greets them with where things stood. A finished chat
     // opens at rest instead, so there is no look to greet on.
     if (record.state !== "done") {
+      setResumeMark({
+        chat: record.id,
+        step: record.stepLog.length + 1,
+        at: now,
+        text: resumeDividerText((now - record.lastActiveAt) / 60_000),
+      });
       useSession.getState().setResumePending({
         awayMinutes: (now - record.lastActiveAt) / 60_000,
         whereWeLeftOff: record.whereWeLeftOff,
@@ -541,6 +556,7 @@ export default function App() {
             muted={!(settings?.ttsEnabled ?? false)}
             paused={status === "paused"}
             needsYou={status === "error" || Boolean(error) || rateLimitCountdown !== null}
+            haloOff={goalPending && status !== "thinking"}
             latestLine={instruction}
             onAllChats={() => {
               // Home does not fit in 64 px: expand, then leave the chat.
@@ -605,44 +621,48 @@ export default function App() {
   function openChatView() {
     const t = tokens.palette;
     const quick = phaseView.layout === "quick";
-    const needsYou = status === "error" || Boolean(error) || rateLimitCountdown !== null;
-    // State words (SPEC §7). WP7 moves this into one tested function.
-    const stateWord = done
-      ? "Done"
-      : status === "paused"
-        ? "Paused"
-        : needsYou
-          ? "Needs you"
-          : listening
-            ? "Listening"
-            : goalPending
-              ? "Waiting for you"
-              : status === "thinking" && activeTool
-                ? activeTool.name === "search_web"
-                  ? "Looking that up"
-                  : activeTool.name === "search_memory"
-                    ? "Checking earlier chats"
-                    : "Taking a closer look"
-                : "Watching";
+    const capUsd = settings?.sessionBudgetUsd ?? 0;
+    const need = needsYouOf({
+      status,
+      error,
+      hasKey: keyStatus.anthropic,
+      capReached: budgetStatus(useSession.getState().costUsd, capUsd).level === "exceeded",
+      rateLimitSeconds: rateLimitCountdown,
+    });
+    const needsYou = need !== null;
     const newest = conversation[conversation.length - 1];
-    const answering = status === "thinking" && newest?.role === "user";
-    const statusRow =
-      status !== "thinking"
-        ? null
-        : activeTool
-          ? activeTool.name === "search_web"
-            ? "Looking that up"
-            : activeTool.name === "search_memory"
-              ? "Checking earlier chats"
-              : "Taking a closer look"
-          : answering
-            ? newest.content === STEP_DONE_REPLY
-              ? "Checking your screen"
-              : "Looking at your screen"
-            : null;
-    const bannerMessage = rateLimitCountdown !== null
-      ? `The AI service asked us to wait. Trying again in ${rateLimitCountdown}s.`
-      : error;
+    const coach = coachState({
+      status,
+      activeTool: activeTool?.name ?? null,
+      newest,
+      goalPending,
+      done,
+      listening,
+      troubleshooting,
+      needsYou,
+      stepDoneReply: STEP_DONE_REPLY,
+    });
+    const stateWord = coach.word;
+    const statusRow = coach.statusRow;
+    const needAction = need?.action
+      ? {
+          label: NEEDS_YOU_ACTION_LABEL[need.action],
+          onClick:
+            need.action === "retry"
+              ? () => {
+                  useSession.getState().setError(null);
+                  resume();
+                }
+              : openSettings,
+        }
+      : null;
+    // The divider appears once the coach's greeting has arrived (SPEC §6.5).
+    const resumeDivider =
+      resumeMark &&
+      resumeMark.chat === sessionId &&
+      conversation.some((t) => t.role === "assistant" && t.timestamp >= resumeMark.at)
+        ? resumeMark
+        : null;
     const title = (!goalPending && agreedGoal) || goal || "";
     const placeholder =
       done || quick
@@ -667,6 +687,7 @@ export default function App() {
               muted={!(settings?.ttsEnabled ?? false)}
               paused={status === "paused"}
               needsYou={needsYou}
+              haloOff={coach.halo !== "breathing"}
               onAllChats={leaveChat}
               onPhase={(i) => follow.scrollToPhase(i)}
               onStep={(n) => follow.scrollToStep(n)}
@@ -760,7 +781,8 @@ export default function App() {
                 pendingGoal={goalPending && !done ? { goal: agreedGoal || goal || "", doneWhen } : null}
                 scrollRef={follow.scrollRef}
                 onScroll={follow.onScroll}
-                banner={bannerMessage ? <NeedsYouBanner message={bannerMessage} /> : undefined}
+                resume={resumeDivider}
+                banner={need ? <NeedsYouBanner message={need.message} detail={need.detail} action={needAction} /> : undefined}
                 footer={
                   quick ? (
                     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>

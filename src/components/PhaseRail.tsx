@@ -30,6 +30,8 @@ export interface PhaseRailProps {
   paused: boolean;
   /** Something needs the user (error, no key, cap, rate limit): halo off. */
   needsYou?: boolean;
+  /** The coach is not looking (the goal waits on a yes): halo off. */
+  haloOff?: boolean;
   /** The latest coach line, carried by the current circle while collapsed. */
   latestLine?: string;
   onAllChats(): void;
@@ -387,7 +389,7 @@ function Circle({
  *  and once the goal is reached (SPEC §7). */
 function Halo({ rail }: { rail: PhaseRailProps }) {
   const { palette: t } = useTokens();
-  if (rail.paused || rail.needsYou || rail.view.done) return null;
+  if (rail.paused || rail.needsYou || rail.haloOff || rail.view.done) return null;
   return (
     <div
       className="sl-halo"
