@@ -8,7 +8,7 @@ Kept current by the overnight sessions, after every step. See [README.md](README
 | 14 | WP2 · Turn tags and the phase view model | done | 4073a23 |
 | 15 | WP3 · Phase rail | done | a5a523a |
 | 16 | WP4 · Phase chat | done | d94ce05 |
-| 17 | WP5 · Footer, ready pill, auto-scroll | not started | |
+| 17 | WP5 · Footer, ready pill, auto-scroll | done | e677fa2 |
 | 18 | WP6 · Header, composer, quick layout, layout switch | not started | |
 | 19 | WP7 · States | not started | |
 | 20 | WP8 · Remove what the redesign replaces | not started | |
