@@ -34,7 +34,8 @@ SightLine becomes one coach with one input box and a list of chats you can reope
 - **Step 10 done, 10 November, at the owner's request:** the coach runs on Sonnet 5.5 by default, with Opus 5.5 as a choice in Settings. The runner was changed to cope with what those models withdrew (see the step below). Checked against the live service: the real coach, with its real prompt and tools, produced a spoken first look on Sonnet 5.5, Opus 5.5 and the Sonnet 5 fallback, and the tidy-up's request works on Haiku 5.5.
 - **Built so far:** every step. 506 tests, type-check and build pass. Steps 7, 9, 10 and 11 have not been reviewed by anyone else.
 - **First live run, 10 November:** the owner ran one walkthrough on Sonnet 5.5 and it worked end to end. The findings are in the next section and are the work that remains.
-- **Next:** the four fixes in "First live run" below. Then the owner's second test, the results table, and merging `one-coach` into `main` or dropping it. Testing Opus 5.5 was put off by the owner; it is not blocking.
+- **Fixes from the first live run, 10 November, later:** three of the four are built, each its own commit: the "good question" filler, agreeing the goal, and showing the model. What was decided is in "Fixes after the first live run" below. 528 tests, type-check and build pass. Agreeing the goal was checked against the live service on Sonnet 5.5; none of the three has been through a live run by the owner yet. The voice is waiting on the owner saying what sounds wrong.
+- **Next:** the owner's second test, the voice, the results table, and merging `one-coach` into `main` or dropping it. Testing Opus 5.5 was put off by the owner; it is not blocking.
 
 ## First live run, 10 November 2026
 
@@ -51,10 +52,36 @@ The owner asked how to get the Windows score on their computer, on Sonnet 5.5 (t
 
 **Also seen in the log:** once, the model replied without calling a tool; the runner asked again in the same look and got a proper answer about three seconds later. That is the recovery working as designed, at the cost of one slower reply. Worth watching how often it happens.
 
+## Fixes after the first live run
+
+Built 10 November 2026, in the order the owner asked for. The owner said to make the calls; these are the calls.
+
+**1. "Good question" on a Done press.**
+- A button press now gets a short, plain acknowledgement ("Okay, let me look.", "Got it, one sec.", "Alright, checking now.") instead of a filler meant for a question. The same goes for "Check my work", "I'm stuck" and the new "Yes, start", and for those same words typed or spoken.
+- "Good question, one sec." is removed altogether, not just for buttons. A filler plays before the coach has read what was said, and plenty of typed messages are not questions either.
+- Kept a spoken acknowledgement rather than silence, because the answer takes two to three seconds and silence after a tap reads as nothing having happened.
+
+**2. Agreeing the goal.**
+- For anything bigger than a quick answer, the coach's first turn says the goal back as one outcome, says what done will look like, and asks if that's right. Step one comes only after a yes.
+- **A quick question skips it.** If the coach can answer fully in one reply, it just answers. Asking someone to confirm that they want the answer to their own question would be a step backwards.
+- One tap ("Yes — start") or one word agrees. Typing or saying anything else is a correction, and the coach says the goal back again.
+- The coach does not look at the screen again until the user answers, so it cannot run ahead.
+- The agreed goal replaces the user's raw words at the top of the panel. It and "done when" are also in the opened plan and in About this chat, and are saved with the chat.
+- No extra AI call. The first look is spent agreeing the goal instead of giving step one, so the first step now arrives one exchange later. That is the price of the agreement.
+- Checked against the live service on Sonnet 5.5 with the real prompt: a walkthrough goal and a learning goal both got the goal said back, a quick question was just answered, "yes" got step one, and a correction got the goal said back again.
+
+**3. Which model.**
+- One quiet line, "Model: Sonnet 5.5", under the message box in a chat and beside Start on the home screen.
+- Once the coach has looked, it shows the model that look really ran on. If the account cannot use the chosen model and the coach falls back, it says "Sonnet 5 (fallback)".
+- Not in the header: docked, the header has no room for it.
+- The model is written to the log on every look.
+
+**4. The voice.** Not changed. Waiting on the owner saying what sounds wrong. For reference, the first run spoke through ElevenLabs (the "Sarah" voice, normal speed) on every line.
+
 ## Calls I made
 
 1. **One coach, two stances.** It either *guides* (step by step, speaks when a step is done) or *watches* (silent until asked). The coach picks, and "just watch" or "talk me through it" switches it. Waiting is the default in both.
-2. **No setup calls.** The coach's first look at the goal and the screen replaces the question form and the plan-building call. It asks a question only when the answer changes what it does.
+2. **No setup calls.** The coach's first look at the goal and the screen replaces the question form and the plan-building call. It asks a question only when the answer changes what it does. (Changed after the first live run: for anything bigger than a quick answer, that first look now says the goal back and waits for a yes. Still no setup call and no form.)
 3. **A chat replaces both the session and the training plan.** Old history and training plans are not carried over. New data goes in a new folder; the old folder is left untouched, so switching back to `main` is clean. Your "about you" facts are copied across once.
 4. **Memory comes before long projects** (steps 6 and 7), because memory is the focus. Long tasks already work after step 4 as a running step list with notes; step 7 adds stages.
 5. **Nothing visual is ever saved.** The one stored screenshot per "Check my work" goes away with the training code.
