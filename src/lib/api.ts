@@ -9,7 +9,6 @@ declare global {
 export const api = (): SightLineApi => window.sightline;
 
 export type {
-  AccentName,
   AgentDescriptor,
   ApiKeyStatus,
   CaptureFrame,

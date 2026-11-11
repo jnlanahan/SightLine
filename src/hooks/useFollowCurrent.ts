@@ -42,7 +42,7 @@ export function isAtBottom(m: ScrollMetrics, threshold = motion.atBottomPx): boo
   return m.scrollTop + m.clientHeight >= m.scrollHeight - threshold;
 }
 
-export function snapshotOf(view: PhaseView): FollowSnapshot {
+function snapshotOf(view: PhaseView): FollowSnapshot {
   return { currentPhase: view.currentPhase, currentStep: view.currentStep, done: view.done, layout: view.layout };
 }
 

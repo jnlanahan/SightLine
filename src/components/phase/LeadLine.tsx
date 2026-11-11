@@ -8,8 +8,8 @@ import { useTokens } from "../../design/ThemeProvider";
 import { CodeBlock } from "../CodeBlock";
 
 // Soft typewriter reveal — caps at ~60 frames so longer lines don't drag,
-// and skips animation for unchanged text. (Moved from Instruction.tsx.)
-export function useTypewriter(text: string): string {
+// and skips animation for unchanged text. (Moved from the old Instruction card.)
+function useTypewriter(text: string): string {
   const [shown, setShown] = useState(text);
   const lastRef = useRef(text);
 

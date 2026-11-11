@@ -7,13 +7,9 @@ import { useTts } from "./hooks/useTts";
 import { api } from "./lib/api";
 import { markAsk, sinceAsk } from "./lib/askClock";
 import {
-  CHECK_WORK_REPLY,
-  GOAL_AGREED_REPLY,
   STEP_DONE_REPLY,
-  STUCK_REPLY,
 } from "./lib/quickReplies";
 import { Composer } from "./components/Composer";
-import { ProgressRail, PlanList, StageList } from "./components/ProgressRail";
 import { Home } from "./components/Home";
 import { AboutChat } from "./components/AboutChat";
 import { liveNotes } from "../electron/chat-notes";
@@ -23,8 +19,6 @@ import type {
   SessionStatus,
   TokenUsage,
 } from "./lib/api";
-import { Instruction } from "./components/Instruction";
-import { GoalCard } from "./components/GoalCard";
 import { ModelCaption } from "./components/ModelCaption";
 import { PrivacyNotice } from "./components/PrivacyNotice";
 import { Settings as SettingsView } from "./components/Settings";
@@ -44,7 +38,6 @@ import {
 } from "./lib/phaseView";
 import { useTokens } from "./design/ThemeProvider";
 import { usePhaseView } from "./hooks/usePhaseView";
-import { ConversationHistory } from "./components/ConversationHistory";
 import {
   buildChatRecord,
   buildWhereWeLeftOff,
@@ -52,22 +45,20 @@ import {
   isWorthSaving,
   titleFromGoal,
 } from "../electron/chat-record";
-import { toPlanSteps } from "./lib/planSteps";
 import { usePushToTalk } from "./hooks/usePushToTalk";
 import { useTheme } from "./design/ThemeProvider";
 import { Glow, Logo, Spinner, CtrlBtn } from "./design/primitives";
 import {
   IPause,
   IGear,
-  IExpand,
   IMonitor,
   IMinimize,
   IClose,
   ISpeakerOn,
   ISpeakerOff,
 } from "./design/icons";
-import { ar, lt } from "./design/theme";
-import { EMPTY_USAGE, addUsage, budgetStatus, formatUsd } from "../electron/usage";
+import { lt } from "./design/theme";
+import { EMPTY_USAGE, addUsage, budgetStatus } from "../electron/usage";
 
 type View = "panel" | "settings" | "privacy";
 
@@ -98,8 +89,6 @@ export default function App() {
   const instruction   = useSession((s) => s.currentInstruction);
   const currentCode    = useSession((s) => s.currentCode);
   const activeTool     = useSession((s) => s.activeTool);
-  const completedSteps = useSession((s) => s.completedSteps);
-  const upcomingSteps  = useSession((s) => s.upcomingSteps);
   // Only WHETHER a frame exists is subscribed here. pushFrame creates a new
   // array on every tick, so subscribing to `frames` re-rendered the entire
   // tree every 15 s and on every input burst; the one component that shows
@@ -132,7 +121,6 @@ export default function App() {
   const [showQuitConfirm, setShowQuitConfirm] = useState(false);
   const [collapsed, setCollapsed]         = useState(false);
   const [docked, setDocked]               = useState(false);
-  const [planOpen, setPlanOpen]           = useState(false);
   const [aboutOpen, setAboutOpen]         = useState(false);
   const [menuOpen, setMenuOpen]           = useState(false);
   // The resume divider (SPEC §6.5). resumePending is consumed by the first
@@ -181,18 +169,6 @@ export default function App() {
   const { startTalking, stopTalking } = usePushToTalk((text) =>
     submitFollowUpRef.current(text),
   );
-
-  // The single ordered plan, derived once and shared by the progress rail and
-  // the step list so the two can never disagree about where you are.
-  const planSteps = toPlanSteps({
-    completedSteps,
-    // The step log runs parallel to completedSteps and carries the times.
-    completedAt: stepLog.map((e) => e.at),
-    completedStage: stepLog.map((e) => e.stage),
-    currentInstruction: instruction,
-    upcomingSteps,
-    done,
-  });
 
   useEffect(() => { void loadSettings(); }, [loadSettings]);
 
@@ -446,7 +422,6 @@ export default function App() {
     reset();
     chatBaseRef.current = null;
     setShowPeek(false);
-    setPlanOpen(false);
     setAboutOpen(false);
     setMenuOpen(false);
     // Stay docked — the sidebar is the persistent home, not a per-chat
@@ -470,7 +445,6 @@ export default function App() {
     reset();
     chatBaseRef.current = null;
     setShowPeek(false);
-    setPlanOpen(false);
     setAboutOpen(false);
     if (!id) return;
     try {
@@ -934,11 +908,12 @@ function beginWindowDrag(e: React.PointerEvent) {
 
 function PeekOverlay({ onClose }: { onClose(): void }) {
   const lastFrame = useSession((s) => s.frames[s.frames.length - 1] ?? null);
+  const { palette: t } = useTokens();
   if (!lastFrame) return null;
   return (
     <div
-      className="absolute inset-x-0 z-50 mx-2 cursor-pointer overflow-hidden rounded-xl border border-sl-divider bg-sl-bg shadow-xl"
-      style={{ top: 72 }}
+      className="absolute inset-x-0 z-50 mx-2 cursor-pointer overflow-hidden rounded-xl shadow-xl"
+      style={{ top: 72, border: `1px solid ${t.line}`, background: t.card }}
       onClick={onClose}
     >
       <img
@@ -946,7 +921,7 @@ function PeekOverlay({ onClose }: { onClose(): void }) {
         alt="Current view"
         className="max-h-48 w-full object-contain"
       />
-      <p className="px-2 py-1 text-center font-mono text-[9px] text-sl-ink3">
+      <p className="px-2 py-1 text-center" style={{ fontSize: 11.5, color: t.ink2 }}>
         {new Date(lastFrame.timestamp).toLocaleTimeString()} · click to close
       </p>
     </div>
@@ -1065,65 +1040,6 @@ function DockResizeHandle({ side }: { side: DockSide }) {
       onMouseEnter={(e) => { if (!active) (e.currentTarget as HTMLElement).style.background = lt(0.08); }}
       onMouseLeave={(e) => { if (!active) (e.currentTarget as HTMLElement).style.background = "transparent"; }}
     />
-  );
-}
-
-/* ── Training action row — Check my work · I'm stuck ── */
-
-function TrainingActions({
-  busy,
-  onCheckWork,
-  onStuck,
-}: {
-  busy: boolean;
-  onCheckWork(): void;
-  onStuck(): void;
-}) {
-  const T = useTheme();
-  return (
-    <div className="no-drag" style={{ display: "flex", gap: 8 }}>
-      <button
-        type="button"
-        onClick={onCheckWork}
-        disabled={busy}
-        title="Done with this task? The coach looks at your work and gives feedback"
-        style={{
-          flex: 1,
-          display: "flex", alignItems: "center", justifyContent: "center", gap: 7,
-          padding: "10px 12px", border: 0, borderRadius: 11,
-          background: busy
-            ? lt(0.08)
-            : `linear-gradient(180deg, ${T.accent}, ${T.accentDeep})`,
-          color: busy ? T.ink3 : T.onAccent,
-          fontSize: 12.5, fontWeight: 700, letterSpacing: "0.02em",
-          cursor: busy ? "default" : "pointer",
-          boxShadow: busy ? "none" : `0 4px 12px -4px ${ar(T.accentRGB, 0.7)}`,
-        }}
-      >
-        <svg width="13" height="13" viewBox="0 0 13 13" fill="none" aria-hidden>
-          <path d="M2 7l3 3 6-7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
-        {busy ? "One sec…" : "Check my work"}
-      </button>
-      <button
-        type="button"
-        onClick={onStuck}
-        disabled={busy}
-        title="Stuck? Get a nudge — a hint, not the answer"
-        style={{
-          flex: 1,
-          display: "flex", alignItems: "center", justifyContent: "center", gap: 7,
-          padding: "10px 12px", borderRadius: 11,
-          border: `1px solid ${lt(0.14)}`,
-          background: lt(0.04),
-          color: busy ? T.ink3 : T.ink2,
-          fontSize: 12.5, fontWeight: 600, letterSpacing: "0.02em",
-          cursor: busy ? "default" : "pointer",
-        }}
-      >
-        🖐 I'm stuck
-      </button>
-    </div>
   );
 }
 
@@ -1348,229 +1264,6 @@ function WindowBtn({
   );
 }
 
-/* ── Control bar — flat icon row replacing the D-pad ── */
-
-function ControlBar({
-  status,
-  ttsEnabled,
-  hasPeek,
-  showPeek,
-  attachedCount,
-  rateLimitCountdown,
-  onPause,
-  onResume,
-  onStop,
-  onToggleVoice,
-  onAttach,
-  onPeek,
-  aboutOpen,
-  onAbout,
-}: {
-  status: SessionStatus;
-  ttsEnabled: boolean;
-  hasPeek: boolean;
-  showPeek: boolean;
-  attachedCount: number;
-  rateLimitCountdown: number | null;
-  onPause(): void;
-  onResume(): void;
-  onStop(): void;
-  onToggleVoice(): void;
-  onAttach(): void;
-  onPeek(): void;
-  aboutOpen: boolean;
-  onAbout(): void;
-}) {
-  const T   = useTheme();
-  const isPaused = status === "paused";
-
-  return (
-    <div
-      className="no-drag"
-      style={{
-        display: "flex", alignItems: "center", gap: 2,
-        padding: "10px 12px 12px",
-        borderTop: `1px solid ${lt(0.07)}`,
-        flexShrink: 0,
-      }}
-    >
-      {/* The coach's voice. Deliberately NOT a microphone icon: a mic means
-          input, this controls output, and the hold-to-talk mic sits directly
-          above it in the composer. Muted state is a labelled red pill rather
-          than a tinted icon — an app that has silently stopped talking must
-          say so, not hint at it. */}
-      {ttsEnabled ? (
-        <CtrlBtn
-          title="Voice on — click to mute the coach"
-          onClick={onToggleVoice}
-          color={T.accentText}
-        >
-          <SpeakerOnIcon />
-        </CtrlBtn>
-      ) : (
-        <button
-          type="button"
-          className="no-drag"
-          onClick={onToggleVoice}
-          title="The coach is muted — click to turn its voice back on"
-          style={{
-            display: "inline-flex", alignItems: "center", gap: 5,
-            height: 30, padding: "0 9px", borderRadius: 9,
-            border: "1px solid rgba(219,59,59,0.45)",
-            background: "rgba(219,59,59,0.12)",
-            color: "#C22F2F", cursor: "pointer",
-            fontSize: 10.5, fontWeight: 700, letterSpacing: "0.04em",
-            fontFamily: "inherit", flexShrink: 0,
-          }}
-        >
-          <SpeakerOffIcon />
-          MUTED
-        </button>
-      )}
-
-      <CtrlBtn
-        title={attachedCount > 0 ? `${attachedCount} file(s) attached — attach more` : "Attach file"}
-        onClick={onAttach}
-        color={attachedCount > 0 ? T.ink : undefined}
-      >
-        <AttachIcon />
-      </CtrlBtn>
-
-      <CtrlBtn
-        title={aboutOpen ? "Back to the chat" : "About this chat — what the coach remembers here"}
-        onClick={onAbout}
-        color={aboutOpen ? T.accentText : undefined}
-      >
-        <InfoIcon c={aboutOpen ? T.accentText : "currentColor"} />
-      </CtrlBtn>
-
-      {hasPeek && (
-        <CtrlBtn
-          title="Peek at last screenshot"
-          onClick={onPeek}
-          color={showPeek ? T.accentText : undefined}
-        >
-          <IExpand c={showPeek ? T.accentText : "currentColor"} />
-        </CtrlBtn>
-      )}
-
-      {/* Pause / Resume — accent gradient, primary action */}
-      <button
-        className="no-drag"
-        onClick={isPaused ? onResume : onPause}
-        title={isPaused ? "Resume" : "Pause"}
-        style={{
-          width: 36, height: 36, border: 0, borderRadius: 11, cursor: "pointer",
-          background: `linear-gradient(180deg, ${T.accent}, ${T.accentDeep})`,
-          color: T.onAccent,
-          display: "grid", placeItems: "center",
-          boxShadow: `0 4px 12px -4px ${ar(T.accentRGB, 0.7)}`,
-          flexShrink: 0,
-          transition: "opacity 150ms",
-          marginLeft: 4,
-        }}
-      >
-        {isPaused ? <PlayIcon c={T.onAccent} /> : <IPause c={T.onAccent} />}
-      </button>
-
-      <div style={{ flex: 1 }} />
-
-      {/* Rate limit countdown */}
-      {rateLimitCountdown != null && rateLimitCountdown > 0 && (
-        <span style={{ fontSize: 10, color: T.ink3, fontVariantNumeric: "tabular-nums", marginRight: 4 }}>
-          {rateLimitCountdown}s
-        </span>
-      )}
-
-      {/* Live pill doubling as the spend meter — the cost of watching someone's
-          screen should be visible while it's happening, not after the fact. */}
-      <CostPill />
-
-      {/* Leave. Not a stop: the chat is saved as it stands and can be
-          reopened from the list, so there is nothing to confirm. */}
-      <button
-        className="no-drag"
-        onClick={onStop}
-        title="Back to your chats — this one is saved"
-        style={{
-          height: 30, border: `1px solid ${lt(0.12)}`,
-          borderRadius: 9, cursor: "pointer",
-          background: "transparent", color: T.ink2,
-          fontSize: 10.5, fontWeight: 600, padding: "0 10px",
-          letterSpacing: "0.02em", flexShrink: 0,
-        }}
-      >
-        ← Chats
-      </button>
-    </div>
-  );
-}
-
-/* ── Spend meter ──
-   Doubles as the "live" indicator. Turns amber as the session approaches its
-   budget and red once it stops, so the cap is never a silent surprise. */
-
-function CostPill() {
-  const T = useTheme();
-  const costUsd = useSession((s) => s.costUsd);
-  const calls = useSession((s) => s.claudeCalls);
-  const limit = useSettings((s) => s.settings?.sessionBudgetUsd ?? 0);
-  const budget = budgetStatus(costUsd, limit);
-
-  const tone =
-    budget.level === "exceeded"
-      ? { fg: "#C22F2F", bg: "rgba(219,59,59,0.12)", bd: "rgba(219,59,59,0.4)" }
-      : budget.level === "warn"
-        ? { fg: "#B4770C", bg: "rgba(192,124,16,0.12)", bd: "rgba(192,124,16,0.4)" }
-        : {
-            fg: T.accentText,
-            bg: ar(T.accentRGB, 0.14),
-            bd: ar(T.accentRGB, 0.4),
-          };
-
-  const title =
-    limit > 0
-      ? `This session: ${formatUsd(costUsd)} of a ${formatUsd(limit)} cap, over ${calls} look${calls === 1 ? "" : "s"} at your screen`
-      : `This session: ${formatUsd(costUsd)} over ${calls} look${calls === 1 ? "" : "s"} at your screen (no cap set)`;
-
-  return (
-    <span
-      title={title}
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 6,
-        fontSize: 10.5,
-        fontWeight: 700,
-        letterSpacing: "0.04em",
-        color: tone.fg,
-        padding: "5px 10px",
-        borderRadius: 999,
-        background: tone.bg,
-        border: `1px solid ${tone.bd}`,
-        flexShrink: 0,
-        fontVariantNumeric: "tabular-nums",
-      }}
-    >
-      <span
-        aria-hidden
-        style={{
-          width: 6,
-          height: 6,
-          borderRadius: "50%",
-          background: tone.fg,
-          boxShadow: `0 0 8px ${tone.fg}`,
-          animation:
-            budget.level === "exceeded"
-              ? "none"
-              : "sl-blink 1.6s ease-in-out infinite",
-        }}
-      />
-      {formatUsd(costUsd)}
-    </span>
-  );
-}
-
 /* ── Quit confirmation banner ── */
 
 function QuitConfirmBanner({ onConfirm, onCancel }: { onConfirm(): void; onCancel(): void }) {
@@ -1698,86 +1391,9 @@ function CollapsedBar({
   );
 }
 
-/* ── Context panel (attached files, and the way into About this chat) ── */
-
-function ContextPanel({
-  fileNames,
-  onAttach,
-  onAbout,
-}: {
-  fileNames: string[];
-  onAttach(): void;
-  onAbout(): void;
-}) {
-  const T = useTheme();
-  const smallBtn: React.CSSProperties = {
-    borderRadius: 8, border: `1px solid ${lt(0.08)}`,
-    background: lt(0.04), padding: "3px 10px",
-    fontFamily: "ui-monospace, monospace", fontSize: 10, color: T.ink2,
-    cursor: "pointer", transition: "background 150ms",
-  };
-
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-        <span style={{ flex: 1, fontSize: 10, fontWeight: 700, letterSpacing: "0.13em", textTransform: "uppercase", color: T.ink3 }}>
-          Context
-        </span>
-        {/* The coach's notes used to be listed here. They live in About
-            this chat now, where each can be read, corrected or forgotten. */}
-        <button
-          type="button"
-          onClick={onAbout}
-          className="no-drag"
-          title="What the coach remembers about this chat"
-          style={smallBtn}
-        >
-          About this chat
-        </button>
-        <button
-          type="button"
-          onClick={onAttach}
-          className="no-drag"
-          title="Attach text or markdown files"
-          style={smallBtn}
-        >
-          {fileNames.length > 0 ? "+ Attach" : "+ Attach file"}
-        </button>
-      </div>
-      {fileNames.length > 0 && (
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-          {fileNames.map((name, i) => (
-            <span
-              key={i}
-              title={name}
-              style={{
-                borderRadius: 6, border: `1px solid ${lt(0.08)}`,
-                background: lt(0.04), padding: "2px 8px",
-                fontFamily: "ui-monospace, monospace", fontSize: 10, color: T.ink2,
-              }}
-            >
-              {name}
-            </span>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
 /* ── Local SVG icons (not in the design icon set) ── */
 
 // A circled "i" — About this chat.
-function InfoIcon({ c }: { c: string }) {
-  return (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-      <circle cx="7" cy="7" r="5.6" stroke={c} strokeWidth="1.4" />
-      <path d="M7 6.2v3.6" stroke={c} strokeWidth="1.5" strokeLinecap="round" />
-      <circle cx="7" cy="4.3" r="0.85" fill={c} />
-    </svg>
-  );
-}
-
 function SpeakerOnIcon() {
   const T = useTheme();
   return <ISpeakerOn c={T.accent} />;
@@ -1811,14 +1427,6 @@ function DockIcon({ active }: { active: boolean }) {
   );
 }
 
-function CloseIcon({ size = 10 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 10 10" fill="none">
-      <path d="M2 2l6 6M8 2l-6 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-    </svg>
-  );
-}
-
 function ChevronDownIcon() {
   return (
     <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
@@ -1831,14 +1439,6 @@ function ChevronUpIcon() {
   return (
     <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
       <path d="M2 8l4-4 4 4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-function AttachIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-      <path d="M13 7.5l-5.5 5.5a4 4 0 0 1-5.66-5.66l5.5-5.5a2.5 2.5 0 0 1 3.54 3.54L5.37 10.9a1 1 0 0 1-1.41-1.41L9.5 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }

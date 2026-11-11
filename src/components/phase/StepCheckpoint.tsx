@@ -7,7 +7,7 @@ import { useTokens } from "../../design/ThemeProvider";
 import { IconCheck } from "../../design/lineIcons";
 import type { StepVM } from "../../lib/phaseView";
 
-export function stepLabel(step: Pick<StepVM, "n" | "title">): string {
+function stepLabel(step: Pick<StepVM, "n" | "title">): string {
   return step.title ? `Step ${step.n} · ${step.title}` : `Step ${step.n}`;
 }
 

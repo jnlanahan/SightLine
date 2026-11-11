@@ -6,7 +6,7 @@ vi.mock("electron", () => ({ app: { getPath: () => "/tmp/sightline-test" } }));
 
 import { resolvePalette, LEGACY_ACCENT_TO_PALETTE } from "../../electron/settings-store";
 import { ACCENT_TO_PALETTE, PALETTES, DEFAULT_PALETTE } from "../design/tokens";
-import type { AccentName, Settings } from "../../electron/types";
+import type { Settings } from "../../electron/types";
 
 describe("palette setting (WP1)", () => {
   it("defaults to Graphite", () => {
@@ -15,7 +15,7 @@ describe("palette setting (WP1)", () => {
   });
 
   it("maps every old accent once, exactly as tokens.ts says", () => {
-    const accents: AccentName[] = ["lime", "cobalt", "rose", "slate"];
+    const accents = ["lime", "cobalt", "rose", "slate"] as const;
     for (const a of accents) {
       expect(resolvePalette({ accentColor: a })).toBe(ACCENT_TO_PALETTE[a]);
     }
@@ -24,6 +24,12 @@ describe("palette setting (WP1)", () => {
 
   it("a saved palette wins over an old accent", () => {
     expect(resolvePalette({ palette: "porcelain", accentColor: "cobalt" })).toBe("porcelain");
+  });
+
+  it("accentColor is gone from the settings type", async () => {
+    const src = ((await import("../../electron/types?raw")) as unknown as { default: string }).default;
+    expect(src).not.toContain("accentColor");
+    expect(src).not.toContain("AccentName");
   });
 
   it("ignores garbage values", () => {

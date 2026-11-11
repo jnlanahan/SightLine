@@ -198,10 +198,8 @@ export interface ElevenVoiceOption {
   blurb: string;
 }
 
-export type AccentName = "lime" | "cobalt" | "rose" | "slate";
-
 // The redesign's colour sets (src/design/tokens.ts holds their colours). They
-// replace the four accents; an old `accentColor` is read once and mapped.
+// replaced the four accents; the old setting is read once and mapped.
 export type PaletteName = "graphite" | "porcelain" | "midnight";
 
 // Side of the monitor the docked sidebar reserves (Windows AppBar).
@@ -261,11 +259,9 @@ export interface Settings {
   sessionBudgetUsd: number;
   // Let the coach recall durable facts from earlier sessions.
   memoryEnabled: boolean;
-  // Colour set for the whole app and the glow overlay.
+  // Colour set for the whole app and the glow overlay. (An old settings
+  // file's accent colour is read once to choose it; see settings-store.ts.)
   palette: PaletteName;
-  // Retired: read once from old settings files to choose `palette`, then
-  // dropped. Never written. (Removed from the type in WP8.)
-  accentColor?: AccentName;
   windowBounds: WindowBounds | null;
   solidBackground: boolean;
   // One-time migration flag: forces opacity/solidBackground to opaque once

@@ -1,7 +1,7 @@
 // sightline/ThemeProvider.tsx
 import React, { createContext, useContext, useMemo } from "react";
 import type { SightLineTheme } from "./theme";
-import { PALETTE_TO_LEGACY_ACCENT, makeTheme } from "./theme";
+import { makeTheme } from "./theme";
 import {
   DEFAULT_PALETTE,
   PALETTES,
@@ -32,12 +32,13 @@ export function makeTokens(name: PaletteName): DesignTokens {
 }
 
 const TokensCtx = createContext<DesignTokens>(makeTokens(DEFAULT_PALETTE));
-const ThemeCtx = createContext<SightLineTheme>(makeTheme(PALETTE_TO_LEGACY_ACCENT[DEFAULT_PALETTE]));
+const ThemeCtx = createContext<SightLineTheme>(makeTheme(PALETTES[DEFAULT_PALETTE]));
 
 /** Read the active palette and design scales inside any component. */
 export const useTokens = (): DesignTokens => useContext(TokensCtx);
 
-/** The pre-redesign theme, for screens not yet rebuilt (removed in WP8). */
+/** The pre-redesign theme shape, for screens whose layouts are not
+ *  redesigned yet. Its colours follow the active palette's accent. */
 export const useTheme = (): SightLineTheme => useContext(ThemeCtx);
 
 /** Wrap the app (or a subtree) in a colour set. */
@@ -49,10 +50,7 @@ export function SightLineTheme({
   children: React.ReactNode;
 }) {
   const tokens = useMemo(() => makeTokens(palette), [palette]);
-  const legacy = useMemo(
-    () => makeTheme(PALETTE_TO_LEGACY_ACCENT[tokens.name]),
-    [tokens.name],
-  );
+  const legacy = useMemo(() => makeTheme(tokens.palette), [tokens.palette]);
   return (
     <TokensCtx.Provider value={tokens}>
       <ThemeCtx.Provider value={legacy}>{children}</ThemeCtx.Provider>
