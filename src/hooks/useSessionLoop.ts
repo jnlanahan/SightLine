@@ -9,7 +9,6 @@ import { budgetStatus, cacheHitRate, formatUsd } from "../../electron/usage";
 import {
   openSpeechStream,
   randomAckPhrase,
-  randomCompletionPhrase,
   randomLookupPhrase,
   randomNoAnswerPhrase,
   randomThinkingPhrase,
@@ -735,13 +734,10 @@ export function useSessionLoop(onNeedsApiKey: () => void) {
             useSession.getState().setLastSpokenInstruction(result.instruction);
             useSession.getState().setLastSpokeAt(Date.now());
             useSession.getState().setDone(true);
-            // If the instruction already streamed out, just add the wrap-up —
-            // it queues behind the still-playing sentences.
-            if (earlySpoken || suppressedRepeat) {
-              speakOut(randomCompletionPhrase());
-            } else {
-              speakOut(`${result.instruction} ${randomCompletionPhrase()}`);
-            }
+            // The coach's own wrap-up is the ending. A canned line used to be
+            // added after it ("Nailed it, you're all set."), which made a
+            // real sentence sound like a script.
+            if (!earlySpoken && !suppressedRepeat) speakOut(result.instruction);
             break;
           }
         }

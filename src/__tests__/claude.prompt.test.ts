@@ -28,6 +28,25 @@ describe("shared voice rules", () => {
     expect(voiceRules).toContain("One idea per sentence");
   });
 
+  // The first live run: seven step lines opened "Nice, …", most narrated what
+  // had just happened on screen, and the verdict was "so unnatural". The
+  // rules used to ask for exactly that (a stock list of openers, a 2-4 word
+  // acknowledgement on every step, "light sarcasm").
+  it("asks for plain speech, not a pat on the back every step", () => {
+    expect(voiceRules).toContain("Don't praise every step");
+    expect(voiceRules).toContain('Never open with "Nice"');
+    expect(voiceRules).toContain("Start with the thing itself");
+    expect(voiceRules).toContain("Warm, but plain");
+    expect(voiceRules).not.toContain("Vary your openers");
+    expect(voiceRules).not.toContain("light sarcasm");
+  });
+
+  it("nothing else in the prompt asks for the acknowledgement back", () => {
+    expect(coachPrompt).not.toContain("2-4 word");
+    expect(coachPrompt).not.toContain("Nice, that's in");
+    expect(coachAgent.nextTurnPrompt).not.toContain("acknowledge in a few words");
+  });
+
   it("reaches the coach's prompt", () => {
     // The voice is the product. An agent that silently lost these rules would
     // still work and would sound like a different app.

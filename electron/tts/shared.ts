@@ -55,8 +55,11 @@ export function trimPreviousText(text: string | undefined): string {
  *
  * v2: stability 0.45 -> 0.72, style 0.35 -> 0, speaker boost off, and
  *     request stitching added, to stop intonation wandering between sentences.
+ * v3: the model moved from Flash v2.5 to v4 Turbo, which takes stability and
+ *     similarity only (stability back to the 0.5 default), and pace moved
+ *     from the request to playback.
  */
-export const VOICE_SETTINGS_VERSION = "v2";
+export const VOICE_SETTINGS_VERSION = "v3";
 
 export function cacheKeyFor(req: SynthRequest): string {
   // JSON encoding gives an unambiguous joining of the fields for free: no
@@ -80,7 +83,7 @@ export function cacheKeyFor(req: SynthRequest): string {
 
 // Text that differs only in surrounding or repeated whitespace produces
 // identical audio, so folding it multiplies cache hits on the fixed phrase
-// set (fillers, acknowledgements, completions).
+// set (fillers and acknowledgements).
 function normalizeForKey(text: string): string {
   return text.trim().replace(/\s+/g, " ");
 }
@@ -130,15 +133,6 @@ export function preprocessForTts(text: string): string {
 // These are spoken verbatim, over and over. Defined here rather than in the
 // renderer so the startup cache warmer can reach them without IPC; the
 // renderer re-exports them from src/hooks/useTts.ts.
-
-/** Spoken on goal completion. */
-export const COMPLETION_PHRASES: readonly string[] = [
-  "And that's a wrap. Nice work.",
-  "Done. Not bad at all.",
-  "Nailed it — you're all set.",
-  "That's the whole thing. Well played.",
-  "Goal achieved. See? Wasn't so bad.",
-];
 
 /**
  * Spoken the instant the user asks a question, while the vision call runs.
@@ -197,7 +191,6 @@ export const WARMABLE_PHRASES: readonly string[] = [
   ...THINKING_PHRASES,
   ...ACK_PHRASES,
   ...LOOKUP_PHRASES,
-  ...COMPLETION_PHRASES,
   ...NO_ANSWER_PHRASES,
 ];
 
@@ -233,9 +226,23 @@ export const ELEVEN_VOICE_PRESETS: readonly VoicePreset[] = [
 // a problem needs. Premade, so it works on every plan including free.
 export const DEFAULT_ELEVEN_VOICE_ID = ELEVEN_VOICE_PRESETS[0].id;
 
-// Flash v2.5 is the low-latency model (~75 ms model time-to-first-byte). The
-// coach speaks in short sentences, which is exactly its sweet spot.
-export const ELEVEN_MODEL = "eleven_flash_v2_5";
+// v4 Turbo is ElevenLabs' current real-time model and its most natural one
+// that is still fast enough to talk with. It replaced Flash v2.5 here after
+// the first live run of the one-coach build, where the verdict on the voice
+// was "so unnatural": Flash is the speed-and-price model, and it had been
+// flattened further (high stability, no style) to stop its intonation
+// wandering between sentences.
+//
+// Measured on the owner's account, 10 November 2026, same voice, same three
+// sentences, through the endpoint this app uses: a whole sentence comes back
+// in about 0.6-0.85 s on v4 Turbo against about 0.2-0.35 s on Flash. So the
+// first words of an uncached reply are heard roughly 0.4 s later; fillers are
+// cached and still start at once. It accepts previous_text (request
+// stitching). It IGNORES voice_settings.speed — see elevenlabs.ts. It very
+// likely costs more per character than Flash, which ElevenLabs prices at half
+// rate. To go back, set this to "eleven_flash_v2_5" and restore the settings
+// in elevenlabs.ts from git history.
+export const ELEVEN_MODEL = "eleven_v4_turbo";
 
 /**
  * 64 kbps 44.1 kHz MP3: audibly clean for speech and roughly half the bytes

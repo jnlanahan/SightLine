@@ -152,6 +152,17 @@ describe("the coach never talks over itself or ignores the user", () => {
     );
   });
 
+  // "Nailed it, you're all set." used to be bolted on after the coach's own
+  // wrap-up. The coach's words are the ending now.
+  it("adds no canned line after the coach says it is done", async () => {
+    const src = await loopSource();
+    expect(src).not.toContain("randomCompletionPhrase");
+    const runner = (await import("../../electron/agents/harness/runner?raw")) as unknown as {
+      default: string;
+    };
+    expect(runner.default).not.toContain("2-4 word acknowledgment");
+  });
+
   it("a follow-up that returns wait is recovered into something spoken", async () => {
     const src = await loopSource();
     expect(src).toContain('if (answeringFollowUp && action === "wait")');

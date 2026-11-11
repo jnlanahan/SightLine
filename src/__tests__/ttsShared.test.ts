@@ -2,12 +2,13 @@ import { describe, expect, it } from "vitest";
 import {
   ACK_PHRASES,
   DEFAULT_ELEVEN_VOICE_ID,
+  ELEVEN_MODEL,
   ELEVEN_VOICE_PRESETS,
-  COMPLETION_PHRASES,
   LOOKUP_PHRASES,
   MAX_TTS_CHARS,
   NO_ANSWER_PHRASES,
   THINKING_PHRASES,
+  VOICE_SETTINGS_VERSION,
   WARMABLE_PHRASES,
   cacheKeyFor,
   clampTtsText,
@@ -106,7 +107,6 @@ describe("WARMABLE_PHRASES", () => {
       ...THINKING_PHRASES,
       ...ACK_PHRASES,
       ...LOOKUP_PHRASES,
-      ...COMPLETION_PHRASES,
       ...NO_ANSWER_PHRASES,
     ]) {
       expect(WARMABLE_PHRASES).toContain(phrase);
@@ -136,6 +136,29 @@ describe("WARMABLE_PHRASES", () => {
     for (const phrase of ACK_PHRASES) {
       expect(preprocessForTts(phrase)).toBe(phrase);
     }
+  });
+});
+
+describe("the ElevenLabs voice model", () => {
+  // Changed on purpose after the first live run ("the voice sounds so
+  // unnatural"). The request below was checked against the live service; a
+  // different model may not take the same one, so changing either is a
+  // decision, not a tidy-up.
+  it("is v4 Turbo, and cached audio from the old model is not reused", () => {
+    expect(ELEVEN_MODEL).toBe("eleven_v4_turbo");
+    expect(VOICE_SETTINGS_VERSION).toBe("v3");
+  });
+
+  it("is asked for stability and similarity only — it ignores a requested speed", async () => {
+    const src = (await import("../../electron/tts/elevenlabs?raw")) as unknown as {
+      default: string;
+    };
+    expect(src.default).toContain("stability: 0.5,");
+    expect(src.default).toContain("similarity_boost: 0.75,");
+    expect(src.default).not.toContain("speed:");
+    expect(src.default).not.toContain("use_speaker_boost:");
+    // Request stitching is what holds a sentence-by-sentence reply together.
+    expect(src.default).toContain("body.previous_text = previous");
   });
 });
 

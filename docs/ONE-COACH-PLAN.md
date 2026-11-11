@@ -34,8 +34,8 @@ SightLine becomes one coach with one input box and a list of chats you can reope
 - **Step 10 done, 10 November, at the owner's request:** the coach runs on Sonnet 5.5 by default, with Opus 5.5 as a choice in Settings. The runner was changed to cope with what those models withdrew (see the step below). Checked against the live service: the real coach, with its real prompt and tools, produced a spoken first look on Sonnet 5.5, Opus 5.5 and the Sonnet 5 fallback, and the tidy-up's request works on Haiku 5.5.
 - **Built so far:** every step. 506 tests, type-check and build pass. Steps 7, 9, 10 and 11 have not been reviewed by anyone else.
 - **First live run, 10 November:** the owner ran one walkthrough on Sonnet 5.5 and it worked end to end. The findings are in the next section and are the work that remains.
-- **Fixes from the first live run, 10 November, later:** three of the four are built, each its own commit: the "good question" filler, agreeing the goal, and showing the model. What was decided is in "Fixes after the first live run" below. 528 tests, type-check and build pass. Agreeing the goal was checked against the live service on Sonnet 5.5; none of the three has been through a live run by the owner yet. The voice is waiting on the owner saying what sounds wrong.
-- **Next:** the owner's second test, the voice, the results table, and merging `one-coach` into `main` or dropping it. Testing Opus 5.5 was put off by the owner; it is not blocking.
+- **Fixes from the first live run, 10 November, later:** all four are built, each its own commit: the "good question" filler, agreeing the goal, showing the model, and the voice (what it says, and a more natural voice model). What was decided is in "Fixes after the first live run" below. 536 tests, type-check and build pass. Agreeing the goal and the new wording were checked against the live service on Sonnet 5.5, and the new voice model against the owner's ElevenLabs account. **None of the four has been through a live run by the owner yet, and nobody has listened to the new voice.**
+- **Next:** the owner's second test, then the results table, and merging `one-coach` into `main` or dropping it. Testing Opus 5.5 was put off by the owner; it is not blocking.
 
 ## First live run, 10 November 2026
 
@@ -76,7 +76,22 @@ Built 10 November 2026, in the order the owner asked for. The owner said to make
 - Not in the header: docked, the header has no room for it.
 - The model is written to the log on every look.
 
-**4. The voice.** Not changed. Waiting on the owner saying what sounds wrong. For reference, the first run spoke through ElevenLabs (the "Sarah" voice, normal speed) on every line.
+**4. The voice.** Asked first, as requested. The owner's answer: the voice itself, and what it says. Not the pace, and not choppiness between sentences.
+
+*What it says.* The log of the first run showed why it sounded scripted, and every cause was in the coach's own instructions:
+- Seven step lines opened with "Nice, …". The instructions gave that exact phrase as the example to follow, and asked for a short acknowledgement on every step. Now: go straight to the next step, an acknowledgement on about one step in four, never "Nice".
+- It kept saying what had just happened on screen ("Settings is up", "you're in System"). Now told plainly not to, with those lines as the examples of what to avoid.
+- It added remarks ("That's a seriously strong machine"). The instructions asked for "a dry observation, a small joke, light sarcasm". That is gone: warm but plain, and only what helps with the next thing.
+- A list of stock openers ("Okay, go ahead and…", "Quick one —", "Easy part:") is gone. Start with the step itself.
+- After the coach's own wrap-up the app added a canned line ("Nailed it, you're all set."). Removed; the coach's own words are the ending.
+- Checked against the live service with real screenshots: the lines came out plain, with no "Nice" and no stock openers. A small sample, so the owner's ear is the real test.
+
+*The voice itself.* The app was on ElevenLabs' fastest and cheapest model (Flash v2.5), with its expressiveness turned down in September to stop the tone wandering between sentences. It now uses ElevenLabs' current real-time model (v4 Turbo), same "Sarah" voice, at that model's normal settings.
+- Checked on the owner's account through the app's own connection: it works, and it still accepts the "what was said before" hint that keeps a reply sounding like one person.
+- **Cost of the change:** a sentence takes about 0.6 to 0.85 seconds to come back instead of about 0.3, so the first words of a reply are heard roughly 0.4 seconds later. The short fillers are stored and still start at once.
+- **It very likely costs more ElevenLabs credit per sentence** (ElevenLabs prices Flash at half rate). The app's key cannot read the account's plan or balance, so this could not be checked. If the credit runs out, the app falls back to the next voice, as before.
+- The new model ignores a requested speed, so the Pace slider in Settings now works by playing the audio faster or slower. It behaves the same as before from the owner's side.
+- Nobody has heard it yet. This is a change made from the documentation and from timings, and the owner's next test decides whether it stays. Going back is one line (`ELEVEN_MODEL` in `electron/tts/shared.ts`). If the model is better but "Sarah" is still wrong, Settings has a voice list with a Preview button.
 
 ## Calls I made
 

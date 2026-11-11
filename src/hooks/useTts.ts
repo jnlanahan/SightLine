@@ -1,9 +1,9 @@
 import { api } from "../lib/api";
 import { takeAudioStart } from "../lib/askClock";
+import { useSettings } from "../store/settings";
 import {
   preprocessForTts,
   ACK_PHRASES,
-  COMPLETION_PHRASES,
   LOOKUP_PHRASES,
   NO_ANSWER_PHRASES,
   THINKING_PHRASES,
@@ -13,7 +13,7 @@ import {
 // pre-synthesize it at startup without an IPC round-trip. Re-exported here
 // because this is where the rest of the renderer expects to find it — one
 // definition, so a phrase can never drift out of the warm cache.
-export { COMPLETION_PHRASES, LOOKUP_PHRASES, NO_ANSWER_PHRASES, THINKING_PHRASES };
+export { LOOKUP_PHRASES, NO_ANSWER_PHRASES, THINKING_PHRASES };
 
 function pickRandom<T>(arr: readonly T[], avoid?: T): T {
   if (arr.length === 1) return arr[0];
@@ -24,16 +24,10 @@ function pickRandom<T>(arr: readonly T[], avoid?: T): T {
   return next;
 }
 
-let lastCompletionPhrase: string | undefined;
 let lastThinkingPhrase: string | undefined;
 let lastAckPhrase: string | undefined;
 let lastLookupPhrase: string | undefined;
 let lastNoAnswerPhrase: string | undefined;
-
-export function randomCompletionPhrase(): string {
-  lastCompletionPhrase = pickRandom(COMPLETION_PHRASES, lastCompletionPhrase);
-  return lastCompletionPhrase;
-}
 
 export function randomThinkingPhrase(): string {
   lastThinkingPhrase = pickRandom(THINKING_PHRASES, lastThinkingPhrase);
@@ -210,6 +204,12 @@ async function fetchCloudAudio(
   }
 }
 
+/** The Pace setting as a playback rate. A broken value means normal speed. */
+export function playbackPace(raw: unknown): number {
+  if (typeof raw !== "number" || !Number.isFinite(raw)) return 1;
+  return Math.max(0.7, Math.min(1.2, raw));
+}
+
 // Play one synthesized chunk to completion. Resolves true if the audio
 // played (or was cancelled), false if playback couldn't start — the caller
 // then falls back to web speech.
@@ -227,6 +227,10 @@ function playAudioBuffer(
     const blob = new Blob([bytes], { type: "audio/mp3" });
     const blobUrl = URL.createObjectURL(blob);
     const audio = new Audio(blobUrl);
+    // The Pace setting. Applied here rather than asked of the provider: the
+    // voice model ignores a requested speed, and this way the slider means
+    // the same thing whichever provider spoke. Pitch is preserved.
+    audio.playbackRate = playbackPace(useSettings.getState().settings?.ttsSpeed);
     currentAudio = audio;
 
     // Shared end-of-life cleanup for ended/error/abort so a failed audio

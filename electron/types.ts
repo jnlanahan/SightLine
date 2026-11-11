@@ -237,7 +237,8 @@ export interface Settings {
   // ElevenLabs voice id (separate from ttsVoice, which addresses the
   // Google/OpenAI voice sets — the two vendors share no voice namespace).
   elevenVoiceId: string;
-  // Speaking rate, 0.7–1.2. Applied by providers that support it.
+  // Speaking rate, 0.7–1.2. Applied when the audio is played (useTts.ts), so
+  // it works the same whichever provider spoke.
   ttsSpeed: number;
   // Hold-to-talk: press and hold this key to interrupt the coach and speak.
   // Stored as a uiohook key name (see electron/hotkey.ts).

@@ -82,7 +82,7 @@ const NO_TOOL_NUDGE = `You wrote text without calling a tool. Text outside a too
 /** Appended to the last lookup's result on models whose tool list cannot be narrowed mid-look. */
 const LAST_LOOKUP_NOTE = `That was your last lookup this turn. End your turn now by calling say or wait.`;
 
-const SPEAK_ON_STEP_COMPLETE = `You recorded a newly completed step but called wait. The user just finished what you asked and is now waiting to hear from you — silence here feels like you stopped watching. Call say now: a 2-4 word acknowledgment, then the next step (action=instruct); or action=done if the goal is visibly achieved; or action=acknowledge if the screen shows something still in progress they should let finish. Only call wait again if they are already visibly working on the next step.`;
+const SPEAK_ON_STEP_COMPLETE = `You recorded a newly completed step but called wait. The user just finished what you asked and is now waiting to hear from you — silence here feels like you stopped watching. Call say now with the next step (action=instruct); or action=done if the goal is visibly achieved; or action=acknowledge if the screen shows something still in progress they should let finish. Only call wait again if they are already visibly working on the next step.`;
 
 export interface RunTurnOptions {
   client: Anthropic;

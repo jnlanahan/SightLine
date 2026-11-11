@@ -1,6 +1,5 @@
-// ElevenLabs Flash v2.5 — the low-latency voice. Roughly 4x faster to first
-// audio than the Google Chirp 3 path it replaces, and the reason the coach
-// stops sounding like a screen reader.
+// ElevenLabs — the coach's voice. Which model is in ./shared.ts (ELEVEN_MODEL),
+// with the reasons and the measured timings.
 //
 // Everything here is best-effort: if the key is missing, the account lacks
 // the model, or the network is down, the caller falls through to Google →
@@ -60,14 +59,15 @@ function isPremadePreset(voiceId: string): boolean {
 }
 
 /**
- * Synthesize one chunk. `speed` maps onto ElevenLabs' voice_settings.speed
- * (0.7–1.2); values outside that range are clamped rather than rejected.
+ * Synthesize one chunk. There is no speed here: the model ignores
+ * voice_settings.speed (checked live — the audio came back the same length at
+ * 0.8, 1.0 and 1.2), so the Pace setting is applied when the audio is played
+ * instead (src/hooks/useTts.ts).
  */
 export async function speakTextElevenLabs(
   text: string,
   opts: {
     voiceId?: string;
-    speed?: number;
     signal?: AbortSignal;
     /** What was already spoken in this response — see SynthRequest. */
     previousText?: string;
@@ -90,24 +90,17 @@ export async function speakTextElevenLabs(
     text: clampTtsText(text),
     model_id: ELEVEN_MODEL,
     voice_settings: {
-      // Tuned for CONSISTENCY across a chunked response, not for drama.
+      // The v4 models take these two and nothing else (style, speaker boost
+      // and speed are accepted and ignored). Both are ElevenLabs' defaults:
+      // 0.5 is the model's "natural" middle between flat and erratic.
       //
-      // Each sentence is a separate request, so any per-request randomness
-      // shows up as the voice changing character mid-answer. The earlier
-      // settings (stability 0.45, style 0.35, speaker boost on) were tuned for
-      // expressiveness and produced exactly that: wandering intonation and the
-      // occasional shouted sentence.
-      //
-      // Higher stability = less variation between generations. style is the
-      // main amplifier of both expressiveness and instability, so for a coach
-      // reading short factual instructions it earns nothing and costs
-      // predictability — it is off. Speaker boost is off too: it raises
-      // perceived loudness (part of the "yelling") and adds latency.
-      stability: 0.72,
+      // History worth keeping: on Flash v2.5 this was pushed to 0.72 with
+      // style off, because each sentence is a separate request and the voice
+      // wandered between them — and the result was steady but flat. If v4
+      // Turbo wanders, raise stability before anything else; what holds a
+      // chunked reply together is the previous_text below, not the settings.
+      stability: 0.5,
       similarity_boost: 0.75,
-      style: 0,
-      use_speaker_boost: false,
-      speed: clampSpeed(opts.speed),
     },
   };
   // Request stitching: tell the model what was already said so this sentence
@@ -153,11 +146,6 @@ export async function speakTextElevenLabs(
   const buf = Buffer.from(await resp.arrayBuffer());
   if (buf.length === 0) throw new Error("elevenlabs_empty_audio");
   return buf;
-}
-
-function clampSpeed(speed: number | undefined): number {
-  if (typeof speed !== "number" || !Number.isFinite(speed)) return 1.0;
-  return Math.max(0.7, Math.min(1.2, speed));
 }
 
 /**

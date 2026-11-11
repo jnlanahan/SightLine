@@ -91,6 +91,32 @@ describe("cancelled streams", () => {
   });
 });
 
+describe("the Pace setting", () => {
+  // The voice model ignores a requested speed, so pace is applied when the
+  // audio is played.
+  it("becomes the playback rate, within the range the slider offers", async () => {
+    const { playbackPace } = await import("../hooks/useTts");
+    expect(playbackPace(1)).toBe(1);
+    expect(playbackPace(0.85)).toBe(0.85);
+    expect(playbackPace(3)).toBe(1.2);
+    expect(playbackPace(0.1)).toBe(0.7);
+  });
+
+  it("falls back to normal speed for a broken value", async () => {
+    const { playbackPace } = await import("../hooks/useTts");
+    expect(playbackPace(undefined)).toBe(1);
+    expect(playbackPace(Number.NaN)).toBe(1);
+    expect(playbackPace("fast")).toBe(1);
+  });
+
+  it("is applied to the audio element before it plays", async () => {
+    const src = (await import("../hooks/useTts?raw")) as unknown as { default: string };
+    expect(src.default).toContain(
+      "audio.playbackRate = playbackPace(useSettings.getState().settings?.ttsSpeed);",
+    );
+  });
+});
+
 describe("THINKING_PHRASES", () => {
   it("has several fillers so the coach doesn't repeat itself", async () => {
     const { THINKING_PHRASES } = await import("../hooks/useTts");

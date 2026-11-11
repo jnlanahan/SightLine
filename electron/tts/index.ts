@@ -1,8 +1,8 @@
 // The speech pipeline: one entry point, an ordered provider chain, and a
 // cache in front of all of it.
 //
-// Order matters. ElevenLabs Flash is both the most human-sounding and the
-// fastest, so it leads. Google Chirp 3 and OpenAI follow as progressively
+// Order matters. ElevenLabs is both the most human-sounding and the fastest,
+// so it leads. Google Chirp 3 and OpenAI follow as progressively
 // weaker but still-cloud fallbacks. The renderer's system voice is the last
 // resort and is only reached when every provider here fails.
 //
@@ -48,8 +48,8 @@ export interface SpeakFailure {
 
 // Per-provider hard timeouts. This is a conversation: a sentence that takes
 // longer than this to arrive is already an awkward silence, and the next
-// provider (or the system voice) will have it out sooner. ElevenLabs Flash
-// normally answers in well under a second; Google in one to two. The whole
+// provider (or the system voice) will have it out sooner. ElevenLabs normally
+// answers in under a second; Google in one to two. The whole
 // chain stays under the renderer's own IPC guard so main always decides.
 const TIMEOUT_MS: Record<SpokenEngine, number> = {
   elevenlabs: 6_000,
@@ -136,7 +136,6 @@ async function synthesize(
     case "elevenlabs":
       return speakTextElevenLabs(text, {
         voiceId: s.elevenVoiceId,
-        speed: safeSpeed(s.ttsSpeed),
         previousText,
         signal,
       });
