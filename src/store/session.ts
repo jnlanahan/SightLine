@@ -32,6 +32,11 @@ export interface SessionState {
   currentInstruction: string;
   // Copyable code/command text that came with the current instruction.
   currentCode: string;
+  // A pointer box was flashed on the user's screen for the current
+  // instruction (the main process draws and removes it). Shown as
+  // "Outlined on your screen" in the phase footer; cleared when the
+  // instruction changes.
+  pointing: boolean;
   // The mid-turn tool the agent is running right now (web search, zoomed
   // read), so the UI can say "Looking that up…" instead of a bare spinner.
   activeTool: { name: string; detail: string } | null;
@@ -126,6 +131,7 @@ export interface SessionState {
   // The coach moved on from the question, so the goal stands as agreed.
   agreeGoal(): void;
   setInstruction(text: string, code?: string): void;
+  setPointing(v: boolean): void;
   setActiveTool(tool: { name: string; detail: string } | null): void;
   setCompletedSteps(steps: string[]): void;
   // The coach reported its list of finished steps. New ones are appended to
@@ -180,6 +186,7 @@ const initial = {
   doneWhen: "",
   goalPending: false,
   currentInstruction: "",
+  pointing: false,
   currentCode: "",
   activeTool: null as { name: string; detail: string } | null,
   completedSteps: [] as string[],
@@ -228,7 +235,12 @@ export const useSession = create<SessionState>((set) => ({
     set(goal ? { agreedGoal: goal, doneWhen, goalPending: true } : { goalPending: true }),
   agreeGoal: () => set({ goalPending: false }),
   setInstruction: (text, code = "") =>
-    set({ currentInstruction: text, currentCode: code }),
+    set((state) => ({
+      currentInstruction: text,
+      currentCode: code,
+      pointing: text === state.currentInstruction ? state.pointing : false,
+    })),
+  setPointing: (v) => set({ pointing: v }),
   setActiveTool: (tool) => set({ activeTool: tool }),
   setCompletedSteps: (steps) => set({ completedSteps: steps }),
   applyCompletedSteps: (steps, now) =>

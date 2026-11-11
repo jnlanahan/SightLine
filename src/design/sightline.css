@@ -55,6 +55,13 @@
 .sl-rail-list { scrollbar-width: none; }
 .sl-rail-list::-webkit-scrollbar { display: none; }
 
+/* Ready pill rising in. */
+@keyframes sl-rise {
+  from { transform: translateX(-50%) translateY(8px); opacity: 0; }
+  to   { transform: translateX(-50%) translateY(0);   opacity: 1; }
+}
+.sl-rise { animation: sl-rise 250ms ease-out both; }
+
 /* Visually hidden, still read by screen readers. */
 .sl-sr-only {
   position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
@@ -64,4 +71,5 @@
 @media (prefers-reduced-motion: reduce) {
   .sl-halo { animation: none; transform: none; opacity: 0.4; }
   .sl-pulse { animation: none; }
+  .sl-rise { animation: none; }
 }

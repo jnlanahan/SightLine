@@ -699,6 +699,7 @@ export function useSessionLoop(onNeedsApiKey: () => void) {
                 log("highlight skipped: user input since the frame was captured");
               } else {
                 void api().overlay.flashHighlight(result.highlight);
+                useSession.getState().setPointing(true);
               }
             }
             break;
