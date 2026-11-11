@@ -8,6 +8,7 @@ import { instructionsAreSimilar, isRepeatedSentence } from "../lib/repeatGuard";
 import { budgetStatus, cacheHitRate, formatUsd } from "../../electron/usage";
 import {
   openSpeechStream,
+  randomAckPhrase,
   randomCompletionPhrase,
   randomLookupPhrase,
   randomNoAnswerPhrase,
@@ -20,6 +21,7 @@ import { useQuietPeriod } from "./useQuietPeriod";
 import { ensureAgentPolicy } from "../lib/agentPolicy";
 import { liveNotes } from "../../electron/chat-notes";
 import { takeFirstWords } from "../lib/askClock";
+import { isQuickReply } from "../lib/quickReplies";
 import type { Stance, StepPace } from "../lib/api";
 
 const RETRY_DELAY_MS = 10_000;
@@ -325,8 +327,11 @@ export function useSessionLoop(onNeedsApiKey: () => void) {
         // vision call. A short spoken filler ("Let me take a look.") bridges the
         // gap; the answer queues behind it in the same stream. Skipped while
         // other audio is playing so we never cut ourselves off.
+        // A one-tap reply ("I did this", "Check my work") told the coach
+        // something rather than asking it something, so it gets a plain
+        // acknowledgement instead of a filler that sounds like an answer.
         if (followUp && !isSpeaking()) {
-          speakOut(randomThinkingPhrase());
+          speakOut(isQuickReply(followUp) ? randomAckPhrase() : randomThinkingPhrase());
         }
 
         // Subscribe to sentence-level speech chunks — the first one fires as

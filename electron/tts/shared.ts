@@ -149,9 +149,21 @@ export const COMPLETION_PHRASES: readonly string[] = [
 export const THINKING_PHRASES: readonly string[] = [
   "Let me take a look.",
   "Hmm, let me see.",
-  "Good question — one sec.",
   "Let me check that.",
   "Okay, looking now.",
+];
+
+/**
+ * Spoken when the user taps one of the one-tap replies ("I did this", "Check
+ * my work", "I'm stuck", "Yes, start"). They told the coach something; they
+ * did not ask it anything, so a filler that sounds like the answer to a
+ * question ("Good question") is wrong here. None of these, and none of the
+ * thinking fillers above, may presume what the user said.
+ */
+export const ACK_PHRASES: readonly string[] = [
+  "Okay, let me look.",
+  "Got it, one sec.",
+  "Alright, checking now.",
 ];
 
 /**
@@ -183,6 +195,7 @@ export const NO_ANSWER_PHRASES: readonly string[] = [
  */
 export const WARMABLE_PHRASES: readonly string[] = [
   ...THINKING_PHRASES,
+  ...ACK_PHRASES,
   ...LOOKUP_PHRASES,
   ...COMPLETION_PHRASES,
   ...NO_ANSWER_PHRASES,

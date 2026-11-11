@@ -2,6 +2,7 @@ import { api } from "../lib/api";
 import { takeAudioStart } from "../lib/askClock";
 import {
   preprocessForTts,
+  ACK_PHRASES,
   COMPLETION_PHRASES,
   LOOKUP_PHRASES,
   NO_ANSWER_PHRASES,
@@ -25,6 +26,7 @@ function pickRandom<T>(arr: readonly T[], avoid?: T): T {
 
 let lastCompletionPhrase: string | undefined;
 let lastThinkingPhrase: string | undefined;
+let lastAckPhrase: string | undefined;
 let lastLookupPhrase: string | undefined;
 let lastNoAnswerPhrase: string | undefined;
 
@@ -36,6 +38,11 @@ export function randomCompletionPhrase(): string {
 export function randomThinkingPhrase(): string {
   lastThinkingPhrase = pickRandom(THINKING_PHRASES, lastThinkingPhrase);
   return lastThinkingPhrase;
+}
+
+export function randomAckPhrase(): string {
+  lastAckPhrase = pickRandom(ACK_PHRASES, lastAckPhrase);
+  return lastAckPhrase;
 }
 
 export function randomLookupPhrase(): string {

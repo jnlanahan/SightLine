@@ -6,6 +6,7 @@ import { useRateLimitCountdown } from "./hooks/useRateLimitCountdown";
 import { useTts } from "./hooks/useTts";
 import { api } from "./lib/api";
 import { markAsk, sinceAsk } from "./lib/askClock";
+import { CHECK_WORK_REPLY, STEP_DONE_REPLY, STUCK_REPLY } from "./lib/quickReplies";
 import { Composer } from "./components/Composer";
 import { ProgressRail, PlanList, StageList } from "./components/ProgressRail";
 import { Home } from "./components/Home";
@@ -668,7 +669,7 @@ export default function App() {
                 troubleshooting={troubleshooting}
                 onStepDone={
                   stance === "guide"
-                    ? () => submitFollowUp("Done — what's next?")
+                    ? () => submitFollowUp(STEP_DONE_REPLY)
                     : undefined
                 }
               />
@@ -682,8 +683,8 @@ export default function App() {
               <div style={{ marginTop: 8 }}>
                 <TrainingActions
                   busy={status === "thinking"}
-                  onCheckWork={() => submitFollowUp("Check my work")}
-                  onStuck={() => submitFollowUp("I'm stuck")}
+                  onCheckWork={() => submitFollowUp(CHECK_WORK_REPLY)}
+                  onStuck={() => submitFollowUp(STUCK_REPLY)}
                 />
               </div>
             )}

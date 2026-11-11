@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  ACK_PHRASES,
   DEFAULT_ELEVEN_VOICE_ID,
   ELEVEN_VOICE_PRESETS,
   COMPLETION_PHRASES,
@@ -103,6 +104,7 @@ describe("WARMABLE_PHRASES", () => {
   it("covers every phrase the coach speaks verbatim", () => {
     for (const phrase of [
       ...THINKING_PHRASES,
+      ...ACK_PHRASES,
       ...LOOKUP_PHRASES,
       ...COMPLETION_PHRASES,
       ...NO_ANSWER_PHRASES,
@@ -118,6 +120,21 @@ describe("WARMABLE_PHRASES", () => {
   it("stays short enough to synthesize fast", () => {
     for (const phrase of WARMABLE_PHRASES) {
       expect(phrase.length).toBeLessThan(60);
+    }
+  });
+
+  // The first live run: pressing "I did this" got "Good question, one sec."
+  // A filler plays before the coach knows what was said, so it must not
+  // presume the user asked anything.
+  it("no filler presumes the user asked a question", () => {
+    for (const phrase of [...THINKING_PHRASES, ...ACK_PHRASES]) {
+      expect(phrase.toLowerCase()).not.toContain("question");
+    }
+  });
+
+  it("acknowledgements come out of the speech preprocessor unchanged, so the warm cache hits", () => {
+    for (const phrase of ACK_PHRASES) {
+      expect(preprocessForTts(phrase)).toBe(phrase);
     }
   });
 });
