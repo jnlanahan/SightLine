@@ -50,8 +50,17 @@ export function isChatRecordShape(value: unknown): value is ChatRecord {
     typeof r.lastActiveAt === "number" &&
     Array.isArray(r.stepLog) &&
     Array.isArray(r.turns) &&
+    r.turns.every(isTurnTagShape) &&
     Array.isArray(r.upcomingSteps)
   );
+}
+
+/** A turn's optional step tags, when present, are plain numbers. */
+function isTurnTagShape(turn: unknown): boolean {
+  if (!turn || typeof turn !== "object") return false;
+  const t = turn as Record<string, unknown>;
+  const ok = (v: unknown) => v === undefined || (typeof v === "number" && Number.isFinite(v));
+  return ok(t.stage) && ok(t.step);
 }
 
 // ── The step log ──
@@ -178,6 +187,8 @@ export function buildChatRecord(snapshot: ChatSnapshot): ChatRecord {
     // The old session record dropped code blocks; a reopened chat needs them.
     ...(t.code ? { code: t.code } : {}),
     at: t.timestamp,
+    ...(typeof t.stage === "number" ? { stage: t.stage } : {}),
+    ...(typeof t.step === "number" ? { step: t.step } : {}),
   }));
   return {
     id: snapshot.id,
@@ -306,6 +317,8 @@ export function chatToSession(saved: ChatRecord): RestoredSession {
     content: t.content,
     ...(t.code ? { code: t.code } : {}),
     timestamp: t.at,
+    ...(typeof t.stage === "number" ? { stage: t.stage } : {}),
+    ...(typeof t.step === "number" ? { step: t.step } : {}),
   }));
   const lastSaid = [...conversation].reverse().find((t) => t.role === "assistant");
   return {

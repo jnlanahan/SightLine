@@ -74,6 +74,13 @@ export interface ConversationTurn {
   // as a monospace block, never spoken.
   code?: string;
   timestamp: number;
+  // Where the chat stood when the turn was added, so the phase-chat screen can
+  // put each message under its step. Set by the store's appendTurn; absent on
+  // turns from chats saved before the redesign (those are placed by time).
+  // `stage` is the 0-based stage index; `step` the global, 1-based number of
+  // the step in progress (step log length + 1).
+  stage?: number;
+  step?: number;
 }
 
 export interface CaptureFrame {

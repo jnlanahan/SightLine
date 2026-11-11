@@ -251,8 +251,21 @@ export const useSession = create<SessionState>((set) => ({
     set((state) => ({
       frames: [...state.frames, frame].slice(-MAX_FRAMES),
     })),
+  // Each turn is tagged with where the chat stands, so the phase-chat screen
+  // can put it under its step. For a coach turn the loop applies the turn's
+  // finished steps and stage change first, so a line that finishes step N and
+  // gives the next instruction is tagged N + 1 — it belongs to the new step.
   appendTurn: (turn) =>
-    set((state) => ({ conversation: [...state.conversation, turn] })),
+    set((state) => ({
+      conversation: [
+        ...state.conversation,
+        {
+          ...turn,
+          stage: turn.stage ?? state.stageIndex,
+          step: turn.step ?? state.stepLog.length + 1,
+        },
+      ],
+    })),
   setError: (message) => set({ lastError: message }),
   setRateLimit: (until) => set({ rateLimitUntil: until }),
   setDone: (done) => set({ done }),
