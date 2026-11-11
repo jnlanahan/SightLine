@@ -3,9 +3,10 @@ import { useSettings } from "../store/settings";
 import { api } from "../lib/api";
 import { useTheme } from "../design/ThemeProvider";
 import { ar, lt } from "../design/theme";
+import { DEFAULT_PALETTE, PALETTES } from "../design/tokens";
 import type {
-  AccentName,
   ElevenVoiceOption,
+  PaletteName,
   PushToTalkKey,
   TtsPlaybackEngine,
   TtsProviderChoice,
@@ -16,12 +17,7 @@ import { useTts, getTtsMode } from "../hooks/useTts";
 import { ScreenPicker } from "./ScreenPicker";
 import { SeenMark } from "./AboutChat";
 
-const ACCENT_OPTIONS: { name: AccentName; label: string; color: string; rgb: string }[] = [
-  { name: "lime",   label: "Lime",   color: "#C2E84B", rgb: "194,232,75"  },
-  { name: "cobalt", label: "Cobalt", color: "#4F8BF2", rgb: "79,139,242"  },
-  { name: "rose",   label: "Rose",   color: "#FF6B81", rgb: "255,107,129" },
-  { name: "slate",  label: "Slate",  color: "#9FB2C8", rgb: "159,178,200" },
-];
+const PALETTE_OPTIONS: PaletteName[] = ["graphite", "porcelain", "midnight"];
 
 const VOICE_OPTIONS: { id: TtsVoiceId; label: string; sample: string }[] = [
   { id: "nova",    label: "Ava — warm female (recommended)", sample: "Hey, I'm Ava. Ready when you are." },
@@ -97,7 +93,7 @@ export function Settings({ onClose }: Props) {
       style={{
         position: "absolute", inset: 0,
         display: "flex", flexDirection: "column",
-        background: "rgba(247,245,239,0.98)",
+        background: T.surface,
         fontFamily: "ui-sans-serif, system-ui, Segoe UI, sans-serif",
         borderRadius: 22,
       }}
@@ -137,7 +133,7 @@ export function Settings({ onClose }: Props) {
 
         {/* Starting a chat with no Anthropic key lands here, so say where it goes. */}
         {!keyStatus.anthropic && (
-          <p style={{ margin: 0, fontSize: 12, lineHeight: 1.5, color: "#C22F2F" }}>
+          <p style={{ margin: 0, fontSize: 12, lineHeight: 1.5, color: T.warn }}>
             SightLine needs an Anthropic API key to start. Put <code>ANTHROPIC_API_KEY</code> in
             the .env file, then restart SightLine.
           </p>
@@ -165,7 +161,7 @@ export function Settings({ onClose }: Props) {
               </span>
             </div>
             <p style={{ fontSize: 10, color: T.ink3, margin: 0, lineHeight: 1.5 }}>
-              Click <strong>Adjust</strong> → drag the purple box handles → click <strong>Done</strong> to set a capture zone.
+              Click <strong>Adjust</strong> → drag the handles of the box on your screen → click <strong>Done</strong> to set a capture zone.
             </p>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <button
@@ -192,32 +188,38 @@ export function Settings({ onClose }: Props) {
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           <span style={sectionLabel}>Appearance</span>
 
-          {/* Accent color */}
+          {/* Colours (redesign SPEC §9): a segmented control. */}
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            <span style={{ fontSize: 12.5, fontWeight: 500, color: T.ink }}>Accent color</span>
-            <div className="no-drag" style={{ display: "flex", gap: 6 }}>
-              {ACCENT_OPTIONS.map((opt) => {
-                const active = settings.accentColor === opt.name;
+            <span id="sl-colours-label" style={{ fontSize: 12.5, fontWeight: 500, color: T.ink }}>Colours</span>
+            <div
+              className="no-drag"
+              role="radiogroup"
+              aria-labelledby="sl-colours-label"
+              style={{ display: "flex", gap: 2, padding: 3, borderRadius: 10, background: lt(0.08) }}
+            >
+              {PALETTE_OPTIONS.map((name) => {
+                const opt = PALETTES[name];
+                const active = (settings.palette ?? DEFAULT_PALETTE) === name;
                 return (
                   <button
-                    key={opt.name}
+                    key={name}
                     type="button"
-                    title={opt.label}
-                    onClick={() => void patch({ accentColor: opt.name })}
+                    role="radio"
+                    aria-checked={active}
+                    className="sl-focus"
+                    onClick={() => void patch({ palette: name })}
                     style={{
-                      flex: 1, padding: "8px 0",
-                      borderRadius: 9,
-                      border: active ? `2px solid ${opt.color}` : `1px solid ${lt(0.08)}`,
-                      background: active ? `rgba(${opt.rgb},0.15)` : lt(0.04),
+                      flex: 1, height: 32, border: 0, borderRadius: 8,
+                      background: active ? T.accent : "transparent",
+                      color: active ? T.onAccent : T.ink,
+                      fontSize: 12.5, fontWeight: active ? 700 : 500,
                       cursor: "pointer",
-                      display: "flex", flexDirection: "column", alignItems: "center", gap: 4,
-                      transition: "all 140ms",
+                      display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+                      transition: "background 140ms",
                     }}
                   >
-                    <span style={{ width: 14, height: 14, borderRadius: "50%", background: opt.color, display: "block" }} />
-                    <span style={{ fontSize: 10, color: active ? opt.color : T.ink3, fontWeight: active ? 600 : 400, fontFamily: "ui-monospace, monospace" }}>
-                      {opt.label}
-                    </span>
+                    <span aria-hidden="true" style={{ width: 10, height: 10, borderRadius: "50%", background: opt.bg, border: `2px solid ${opt.accent}` }} />
+                    {opt.label}
                   </button>
                 );
               })}
@@ -498,14 +500,14 @@ function ToggleRow({
         style={{
           position: "relative", flexShrink: 0, borderRadius: 999, border: 0,
           width: 34, height: 20,
-          background: checked ? ar(accentRGB, 1) : lt(0.06),
+          background: checked ? ar(accentRGB, 1) : lt(0.18),
           cursor: "pointer", padding: 0,
           transition: "background 180ms",
         }}
       >
         <span
           style={{
-            position: "absolute", top: 2, borderRadius: "50%", background: "#fff",
+            position: "absolute", top: 2, borderRadius: "50%", background: checked ? T.onAccent : T.ink2,
             width: 16, height: 16,
             left: checked ? 14 : 2,
             boxShadow: "0 1px 3px rgba(0,0,0,0.2)",
@@ -668,21 +670,21 @@ function VoicePicker({
         <p style={{ fontSize: 10, color: T.ink3, margin: 0 }}>Testing…</p>
       )}
       {previewResult === "elevenlabs" && (
-        <p style={{ fontSize: 10, color: "#4F8A2C", margin: 0 }}>✓ ElevenLabs — the good one</p>
+        <p style={{ fontSize: 10, color: T.accentText, margin: 0 }}>✓ ElevenLabs — the good one</p>
       )}
       {previewResult === "google" && (
-        <p style={{ fontSize: 10, color: "#4F8A2C", margin: 0 }}>✓ Google Chirp 3 — working</p>
+        <p style={{ fontSize: 10, color: T.accentText, margin: 0 }}>✓ Google Chirp 3 — working</p>
       )}
       {previewResult === "openai" && (
-        <p style={{ fontSize: 10, color: "#4F8A2C", margin: 0 }}>✓ OpenAI — working</p>
+        <p style={{ fontSize: 10, color: T.accentText, margin: 0 }}>✓ OpenAI — working</p>
       )}
       {previewResult === "system" && (
-        <p style={{ fontSize: 10, color: "#f59e0b", margin: 0 }}>
+        <p style={{ fontSize: 10, color: T.warn, margin: 0 }}>
           ⚠ Fell back to the robotic system voice — check your keys and network
         </p>
       )}
       {previewResult === "none" && (
-        <p style={{ fontSize: 10, color: "#ef4444", margin: 0 }}>
+        <p style={{ fontSize: 10, color: T.warn, margin: 0 }}>
           ✗ No audio — check audio permissions or your API key
         </p>
       )}

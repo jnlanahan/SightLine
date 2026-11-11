@@ -8,7 +8,10 @@ body,
   height: 100%;
   margin: 0;
   background: transparent;
-  color: #23271C;
+  color: var(--sl-ink, #ECEDE8);
+  /* font.sans in src/design/tokens.ts — Manrope is bundled (main.tsx imports
+     @fontsource-variable/manrope), so the app never fetches fonts. */
+  font-family: "Manrope Variable", "Manrope", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   overflow: hidden;
@@ -27,6 +30,22 @@ textarea {
   user-select: text;
 }
 
+/* A visible focus ring on every control, in the palette's accent (redesign
+   SPEC §11). The composer draws its ring around the whole box instead. */
+button:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+input:not(.sl-composer-input):focus-visible,
+[role="switch"]:focus-visible,
+[role="radio"]:focus-visible {
+  outline: 2px solid var(--sl-accent, #9BD45A);
+  outline-offset: 2px;
+}
+.sl-composer:focus-within {
+  outline: 2px solid var(--sl-accent, #9BD45A);
+  outline-offset: 2px;
+}
+
 /* Regions whose text the user should be able to select and copy */
 .sl-selectable,
 .sl-selectable * {
@@ -39,7 +58,7 @@ textarea {
   width: 4px;
 }
 .sl-scroll::-webkit-scrollbar-thumb {
-  background: rgba(44, 48, 34, 0.22);
+  background: var(--sl-line, rgba(127, 127, 127, 0.3));
   border-radius: 2px;
 }
 .sl-scroll::-webkit-scrollbar-track {

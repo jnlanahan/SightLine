@@ -23,3 +23,61 @@
 .sl-ctrl { transition: background 150ms, color 150ms; }
 .sl-ctrl:hover { background: rgba(226, 232, 242, 0.09); color: #f1f4f8; }
 .sl-card { transition: border-color 150ms, background 150ms; }
+
+/* ── Redesign: phase rail and status (docs/redesign/SPEC.md §8) ── */
+
+/* "Still watching": one slow breathing halo behind the current circle. */
+@keyframes sl-halo {
+  0%, 100% { transform: scale(0.85); opacity: 0.25; }
+  50%      { transform: scale(1.2);  opacity: 0.6; }
+}
+/* Status dot while the coach is looking. */
+@keyframes sl-status-pulse {
+  0%, 100% { opacity: 0.35; }
+  50%      { opacity: 1; }
+}
+.sl-halo {
+  position: absolute;
+  inset: -12px;
+  border-radius: 50%;
+  pointer-events: none;
+  animation: sl-halo 5s ease-in-out infinite;
+}
+.sl-pulse { animation: sl-status-pulse 1.2s ease-in-out infinite; }
+
+/* A visible focus ring on every redesigned control (SPEC §11). */
+.sl-focus:focus-visible {
+  outline: 2px solid var(--sl-accent, #9BD45A);
+  outline-offset: 2px;
+}
+
+/* The rail's phase list scrolls with no scrollbar; fades mark cut edges. */
+.sl-rail-list { scrollbar-width: none; }
+.sl-rail-list::-webkit-scrollbar { display: none; }
+
+/* Ready pill rising in. */
+@keyframes sl-rise {
+  from { transform: translateX(-50%) translateY(8px); opacity: 0; }
+  to   { transform: translateX(-50%) translateY(0);   opacity: 1; }
+}
+.sl-rise { animation: sl-rise 250ms ease-out both; }
+
+/* The rail sliding in when a quick question turns into a plan (SPEC §6.1). */
+@keyframes sl-rail-enter {
+  from { width: 0; opacity: 0; }
+  to   { width: 64px; opacity: 1; }
+}
+.sl-rail-enter { overflow: hidden; animation: sl-rail-enter 200ms ease-out both; }
+
+/* Visually hidden, still read by screen readers. */
+.sl-sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sl-halo { animation: none; transform: none; opacity: 0.4; }
+  .sl-pulse { animation: none; }
+  .sl-rise { animation: none; }
+  .sl-rail-enter { animation: none; }
+}

@@ -7,13 +7,9 @@ import { useTts } from "./hooks/useTts";
 import { api } from "./lib/api";
 import { markAsk, sinceAsk } from "./lib/askClock";
 import {
-  CHECK_WORK_REPLY,
-  GOAL_AGREED_REPLY,
   STEP_DONE_REPLY,
-  STUCK_REPLY,
 } from "./lib/quickReplies";
 import { Composer } from "./components/Composer";
-import { ProgressRail, PlanList, StageList } from "./components/ProgressRail";
 import { Home } from "./components/Home";
 import { AboutChat } from "./components/AboutChat";
 import { liveNotes } from "../electron/chat-notes";
@@ -23,13 +19,25 @@ import type {
   SessionStatus,
   TokenUsage,
 } from "./lib/api";
-import { Instruction } from "./components/Instruction";
-import { GoalCard } from "./components/GoalCard";
 import { ModelCaption } from "./components/ModelCaption";
 import { PrivacyNotice } from "./components/PrivacyNotice";
 import { Settings as SettingsView } from "./components/Settings";
-import { DockRail } from "./components/DockRail";
-import { ConversationHistory } from "./components/ConversationHistory";
+import { PhaseRail } from "./components/PhaseRail";
+import { PhaseChat } from "./components/phase/PhaseChat";
+import { PhaseFooter } from "./components/phase/PhaseFooter";
+import { PhaseHeader } from "./components/phase/PhaseHeader";
+import { ReadyPill } from "./components/phase/ReadyPill";
+import { ChatMenu } from "./components/phase/ChatMenu";
+import { NeedsYouBanner } from "./components/phase/NeedsYouBanner";
+import { useFollowCurrent } from "./hooks/useFollowCurrent";
+import {
+  NEEDS_YOU_ACTION_LABEL,
+  coachState,
+  needsYouOf,
+  resumeDividerText,
+} from "./lib/phaseView";
+import { useTokens } from "./design/ThemeProvider";
+import { usePhaseView } from "./hooks/usePhaseView";
 import {
   buildChatRecord,
   buildWhereWeLeftOff,
@@ -37,22 +45,20 @@ import {
   isWorthSaving,
   titleFromGoal,
 } from "../electron/chat-record";
-import { toPlanSteps } from "./lib/planSteps";
 import { usePushToTalk } from "./hooks/usePushToTalk";
 import { useTheme } from "./design/ThemeProvider";
 import { Glow, Logo, Spinner, CtrlBtn } from "./design/primitives";
 import {
   IPause,
   IGear,
-  IExpand,
   IMonitor,
   IMinimize,
   IClose,
   ISpeakerOn,
   ISpeakerOff,
 } from "./design/icons";
-import { ar, lt } from "./design/theme";
-import { EMPTY_USAGE, addUsage, budgetStatus, formatUsd } from "../electron/usage";
+import { lt, type SightLineTheme } from "./design/theme";
+import { EMPTY_USAGE, addUsage, budgetStatus } from "../electron/usage";
 
 type View = "panel" | "settings" | "privacy";
 
@@ -65,14 +71,13 @@ const STATUS_TEXT: Record<SessionStatus, string> = {
   error:       "Error",
 };
 
-const STATUS_DOT: Record<SessionStatus, string> = {
-  idle:        "#7B816D",
-  watching:    "#4F8A2C",
-  thinking:    "#C07C10",
-  waiting:     "#4F8A2C",
-  paused:      "#7B816D",
-  error:       "#DB3B3B",
-};
+// Status dot colours, from the palette: accent while it works, warn when
+// something is wrong, secondary ink at rest.
+function statusDotColor(T: SightLineTheme, status: SessionStatus | "fixing"): string {
+  if (status === "thinking" || status === "fixing" || status === "error") return T.warn;
+  if (status === "watching" || status === "waiting") return T.accent;
+  return T.ink2;
+}
 
 export default function App() {
   const status         = useSession((s) => s.status);
@@ -83,8 +88,6 @@ export default function App() {
   const instruction   = useSession((s) => s.currentInstruction);
   const currentCode    = useSession((s) => s.currentCode);
   const activeTool     = useSession((s) => s.activeTool);
-  const completedSteps = useSession((s) => s.completedSteps);
-  const upcomingSteps  = useSession((s) => s.upcomingSteps);
   // Only WHETHER a frame exists is subscribed here. pushFrame creates a new
   // array on every tick, so subscribing to `frames` re-rendered the entire
   // tree every 15 s and on every input burst; the one component that shows
@@ -117,9 +120,11 @@ export default function App() {
   const [showQuitConfirm, setShowQuitConfirm] = useState(false);
   const [collapsed, setCollapsed]         = useState(false);
   const [docked, setDocked]               = useState(false);
-  const [planOpen, setPlanOpen]           = useState(false);
   const [aboutOpen, setAboutOpen]         = useState(false);
-  const chatEndRef = useRef<HTMLDivElement | null>(null);
+  const [menuOpen, setMenuOpen]           = useState(false);
+  // The resume divider (SPEC §6.5). resumePending is consumed by the first
+  // look, so the time away is captured here when the chat is opened.
+  const [resumeMark, setResumeMark] = useState<{ chat: string; step: number; at: number; text: string } | null>(null);
   // What the open chat had already run up before this sitting, and when it
   // began. The store counts one sitting — that is what the spending cap
   // applies to — while the saved chat carries the running total.
@@ -131,15 +136,28 @@ export default function App() {
     claudeCalls: number;
   } | null>(null);
 
-  // Keep the newest message (usually the current instruction) in view. Not
-  // keyed on status: every Claude call flips watching → thinking → watching,
-  // which yanked a user who had scrolled up to reread a step back down twice
-  // per tick even when nothing new was said.
-  useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [conversation.length, instruction]);
+  // No scroll-to-newest here any more: the phase chat moves the view only by
+  // the rules in useFollowCurrent (redesign SPEC §6.2, §6.7).
 
   const rateLimitCountdown = useRateLimitCountdown();
+  // The phase-chat view model, tracked for the sitting (plan changes, the
+  // current step's title, the layout floor). Called on every render so the
+  // tracking is continuous while the panel is collapsed too.
+  const { view: phaseView, notes: planNotes, planArrivedAt } = usePhaseView();
+  const sessionId = useSession((s) => s.sessionId);
+  const listening = useSession((s) => s.listening);
+  const pointing  = useSession((s) => s.pointing);
+  const follow = useFollowCurrent(phaseView, sessionId);
+  const tokens = useTokens();
+  const legacyTheme = useTheme();
+  // The chat column comes back (expanding the panel, closing About this
+  // chat): land on the current phase, as a reopened chat does.
+  const landOnCurrent = follow.landOnCurrent;
+  useEffect(() => {
+    if (collapsed || aboutOpen || !useSession.getState().goal) return;
+    const id = requestAnimationFrame(() => landOnCurrent());
+    return () => cancelAnimationFrame(id);
+  }, [collapsed, aboutOpen, landOnCurrent]);
   const { cancel: cancelTts } = useTts();
 
   const openSettings = useCallback(() => setView("settings"), []);
@@ -151,18 +169,6 @@ export default function App() {
   const { startTalking, stopTalking } = usePushToTalk((text) =>
     submitFollowUpRef.current(text),
   );
-
-  // The single ordered plan, derived once and shared by the progress rail and
-  // the step list so the two can never disagree about where you are.
-  const planSteps = toPlanSteps({
-    completedSteps,
-    // The step log runs parallel to completedSteps and carries the times.
-    completedAt: stepLog.map((e) => e.at),
-    completedStage: stepLog.map((e) => e.stage),
-    currentInstruction: instruction,
-    upcomingSteps,
-    done,
-  });
 
   useEffect(() => { void loadSettings(); }, [loadSettings]);
 
@@ -288,6 +294,12 @@ export default function App() {
     // The first look greets them with where things stood. A finished chat
     // opens at rest instead, so there is no look to greet on.
     if (record.state !== "done") {
+      setResumeMark({
+        chat: record.id,
+        step: record.stepLog.length + 1,
+        at: now,
+        text: resumeDividerText((now - record.lastActiveAt) / 60_000),
+      });
       useSession.getState().setResumePending({
         awayMinutes: (now - record.lastActiveAt) / 60_000,
         whereWeLeftOff: record.whereWeLeftOff,
@@ -410,8 +422,8 @@ export default function App() {
     reset();
     chatBaseRef.current = null;
     setShowPeek(false);
-    setPlanOpen(false);
     setAboutOpen(false);
+    setMenuOpen(false);
     // Stay docked — the sidebar is the persistent home, not a per-chat
     // takeover. The user leaves docked mode via the header/Settings toggle.
   }
@@ -433,7 +445,6 @@ export default function App() {
     reset();
     chatBaseRef.current = null;
     setShowPeek(false);
-    setPlanOpen(false);
     setAboutOpen(false);
     if (!id) return;
     try {
@@ -502,7 +513,7 @@ export default function App() {
       : fixing
         ? "Troubleshooting…"
         : STATUS_TEXT[status]);
-  const statusDot  = fixing ? "#C07C10" : STATUS_DOT[status];
+  const statusDot  = statusDotColor(legacyTheme, fixing ? "fixing" : status);
 
   // Collapsed — all hooks above keep running (capture loop, TTS), only the
   // UI shrinks. Docked: a thin vertical rail (the reserved strip narrows);
@@ -511,17 +522,34 @@ export default function App() {
     if (docked) {
       return (
         <PanelShell docked animate={focused}>
-          <DockRail
-            status={status}
-            statusText={statusText}
-            dotColor={statusDot}
-            instruction={instruction}
-            ttsEnabled={settings?.ttsEnabled ?? false}
-            isPaused={status === "paused"}
-            onToggleVoice={toggleVoice}
-            onPause={pause}
-            onResume={resume}
-            onExpand={() => void toggleCollapsed()}
+          {/* The phase rail on its own (redesign SPEC §3.6). The collapse
+              wiring — window resize and the AppBar strip — is unchanged. */}
+          <PhaseRail
+            view={phaseView}
+            collapsed
+            muted={!(settings?.ttsEnabled ?? false)}
+            paused={status === "paused"}
+            needsYou={status === "error" || Boolean(error) || rateLimitCountdown !== null}
+            haloOff={goalPending && status !== "thinking"}
+            latestLine={instruction}
+            onAllChats={() => {
+              // Home does not fit in 64 px: expand, then leave the chat.
+              void toggleCollapsed().then(leaveChat);
+            }}
+            // A circle expands the panel and scrolls to its phase or step.
+            onPhase={(i) => {
+              void toggleCollapsed().then(() =>
+                requestAnimationFrame(() => requestAnimationFrame(() => follow.scrollToPhase(i))),
+              );
+            }}
+            onStep={(n) => {
+              void toggleCollapsed().then(() =>
+                requestAnimationFrame(() => requestAnimationFrame(() => follow.scrollToStep(n))),
+              );
+            }}
+            onMute={toggleVoice}
+            onPause={status === "paused" ? resume : pause}
+            onCollapse={() => void toggleCollapsed()}
           />
         </PanelShell>
       );
@@ -563,6 +591,234 @@ export default function App() {
     );
   }
 
+  // ── The open chat: the phase-chat screen (redesign SPEC §2, §5) ──
+  function openChatView() {
+    const t = tokens.palette;
+    const quick = phaseView.layout === "quick";
+    const capUsd = settings?.sessionBudgetUsd ?? 0;
+    const need = needsYouOf({
+      status,
+      error,
+      hasKey: keyStatus.anthropic,
+      capReached: budgetStatus(useSession.getState().costUsd, capUsd).level === "exceeded",
+      rateLimitSeconds: rateLimitCountdown,
+    });
+    const needsYou = need !== null;
+    const newest = conversation[conversation.length - 1];
+    const coach = coachState({
+      status,
+      activeTool: activeTool?.name ?? null,
+      newest,
+      goalPending,
+      done,
+      listening,
+      troubleshooting,
+      needsYou,
+      stepDoneReply: STEP_DONE_REPLY,
+    });
+    const stateWord = coach.word;
+    const statusRow = coach.statusRow;
+    const needAction = need?.action
+      ? {
+          label: NEEDS_YOU_ACTION_LABEL[need.action],
+          onClick:
+            need.action === "retry"
+              ? () => {
+                  useSession.getState().setError(null);
+                  resume();
+                }
+              : openSettings,
+        }
+      : null;
+    // The divider appears once the coach's greeting has arrived (SPEC §6.5).
+    const resumeDivider =
+      resumeMark &&
+      resumeMark.chat === sessionId &&
+      conversation.some((t) => t.role === "assistant" && t.timestamp >= resumeMark.at)
+        ? resumeMark
+        : null;
+    // The agreed goal once there is one; otherwise the chat's title (which the
+    // tidy-up may have improved), and the user's own words only as a last resort.
+    const title = (!goalPending && agreedGoal) || chatBaseRef.current?.title || goal || "";
+    const placeholder =
+      done || quick
+        ? conversation.length <= 1 && !instruction
+          ? "Ask or tell it anything"
+          : "Ask a follow-up"
+        : goalPending
+          ? // No step is in progress while the goal waits on a yes.
+            "Ask or tell it anything"
+          : `Ask about step ${phaseView.currentStep}`;
+    const railEntering = planArrivedAt !== null && Date.now() - planArrivedAt < 1000;
+    const onQuit = () => {
+      if (goal) setShowQuitConfirm(true);
+      else void api().app.quit();
+    };
+
+    return (
+      <PanelShell docked={docked} animate={focused}>
+        {docked && <DockResizeHandle side={settings?.dockSide ?? "left"} />}
+        <div style={{ flex: 1, minHeight: 0, display: "flex", background: t.bg, color: t.ink }}>
+          <div className={railEntering ? "sl-rail-enter" : undefined} style={{ display: "flex", flexShrink: 0 }}>
+            <PhaseRail
+              view={phaseView}
+              collapsed={false}
+              muted={!(settings?.ttsEnabled ?? false)}
+              paused={status === "paused"}
+              needsYou={needsYou}
+              haloOff={coach.halo !== "breathing"}
+              onAllChats={leaveChat}
+              onPhase={(i) => follow.scrollToPhase(i)}
+              onStep={(n) => follow.scrollToStep(n)}
+              onMute={toggleVoice}
+              onPause={status === "paused" ? resume : pause}
+              onCollapse={() => void toggleCollapsed()}
+            />
+          </div>
+          <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", position: "relative" }}>
+            <PhaseHeader
+              title={title}
+              view={phaseView}
+              stateWord={stateWord}
+              menuOpen={menuOpen}
+              onMenu={() => setMenuOpen((v) => !v)}
+              quickControls={{
+                muted: !(settings?.ttsEnabled ?? false),
+                paused: status === "paused",
+                onAllChats: leaveChat,
+                onMute: toggleVoice,
+                onPause: status === "paused" ? resume : pause,
+                onCollapse: () => void toggleCollapsed(),
+              }}
+            />
+            {menuOpen && (
+              <ChatMenu
+                docked={docked}
+                aboutOpen={aboutOpen}
+                attachedCount={attachedFileNames.length}
+                canPeek={hasFrame}
+                onClose={() => setMenuOpen(false)}
+                onAbout={() => setAboutOpen((v) => !v)}
+                onAttach={() => void attachContext()}
+                onPeek={() => setShowPeek(true)}
+                onAdjustArea={() => { void api().overlay.setAdjust(true); }}
+                onToggleDock={() => void patchSettings({ dockEnabled: !docked })}
+                onSettings={openSettings}
+                onMinimize={() => void api().window.minimize()}
+                onQuit={onQuit}
+              />
+            )}
+            {showQuitConfirm && (
+              <QuitConfirmBanner
+                onConfirm={() => {
+                  // Save before the process goes away — quitting mid-chat is
+                  // the most common way a sitting actually ends.
+                  void persistChat().finally(() => {
+                    void api().app.quit();
+                  });
+                }}
+                onCancel={() => setShowQuitConfirm(false)}
+              />
+            )}
+            {showPeek && hasFrame && <PeekOverlay onClose={() => setShowPeek(false)} />}
+
+            {aboutOpen ? (
+              <div className="flex-1 overflow-y-auto sl-scroll" style={{ minHeight: 0 }}>
+                <AboutChat
+                  goal={agreedGoal || goal || ""}
+                  doneWhen={doneWhen}
+                  whereWeLeftOff={
+                    // The tidy-up's summary, until the chat moves on from it.
+                    tidy && tidy.whereWeLeftOff && tidy.turns === conversation.length
+                      ? tidy.whereWeLeftOff
+                      : buildWhereWeLeftOff({
+                          stepLog,
+                          currentStep: instruction,
+                          done,
+                          stages,
+                          stageIndex,
+                        })
+                  }
+                  tidyNote={tidy?.changed ?? ""}
+                  notes={liveNotes(agentNotes)}
+                  fileNames={attachedFileNames}
+                  done={done}
+                  onEditNote={(id, text) => useSession.getState().editAgentNote(id, text)}
+                  onForgetNote={(id) => useSession.getState().forgetAgentNote(id, Date.now())}
+                  onMarkDone={markChatDone}
+                  onDelete={() => void deleteOpenChat()}
+                  onClose={() => setAboutOpen(false)}
+                />
+              </div>
+            ) : (
+              <PhaseChat
+                view={phaseView}
+                stateWord={stateWord}
+                currentInstruction={instruction}
+                currentCode={currentCode}
+                notes={planNotes}
+                pendingGoal={goalPending && !done ? { goal: agreedGoal || goal || "", doneWhen } : null}
+                scrollRef={follow.scrollRef}
+                onScroll={follow.onScroll}
+                onUserScroll={follow.onUserScroll}
+                resume={resumeDivider}
+                banner={need ? <NeedsYouBanner message={need.message} detail={need.detail} action={needAction} /> : undefined}
+                footer={
+                  quick ? (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                      {pointing && !done && (
+                        <div style={{ fontSize: 12.5, color: t.ink2 }}>
+                          Outlined on your screen. I&apos;ll move on when I see it&apos;s done.
+                        </div>
+                      )}
+                      {statusRow ? (
+                        <PhaseFooter stance={stance} pointing={false} statusRow={statusRow} onReply={submitFollowUp} />
+                      ) : status === "paused" ? (
+                        <PhaseFooter stance={stance} pointing={false} paused onReply={submitFollowUp} onResume={resume} />
+                      ) : goalPending ? (
+                        <PhaseFooter stance={stance} pointing={false} goalPending onReply={submitFollowUp} />
+                      ) : (
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: t.ink2 }}>
+                          <span aria-hidden="true" style={{ width: 7, height: 7, borderRadius: "50%", background: t.accent }} />
+                          {done ? "Done." : "Watching quietly."}
+                        </div>
+                      )}
+                    </div>
+                  ) : done ? // A finished goal has nothing left to tick off: the completion
+                  // section stands alone (SPEC §6.6, §7 "Done").
+                  undefined : (
+                    <PhaseFooter
+                      stance={stance}
+                      pointing={pointing}
+                      statusRow={statusRow}
+                      goalPending={goalPending}
+                      paused={status === "paused"}
+                      onReply={submitFollowUp}
+                      onResume={resume}
+                    />
+                  )
+                }
+              />
+            )}
+            {follow.pill && !aboutOpen && <ReadyPill label={follow.pill} onClick={follow.onPillClick} />}
+            <div style={{ flexShrink: 0 }}>
+              <Composer
+                placeholder={placeholder}
+                isThinking={status === "thinking"}
+                onSubmit={submitFollowUp}
+                onStartTalking={startTalking}
+                onStopTalking={stopTalking}
+              />
+              <ModelCaption style={{ display: "block", padding: "0 16px 8px", marginTop: -6 }} />
+            </div>
+          </div>
+        </div>
+      </PanelShell>
+    );
+  }
+
+  if (goal) return openChatView();
+
   return (
     <PanelShell docked={docked} animate={focused}>
       {docked && <DockResizeHandle side={settings?.dockSide ?? "left"} />}
@@ -602,181 +858,13 @@ export default function App() {
       {/* Peek overlay */}
       {showPeek && hasFrame && <PeekOverlay onClose={() => setShowPeek(false)} />}
 
-      {/* Content area */}
-      {!goal ? (
-        <div className="flex flex-1 flex-col gap-2.5 overflow-y-auto p-3 pt-2 sl-scroll">
-          <Home
-            onStart={(g) => startSession(g)}
-            onOpen={(id) => void openChat(id)}
-          />
-        </div>
-      ) : (
-        /* Session layout, top to bottom: progress rail, optional plan list,
-           conversation, composer. Every region is in the normal flex flow —
-           nothing floats over anything else, so opening the plan shrinks the
-           conversation instead of burying it. */
-        <div className="flex flex-1 flex-col" style={{ minHeight: 0 }}>
-          <ProgressRail
-            // A long plan shows where the user is in it; anything shorter
-            // just shows the goal.
-            label={stages.length > 0 ? `Stage ${stageIndex + 1} of ${stages.length}` : "Goal"}
-            // The goal as agreed with the coach, once there is one; the
-            // user's own words until then.
-            goal={stages.length > 0 ? (stages[stageIndex] ?? goal) : (agreedGoal || goal)}
-            steps={planSteps}
-            open={planOpen}
-            docked={docked}
-            onToggle={() => setPlanOpen((v) => !v)}
-          />
-
-          {planOpen && (
-            <>
-              {agreedGoal && (
-                <div
-                  className="sl-selectable"
-                  style={{
-                    flexShrink: 0, padding: "8px 16px",
-                    fontSize: 12, lineHeight: 1.45,
-                    borderBottom: `1px solid ${lt(0.08)}`,
-                  }}
-                >
-                  <div style={{ fontWeight: 600 }}>{agreedGoal}</div>
-                  {doneWhen && (
-                    <div style={{ marginTop: 2, opacity: 0.75 }}>Done when: {doneWhen}</div>
-                  )}
-                </div>
-              )}
-              <StageList stages={stages} current={stageIndex} />
-              <PlanList steps={planSteps} />
-              <div style={{ flexShrink: 0, padding: "8px 16px 10px", borderBottom: `1px solid ${lt(0.08)}` }}>
-                <ContextPanel
-                  fileNames={attachedFileNames}
-                  onAttach={attachContext}
-                  onAbout={() => setAboutOpen(true)}
-                />
-              </div>
-            </>
-          )}
-
-          {aboutOpen ? (
-            <div className="flex-1 overflow-y-auto sl-scroll" style={{ minHeight: 0 }}>
-              <AboutChat
-                goal={agreedGoal || goal}
-                doneWhen={doneWhen}
-                whereWeLeftOff={
-                  // The tidy-up's summary, until the chat moves on from it.
-                  tidy && tidy.whereWeLeftOff && tidy.turns === conversation.length
-                    ? tidy.whereWeLeftOff
-                    : buildWhereWeLeftOff({
-                        stepLog,
-                        currentStep: instruction,
-                        done,
-                        stages,
-                        stageIndex,
-                      })
-                }
-                tidyNote={tidy?.changed ?? ""}
-                notes={liveNotes(agentNotes)}
-                fileNames={attachedFileNames}
-                done={done}
-                onEditNote={(id, text) => useSession.getState().editAgentNote(id, text)}
-                onForgetNote={(id) => useSession.getState().forgetAgentNote(id, Date.now())}
-                onMarkDone={markChatDone}
-                onDelete={() => void deleteOpenChat()}
-                onClose={() => setAboutOpen(false)}
-              />
-            </div>
-          ) : (
-          <>
-          {/* Conversation — the one region that grows and scrolls */}
-          <div
-            className="flex-1 overflow-y-auto sl-scroll"
-            style={{ minHeight: 0, padding: "10px 12px 4px" }}
-          >
-            <ConversationHistory
-              turns={conversation}
-              hideLatestAssistant={instruction}
-              autoScroll={false}
-            />
-            <div style={{ marginTop: 8 }}>
-              {/* The coach has said the goal back: the goal and a one-tap yes
-                  stand where the step will go. An error still shows as one. */}
-              {goalPending && !done && !error ? (
-                <GoalCard
-                  goal={agreedGoal || goal}
-                  doneWhen={doneWhen}
-                  busy={status === "thinking"}
-                  onAgree={() => submitFollowUp(GOAL_AGREED_REPLY)}
-                />
-              ) : (
-                <Instruction
-                  instruction={instruction}
-                  code={currentCode}
-                  status={status}
-                  done={done}
-                  error={error}
-                  activeTool={activeTool}
-                  troubleshooting={troubleshooting}
-                  onStepDone={
-                    stance === "guide"
-                      ? () => submitFollowUp(STEP_DONE_REPLY)
-                      : undefined
-                  }
-                />
-              )}
-            </div>
-            {/* Watching quietly: the two one-tap ways to ask for the coach's
-                voice. They send plain words, the same as typing or saying
-                them. Always available while it watches — hiding them on
-                `done` left the user with no way to talk to the coach after
-                one premature done. */}
-            {stance === "watch" && (
-              <div style={{ marginTop: 8 }}>
-                <TrainingActions
-                  busy={status === "thinking"}
-                  onCheckWork={() => submitFollowUp(CHECK_WORK_REPLY)}
-                  onStuck={() => submitFollowUp(STUCK_REPLY)}
-                />
-              </div>
-            )}
-            <div ref={chatEndRef} />
-          </div>
-
-          <div className="px-3 pb-2 pt-1" style={{ flexShrink: 0 }}>
-            <Composer
-              isThinking={status === "thinking"}
-              onSubmit={submitFollowUp}
-              onStartTalking={startTalking}
-              onStopTalking={stopTalking}
-            />
-            <ModelCaption style={{ display: "block", padding: "5px 4px 0" }} />
-          </div>
-          </>
-          )}
-        </div>
-      )}
-
-      {/* Control bar */}
-      {goal && (
-        <>
-          <ControlBar
-            status={status}
-            ttsEnabled={settings?.ttsEnabled ?? false}
-            hasPeek={hasFrame}
-            showPeek={showPeek}
-            attachedCount={attachedFileNames.length}
-            rateLimitCountdown={rateLimitCountdown}
-            onPause={pause}
-            onResume={resume}
-            onStop={leaveChat}
-            onToggleVoice={toggleVoice}
-            onAttach={attachContext}
-            onPeek={() => setShowPeek((v) => !v)}
-            aboutOpen={aboutOpen}
-            onAbout={() => setAboutOpen((v) => !v)}
-          />
-        </>
-      )}
+      {/* Home: unchanged until its layout is designed (WP9 recolours it). */}
+      <div className="flex flex-1 flex-col gap-2.5 overflow-y-auto p-3 pt-2 sl-scroll">
+        <Home
+          onStart={(g) => startSession(g)}
+          onOpen={(id) => void openChat(id)}
+        />
+      </div>
     </PanelShell>
   );
 }
@@ -828,11 +916,12 @@ function beginWindowDrag(e: React.PointerEvent) {
 
 function PeekOverlay({ onClose }: { onClose(): void }) {
   const lastFrame = useSession((s) => s.frames[s.frames.length - 1] ?? null);
+  const { palette: t } = useTokens();
   if (!lastFrame) return null;
   return (
     <div
-      className="absolute inset-x-0 z-50 mx-2 cursor-pointer overflow-hidden rounded-xl border border-sl-divider bg-sl-bg shadow-xl"
-      style={{ top: 72 }}
+      className="absolute inset-x-0 z-50 mx-2 cursor-pointer overflow-hidden rounded-xl shadow-xl"
+      style={{ top: 72, border: `1px solid ${t.line}`, background: t.card }}
       onClick={onClose}
     >
       <img
@@ -840,7 +929,7 @@ function PeekOverlay({ onClose }: { onClose(): void }) {
         alt="Current view"
         className="max-h-48 w-full object-contain"
       />
-      <p className="px-2 py-1 text-center font-mono text-[9px] text-sl-ink3">
+      <p className="px-2 py-1 text-center" style={{ fontSize: 11.5, color: t.ink2 }}>
         {new Date(lastFrame.timestamp).toLocaleTimeString()} · click to close
       </p>
     </div>
@@ -851,7 +940,8 @@ function PeekOverlay({ onClose }: { onClose(): void }) {
 
 function PanelShell({
   children,
-  radius = 22,
+  // Floating panel corner radius (redesign SPEC §1: radius.floatingPanel).
+  radius = 14,
   docked = false,
   animate = true,
 }: {
@@ -959,65 +1049,6 @@ function DockResizeHandle({ side }: { side: DockSide }) {
       onMouseEnter={(e) => { if (!active) (e.currentTarget as HTMLElement).style.background = lt(0.08); }}
       onMouseLeave={(e) => { if (!active) (e.currentTarget as HTMLElement).style.background = "transparent"; }}
     />
-  );
-}
-
-/* ── Training action row — Check my work · I'm stuck ── */
-
-function TrainingActions({
-  busy,
-  onCheckWork,
-  onStuck,
-}: {
-  busy: boolean;
-  onCheckWork(): void;
-  onStuck(): void;
-}) {
-  const T = useTheme();
-  return (
-    <div className="no-drag" style={{ display: "flex", gap: 8 }}>
-      <button
-        type="button"
-        onClick={onCheckWork}
-        disabled={busy}
-        title="Done with this task? The coach looks at your work and gives feedback"
-        style={{
-          flex: 1,
-          display: "flex", alignItems: "center", justifyContent: "center", gap: 7,
-          padding: "10px 12px", border: 0, borderRadius: 11,
-          background: busy
-            ? lt(0.08)
-            : `linear-gradient(180deg, ${T.accent}, ${T.accentDeep})`,
-          color: busy ? T.ink3 : T.onAccent,
-          fontSize: 12.5, fontWeight: 700, letterSpacing: "0.02em",
-          cursor: busy ? "default" : "pointer",
-          boxShadow: busy ? "none" : `0 4px 12px -4px ${ar(T.accentRGB, 0.7)}`,
-        }}
-      >
-        <svg width="13" height="13" viewBox="0 0 13 13" fill="none" aria-hidden>
-          <path d="M2 7l3 3 6-7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
-        {busy ? "One sec…" : "Check my work"}
-      </button>
-      <button
-        type="button"
-        onClick={onStuck}
-        disabled={busy}
-        title="Stuck? Get a nudge — a hint, not the answer"
-        style={{
-          flex: 1,
-          display: "flex", alignItems: "center", justifyContent: "center", gap: 7,
-          padding: "10px 12px", borderRadius: 11,
-          border: `1px solid ${lt(0.14)}`,
-          background: lt(0.04),
-          color: busy ? T.ink3 : T.ink2,
-          fontSize: 12.5, fontWeight: 600, letterSpacing: "0.02em",
-          cursor: busy ? "default" : "pointer",
-        }}
-      >
-        🖐 I'm stuck
-      </button>
-    </div>
   );
 }
 
@@ -1141,7 +1172,7 @@ function PanelHeader({
           size={btn}
           title={ttsEnabled ? "Voice on — click to mute the coach" : "Muted — click to turn the coach's voice on"}
           onClick={onToggleVoice}
-          color={ttsEnabled ? undefined : "#C22F2F"}
+          color={ttsEnabled ? undefined : T.warn}
         >
           {ttsEnabled ? <SpeakerOnIcon /> : <SpeakerOffIcon />}
         </CtrlBtn>
@@ -1231,237 +1262,14 @@ function WindowBtn({
         width: size, height: size, flexShrink: 0,
         display: "grid", placeItems: "center",
         borderRadius: 9, cursor: "pointer",
-        background: danger ? "rgba(219,59,59,0.1)" : lt(0.05),
-        border: `1px solid ${danger ? "rgba(219,59,59,0.35)" : lt(0.1)}`,
-        color: danger ? "#C22F2F" : T.ink2,
+        background: danger ? T.warnSoft : lt(0.05),
+        border: `1px solid ${danger ? T.warn : lt(0.1)}`,
+        color: danger ? T.warn : T.ink2,
         marginLeft: 2,
       }}
     >
       {children}
     </button>
-  );
-}
-
-/* ── Control bar — flat icon row replacing the D-pad ── */
-
-function ControlBar({
-  status,
-  ttsEnabled,
-  hasPeek,
-  showPeek,
-  attachedCount,
-  rateLimitCountdown,
-  onPause,
-  onResume,
-  onStop,
-  onToggleVoice,
-  onAttach,
-  onPeek,
-  aboutOpen,
-  onAbout,
-}: {
-  status: SessionStatus;
-  ttsEnabled: boolean;
-  hasPeek: boolean;
-  showPeek: boolean;
-  attachedCount: number;
-  rateLimitCountdown: number | null;
-  onPause(): void;
-  onResume(): void;
-  onStop(): void;
-  onToggleVoice(): void;
-  onAttach(): void;
-  onPeek(): void;
-  aboutOpen: boolean;
-  onAbout(): void;
-}) {
-  const T   = useTheme();
-  const isPaused = status === "paused";
-
-  return (
-    <div
-      className="no-drag"
-      style={{
-        display: "flex", alignItems: "center", gap: 2,
-        padding: "10px 12px 12px",
-        borderTop: `1px solid ${lt(0.07)}`,
-        flexShrink: 0,
-      }}
-    >
-      {/* The coach's voice. Deliberately NOT a microphone icon: a mic means
-          input, this controls output, and the hold-to-talk mic sits directly
-          above it in the composer. Muted state is a labelled red pill rather
-          than a tinted icon — an app that has silently stopped talking must
-          say so, not hint at it. */}
-      {ttsEnabled ? (
-        <CtrlBtn
-          title="Voice on — click to mute the coach"
-          onClick={onToggleVoice}
-          color={T.accentText}
-        >
-          <SpeakerOnIcon />
-        </CtrlBtn>
-      ) : (
-        <button
-          type="button"
-          className="no-drag"
-          onClick={onToggleVoice}
-          title="The coach is muted — click to turn its voice back on"
-          style={{
-            display: "inline-flex", alignItems: "center", gap: 5,
-            height: 30, padding: "0 9px", borderRadius: 9,
-            border: "1px solid rgba(219,59,59,0.45)",
-            background: "rgba(219,59,59,0.12)",
-            color: "#C22F2F", cursor: "pointer",
-            fontSize: 10.5, fontWeight: 700, letterSpacing: "0.04em",
-            fontFamily: "inherit", flexShrink: 0,
-          }}
-        >
-          <SpeakerOffIcon />
-          MUTED
-        </button>
-      )}
-
-      <CtrlBtn
-        title={attachedCount > 0 ? `${attachedCount} file(s) attached — attach more` : "Attach file"}
-        onClick={onAttach}
-        color={attachedCount > 0 ? T.ink : undefined}
-      >
-        <AttachIcon />
-      </CtrlBtn>
-
-      <CtrlBtn
-        title={aboutOpen ? "Back to the chat" : "About this chat — what the coach remembers here"}
-        onClick={onAbout}
-        color={aboutOpen ? T.accentText : undefined}
-      >
-        <InfoIcon c={aboutOpen ? T.accentText : "currentColor"} />
-      </CtrlBtn>
-
-      {hasPeek && (
-        <CtrlBtn
-          title="Peek at last screenshot"
-          onClick={onPeek}
-          color={showPeek ? T.accentText : undefined}
-        >
-          <IExpand c={showPeek ? T.accentText : "currentColor"} />
-        </CtrlBtn>
-      )}
-
-      {/* Pause / Resume — accent gradient, primary action */}
-      <button
-        className="no-drag"
-        onClick={isPaused ? onResume : onPause}
-        title={isPaused ? "Resume" : "Pause"}
-        style={{
-          width: 36, height: 36, border: 0, borderRadius: 11, cursor: "pointer",
-          background: `linear-gradient(180deg, ${T.accent}, ${T.accentDeep})`,
-          color: T.onAccent,
-          display: "grid", placeItems: "center",
-          boxShadow: `0 4px 12px -4px ${ar(T.accentRGB, 0.7)}`,
-          flexShrink: 0,
-          transition: "opacity 150ms",
-          marginLeft: 4,
-        }}
-      >
-        {isPaused ? <PlayIcon c={T.onAccent} /> : <IPause c={T.onAccent} />}
-      </button>
-
-      <div style={{ flex: 1 }} />
-
-      {/* Rate limit countdown */}
-      {rateLimitCountdown != null && rateLimitCountdown > 0 && (
-        <span style={{ fontSize: 10, color: T.ink3, fontVariantNumeric: "tabular-nums", marginRight: 4 }}>
-          {rateLimitCountdown}s
-        </span>
-      )}
-
-      {/* Live pill doubling as the spend meter — the cost of watching someone's
-          screen should be visible while it's happening, not after the fact. */}
-      <CostPill />
-
-      {/* Leave. Not a stop: the chat is saved as it stands and can be
-          reopened from the list, so there is nothing to confirm. */}
-      <button
-        className="no-drag"
-        onClick={onStop}
-        title="Back to your chats — this one is saved"
-        style={{
-          height: 30, border: `1px solid ${lt(0.12)}`,
-          borderRadius: 9, cursor: "pointer",
-          background: "transparent", color: T.ink2,
-          fontSize: 10.5, fontWeight: 600, padding: "0 10px",
-          letterSpacing: "0.02em", flexShrink: 0,
-        }}
-      >
-        ← Chats
-      </button>
-    </div>
-  );
-}
-
-/* ── Spend meter ──
-   Doubles as the "live" indicator. Turns amber as the session approaches its
-   budget and red once it stops, so the cap is never a silent surprise. */
-
-function CostPill() {
-  const T = useTheme();
-  const costUsd = useSession((s) => s.costUsd);
-  const calls = useSession((s) => s.claudeCalls);
-  const limit = useSettings((s) => s.settings?.sessionBudgetUsd ?? 0);
-  const budget = budgetStatus(costUsd, limit);
-
-  const tone =
-    budget.level === "exceeded"
-      ? { fg: "#C22F2F", bg: "rgba(219,59,59,0.12)", bd: "rgba(219,59,59,0.4)" }
-      : budget.level === "warn"
-        ? { fg: "#B4770C", bg: "rgba(192,124,16,0.12)", bd: "rgba(192,124,16,0.4)" }
-        : {
-            fg: T.accentText,
-            bg: ar(T.accentRGB, 0.14),
-            bd: ar(T.accentRGB, 0.4),
-          };
-
-  const title =
-    limit > 0
-      ? `This session: ${formatUsd(costUsd)} of a ${formatUsd(limit)} cap, over ${calls} look${calls === 1 ? "" : "s"} at your screen`
-      : `This session: ${formatUsd(costUsd)} over ${calls} look${calls === 1 ? "" : "s"} at your screen (no cap set)`;
-
-  return (
-    <span
-      title={title}
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 6,
-        fontSize: 10.5,
-        fontWeight: 700,
-        letterSpacing: "0.04em",
-        color: tone.fg,
-        padding: "5px 10px",
-        borderRadius: 999,
-        background: tone.bg,
-        border: `1px solid ${tone.bd}`,
-        flexShrink: 0,
-        fontVariantNumeric: "tabular-nums",
-      }}
-    >
-      <span
-        aria-hidden
-        style={{
-          width: 6,
-          height: 6,
-          borderRadius: "50%",
-          background: tone.fg,
-          boxShadow: `0 0 8px ${tone.fg}`,
-          animation:
-            budget.level === "exceeded"
-              ? "none"
-              : "sl-blink 1.6s ease-in-out infinite",
-        }}
-      />
-      {formatUsd(costUsd)}
-    </span>
   );
 }
 
@@ -1476,7 +1284,7 @@ function QuitConfirmBanner({ onConfirm, onCancel }: { onConfirm(): void; onCance
         display: "flex", alignItems: "center", gap: 10,
         padding: "10px 14px",
         borderBottom: `1px solid ${lt(0.07)}`,
-        background: "rgba(239,68,68,0.07)",
+        background: T.warnSoft,
         flexShrink: 0,
       }}
     >
@@ -1499,7 +1307,7 @@ function QuitConfirmBanner({ onConfirm, onCancel }: { onConfirm(): void; onCance
         onClick={onConfirm}
         style={{
           borderRadius: 8, border: 0,
-          background: "#ef4444", color: "#fff",
+          background: T.warn, color: T.onWarn,
           fontSize: 11, fontWeight: 600, padding: "5px 12px", cursor: "pointer",
         }}
       >
@@ -1531,7 +1339,7 @@ function CollapsedBar({
   onExpand(): void;
 }) {
   const T = useTheme();
-  const dotColor = STATUS_DOT[status];
+  const dotColor = statusDotColor(T, status);
   const pulses   = status === "watching" || status === "thinking";
 
   return (
@@ -1566,7 +1374,7 @@ function CollapsedBar({
         <CtrlBtn
           title={ttsEnabled ? "Voice on — click to mute the coach" : "Muted — click to turn the coach's voice on"}
           onClick={onToggleVoice}
-          color={ttsEnabled ? T.accentText : "#C22F2F"}
+          color={ttsEnabled ? T.accentText : T.warn}
         >
           {ttsEnabled ? <SpeakerOnIcon /> : <SpeakerOffIcon />}
         </CtrlBtn>
@@ -1592,86 +1400,9 @@ function CollapsedBar({
   );
 }
 
-/* ── Context panel (attached files, and the way into About this chat) ── */
-
-function ContextPanel({
-  fileNames,
-  onAttach,
-  onAbout,
-}: {
-  fileNames: string[];
-  onAttach(): void;
-  onAbout(): void;
-}) {
-  const T = useTheme();
-  const smallBtn: React.CSSProperties = {
-    borderRadius: 8, border: `1px solid ${lt(0.08)}`,
-    background: lt(0.04), padding: "3px 10px",
-    fontFamily: "ui-monospace, monospace", fontSize: 10, color: T.ink2,
-    cursor: "pointer", transition: "background 150ms",
-  };
-
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-        <span style={{ flex: 1, fontSize: 10, fontWeight: 700, letterSpacing: "0.13em", textTransform: "uppercase", color: T.ink3 }}>
-          Context
-        </span>
-        {/* The coach's notes used to be listed here. They live in About
-            this chat now, where each can be read, corrected or forgotten. */}
-        <button
-          type="button"
-          onClick={onAbout}
-          className="no-drag"
-          title="What the coach remembers about this chat"
-          style={smallBtn}
-        >
-          About this chat
-        </button>
-        <button
-          type="button"
-          onClick={onAttach}
-          className="no-drag"
-          title="Attach text or markdown files"
-          style={smallBtn}
-        >
-          {fileNames.length > 0 ? "+ Attach" : "+ Attach file"}
-        </button>
-      </div>
-      {fileNames.length > 0 && (
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-          {fileNames.map((name, i) => (
-            <span
-              key={i}
-              title={name}
-              style={{
-                borderRadius: 6, border: `1px solid ${lt(0.08)}`,
-                background: lt(0.04), padding: "2px 8px",
-                fontFamily: "ui-monospace, monospace", fontSize: 10, color: T.ink2,
-              }}
-            >
-              {name}
-            </span>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
 /* ── Local SVG icons (not in the design icon set) ── */
 
 // A circled "i" — About this chat.
-function InfoIcon({ c }: { c: string }) {
-  return (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-      <circle cx="7" cy="7" r="5.6" stroke={c} strokeWidth="1.4" />
-      <path d="M7 6.2v3.6" stroke={c} strokeWidth="1.5" strokeLinecap="round" />
-      <circle cx="7" cy="4.3" r="0.85" fill={c} />
-    </svg>
-  );
-}
-
 function SpeakerOnIcon() {
   const T = useTheme();
   return <ISpeakerOn c={T.accent} />;
@@ -1705,14 +1436,6 @@ function DockIcon({ active }: { active: boolean }) {
   );
 }
 
-function CloseIcon({ size = 10 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 10 10" fill="none">
-      <path d="M2 2l6 6M8 2l-6 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-    </svg>
-  );
-}
-
 function ChevronDownIcon() {
   return (
     <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
@@ -1725,14 +1448,6 @@ function ChevronUpIcon() {
   return (
     <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
       <path d="M2 8l4-4 4 4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-function AttachIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-      <path d="M13 7.5l-5.5 5.5a4 4 0 0 1-5.66-5.66l5.5-5.5a2.5 2.5 0 0 1 3.54 3.54L5.37 10.9a1 1 0 0 1-1.41-1.41L9.5 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }

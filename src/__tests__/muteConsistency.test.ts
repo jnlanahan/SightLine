@@ -34,19 +34,26 @@ describe("muting is consistent across every speech path", () => {
 });
 
 describe("the mute control is legible", () => {
+  // The voice toggle moved from the old bottom bar (ControlBar, removed in
+  // redesign WP8) to the phase rail and, for a quick answer, the header. The
+  // rules are the same; only the file they are checked in changed.
   it("does not use a microphone icon for the coach's voice", async () => {
     // A microphone means input. This toggle controls output, and the
-    // hold-to-talk mic sits directly above it in the composer — two mic icons
-    // with opposite meanings is how the app got muted by accident.
-    const src = await source("../App");
-    const controlBar = src.slice(src.indexOf("function ControlBar"));
-    const voiceToggle = controlBar.slice(0, controlBar.indexOf("AttachIcon"));
-    expect(voiceToggle).not.toContain("<IMic");
-    expect(voiceToggle).toContain("Speaker");
+    // hold-to-talk mic sits in the composer — two mic icons with opposite
+    // meanings is how the app got muted by accident.
+    for (const path of ["../components/PhaseRail", "../components/phase/PhaseHeader"]) {
+      const src = await source(path);
+      expect(src).not.toMatch(/Mic/);
+      expect(src).toContain("IconSpeakerOff");
+      expect(src).toContain("IconSpeaker ");
+    }
   });
 
-  it("says MUTED in words, not just a colour change", async () => {
-    const src = await source("../App");
-    expect(src).toContain("MUTED");
+  it("says it is muted in words, not just an icon change", async () => {
+    for (const path of ["../components/PhaseRail", "../components/phase/PhaseHeader"]) {
+      const src = await source(path);
+      expect(src).toContain('"Turn voice on"');
+      expect(src).toContain('"Voice is muted"');
+    }
   });
 });

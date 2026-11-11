@@ -74,6 +74,13 @@ export interface ConversationTurn {
   // as a monospace block, never spoken.
   code?: string;
   timestamp: number;
+  // Where the chat stood when the turn was added, so the phase-chat screen can
+  // put each message under its step. Set by the store's appendTurn; absent on
+  // turns from chats saved before the redesign (those are placed by time).
+  // `stage` is the 0-based stage index; `step` the global, 1-based number of
+  // the step in progress (step log length + 1).
+  stage?: number;
+  step?: number;
 }
 
 export interface CaptureFrame {
@@ -191,7 +198,9 @@ export interface ElevenVoiceOption {
   blurb: string;
 }
 
-export type AccentName = "lime" | "cobalt" | "rose" | "slate";
+// The redesign's colour sets (src/design/tokens.ts holds their colours). They
+// replaced the four accents; the old setting is read once and mapped.
+export type PaletteName = "graphite" | "porcelain" | "midnight";
 
 // Side of the monitor the docked sidebar reserves (Windows AppBar).
 export type DockSide = "left" | "right";
@@ -250,7 +259,9 @@ export interface Settings {
   sessionBudgetUsd: number;
   // Let the coach recall durable facts from earlier sessions.
   memoryEnabled: boolean;
-  accentColor: AccentName;
+  // Colour set for the whole app and the glow overlay. (An old settings
+  // file's accent colour is read once to choose it; see settings-store.ts.)
+  palette: PaletteName;
   windowBounds: WindowBounds | null;
   solidBackground: boolean;
   // One-time migration flag: forces opacity/solidBackground to opaque once

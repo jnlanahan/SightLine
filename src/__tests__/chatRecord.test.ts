@@ -515,3 +515,44 @@ describe("refusing a chat that is not a chat", () => {
     expect(isChatRecordShape("chat_1")).toBe(false);
   });
 });
+
+describe("turn step tags (redesign WP2)", () => {
+  const tagged = () =>
+    snapshot({
+      conversation: [
+        { role: "user", content: "Goal: Set up a VPN on this laptop", timestamp: 1_000, stage: 0, step: 1 },
+        { role: "assistant", content: "Run this.", code: "winget install vpn", timestamp: 1_500, stage: 1, step: 3 },
+      ],
+    });
+
+  it("are saved with each turn", () => {
+    const record = buildChatRecord(tagged());
+    expect(record.turns[0]).toMatchObject({ stage: 0, step: 1 });
+    expect(record.turns[1]).toMatchObject({ stage: 1, step: 3, code: "winget install vpn" });
+    expect(isChatRecordShape(record)).toBe(true);
+  });
+
+  it("survive disk and come back into the live session", () => {
+    const record = JSON.parse(JSON.stringify(buildChatRecord(tagged())));
+    const restored = chatToSession(record);
+    expect(restored.conversation.map((t) => [t.stage, t.step])).toEqual([
+      [0, 1],
+      [1, 3],
+    ]);
+  });
+
+  it("old turns without tags still load, with no tags invented", () => {
+    const record = buildChatRecord(snapshot());
+    expect(record.turns.every((t) => !("stage" in t) && !("step" in t))).toBe(true);
+    expect(isChatRecordShape(record)).toBe(true);
+    const restored = chatToSession(record);
+    expect(restored.conversation).toHaveLength(2);
+    expect(restored.conversation.every((t) => t.step === undefined && t.stage === undefined)).toBe(true);
+  });
+
+  it("a record whose tags are not numbers is refused", () => {
+    const record = buildChatRecord(snapshot()) as unknown as { turns: Record<string, unknown>[] };
+    record.turns[0].step = "three";
+    expect(isChatRecordShape(record)).toBe(false);
+  });
+});

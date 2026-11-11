@@ -9,7 +9,6 @@ declare global {
 export const api = (): SightLineApi => window.sightline;
 
 export type {
-  AccentName,
   AgentDescriptor,
   ApiKeyStatus,
   CaptureFrame,
@@ -24,6 +23,7 @@ export type {
   InstructionAction,
   InstructionResponse,
   LoopPolicy,
+  PaletteName,
   PushToTalkKey,
   Settings,
   SessionStatus,

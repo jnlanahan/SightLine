@@ -1,7 +1,12 @@
 import { app } from "electron";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { Settings } from "./types";
+import type { PaletteName, Settings } from "./types";
+
+// The retired four-accent setting. Read from old settings files only, to pick
+// the colour set once; never written.
+type LegacyAccentName = "lime" | "cobalt" | "rose" | "slate";
+type StoredSettings = Partial<Settings> & { accentColor?: LegacyAccentName };
 import { DEFAULT_ELEVEN_VOICE_ID } from "./tts/shared";
 import { logLine } from "./log";
 
@@ -27,7 +32,7 @@ const DEFAULTS: Settings = {
   // to catch a runaway, not to ration normal use.
   sessionBudgetUsd: 3.0,
   memoryEnabled: true,
-  accentColor: "lime",
+  palette: "graphite",
   windowBounds: null,
   solidBackground: true,
   uiOpaqueMigration: false,
@@ -37,6 +42,30 @@ const DEFAULTS: Settings = {
   dockSide: "left",
   dockWidth: 400,
 };
+
+// The old four-accent setting, mapped onto the redesign's colour sets. Mirrors
+// ACCENT_TO_PALETTE in src/design/tokens.ts (a test keeps the two equal).
+export const LEGACY_ACCENT_TO_PALETTE: Record<LegacyAccentName, PaletteName> = {
+  lime: "graphite",
+  cobalt: "midnight",
+  rose: "graphite",
+  slate: "porcelain",
+};
+
+const PALETTE_NAMES: readonly PaletteName[] = ["graphite", "porcelain", "midnight"];
+
+/**
+ * The colour set for a settings file as read from disk. A valid saved
+ * `palette` wins; otherwise an old `accentColor` is mapped once; otherwise the
+ * default. Pure, so the one-time migration is unit-tested.
+ */
+export function resolvePalette(parsed: StoredSettings): PaletteName {
+  const saved = parsed.palette;
+  if (saved && PALETTE_NAMES.includes(saved)) return saved;
+  const legacy = parsed.accentColor;
+  if (legacy && legacy in LEGACY_ACCENT_TO_PALETTE) return LEGACY_ACCENT_TO_PALETTE[legacy];
+  return DEFAULTS.palette;
+}
 
 function settingsPath(): string {
   return path.join(app.getPath("userData"), "settings.json");
@@ -61,10 +90,10 @@ const RETIRED_VOICE_IDS = new Set([
 let cache: Settings | null = null;
 
 function readFromDisk(): Settings {
-  let parsed: Partial<Settings> = {};
+  let parsed: StoredSettings = {};
   try {
     const raw = fs.readFileSync(settingsPath(), "utf-8");
-    parsed = JSON.parse(raw) as Partial<Settings>;
+    parsed = JSON.parse(raw) as StoredSettings;
   } catch (err) {
     const code = (err as { code?: string })?.code;
     // A missing file is the normal first run. Anything else — a corrupt file
@@ -76,7 +105,10 @@ function readFromDisk(): Settings {
       );
     }
   }
-  const merged = { ...DEFAULTS, ...parsed };
+  // One-time read of the retired accent setting: it picks the colour set and
+  // is then dropped, so the next save no longer writes it.
+  const { accentColor: _legacyAccent, ...rest } = parsed;
+  const merged: Settings = { ...DEFAULTS, ...rest, palette: resolvePalette(parsed) };
   if (RETIRED_VOICE_IDS.has(merged.elevenVoiceId)) {
     merged.elevenVoiceId = DEFAULTS.elevenVoiceId;
   }

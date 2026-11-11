@@ -98,6 +98,10 @@ export interface ChatTurnRecord {
   // Copyable code or a command that came with a coach line.
   code?: string;
   at: number;
+  // Which stage (0-based) and step (global, 1-based) were in progress when
+  // the turn was added. Absent on chats saved before the redesign.
+  stage?: number;
+  step?: number;
 }
 
 /**
@@ -231,6 +235,7 @@ create table if not exists chats (
   where_we_left_off    text not null default '',
   -- [{ id, text, seen, at, retiredAt }], live and retired alike
   notes                jsonb not null default '[]'::jsonb,
+  -- [{ role, content, code?, at, stage?, step? }]
   turns                jsonb not null default '[]'::jsonb,
   uploaded_context     text not null default '',
   attached_file_names  jsonb not null default '[]'::jsonb,

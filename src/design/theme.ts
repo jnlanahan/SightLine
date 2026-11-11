@@ -1,47 +1,16 @@
 // sightline/theme.ts
 // Accent palettes + theme tokens for the SightLine overlay components.
 
-import type { AccentName } from "../../electron/types";
-export type { AccentName };
+// The theme shape the screens without a redesigned layout read (Home, About
+// this chat, Settings, the privacy notice, the screen picker, the floating
+// bar, Home's header). Redesign WP9: every value now comes from the active
+// palette (src/design/tokens.ts), so those screens recolour with it while
+// keeping their layouts. New components read the palette directly
+// (`useTokens()`).
 
-export interface AccentDef {
-  accent: string;
-  deep: string;
-  soft: string;
-  gold: string;
-  text: string; // accent-family color dark enough to read on the light panel
-  rgb: string; // "r,g,b" — used for alpha variants
-  on: string; // text color on top of the accent
-  logo: string; // logo/orb gradient
-  wave: [number, number, number][]; // waveform gradient stops
-}
-
-export const ACCENTS: Record<AccentName, AccentDef> = {
-  lime: {
-    accent: "#C2E84B", deep: "#8FBE2E", soft: "#D7F27A", gold: "#E6F59A", text: "#5C8A14", rgb: "194,232,75", on: "#1b2400",
-    logo: "linear-gradient(150deg,#E6F59A 0%,#C2E84B 48%,#8FBE2E 100%)",
-    wave: [[230, 245, 154], [194, 232, 75], [159, 209, 46], [127, 181, 46]],
-  },
-  cobalt: {
-    accent: "#4F8BF2", deep: "#2E63D6", soft: "#6FA8FF", gold: "#9FC2FF", text: "#2456C4", rgb: "79,139,242", on: "#ffffff",
-    logo: "linear-gradient(150deg,#8FB8FF 0%,#4F8BF2 48%,#2E63D6 100%)",
-    wave: [[143, 184, 255], [79, 139, 242], [62, 111, 224], [88, 104, 232]],
-  },
-  rose: {
-    accent: "#FF6B81", deep: "#E0364F", soft: "#FF9AAB", gold: "#FFB3C0", text: "#C6203A", rgb: "255,107,129", on: "#33000d",
-    logo: "linear-gradient(150deg,#FFB3C0 0%,#FF6B81 48%,#E0364F 100%)",
-    wave: [[255, 179, 192], [255, 107, 129], [240, 67, 106], [224, 54, 79]],
-  },
-  slate: {
-    accent: "#9FB2C8", deep: "#6B7E96", soft: "#C2CFDE", gold: "#CDD8E6", text: "#4E6076", rgb: "159,178,200", on: "#10141b",
-    logo: "linear-gradient(150deg,#CDD8E6 0%,#9FB2C8 48%,#6B7E96 100%)",
-    wave: [[205, 216, 230], [159, 178, 200], [126, 145, 171], [107, 126, 150]],
-  },
-};
+import { font as tokenFont, type Palette } from "./tokens";
 
 export interface SightLineTheme {
-  // Solid panel surface — warm porcelain so the panel reads as a bright
-  // physical card against any (usually darker, busy) desktop behind it.
   surface: string;
   glassBg: string;
   glassGrad: string;
@@ -49,57 +18,75 @@ export interface SightLineTheme {
   hi: string;
   ink: string;
   ink2: string;
+  /** Tertiary text. Same as ink2: the palettes have no third text colour
+   *  that meets 4.5:1. */
   ink3: string;
   instr: string;
   green: string;
   greenRGB: string;
   logoInk: string;
   font: string;
-  // Characterful serif — reserved for the wordmark and the coach's spoken
-  // instruction. Everything else stays in the quiet sans.
   display: string;
   accent: string;
   accentDeep: string;
   accentSoft: string;
+  /** Accent-coloured text on the panel surface. */
   accentText: string;
   gold: string;
   accentRGB: string;
   onAccent: string;
   logoGrad: string;
-  waveStops: [number, number, number][];
+  /** Destructive and warning states (delete, muted, failures). */
+  warn: string;
+  warnSoft: string;
+  /** Text on a solid `warn` button. */
+  onWarn: string;
 }
 
-/** ink-on-porcelain hairline / tint at a given alpha */
-export const lt = (a: number) => `rgba(44,48,34,${a})`;
+function hexToRgb(hex: string): string {
+  const n = parseInt(hex.replace("#", ""), 16);
+  return `${(n >> 16) & 255},${(n >> 8) & 255},${n & 255}`;
+}
+
+// The active palette's ink, for `lt()`. Set by makeTheme, which the theme
+// provider calls whenever the palette changes; there is one theme per window.
+let inkRGB = "236,237,232";
+
+/** A hairline or tint in the active palette's ink, at the given alpha. */
+export const lt = (a: number) => `rgba(${inkRGB},${a})`;
 /** accent rgb at a given alpha */
 export const ar = (rgb: string, a: number) => `rgba(${rgb},${a})`;
 
-export function makeTheme(name: AccentName = "lime"): SightLineTheme {
-  const a = ACCENTS[name] ?? ACCENTS.lime;
+export function makeTheme(p: Palette): SightLineTheme {
+  const rgb = hexToRgb(p.accent);
+  inkRGB = hexToRgb(p.ink);
   return {
-    // A notch below white on purpose: docked beside a white web page or
-    // document, a near-white panel read as part of the page. Still porcelain,
-    // just with an edge.
-    surface: "#ECE9DF",
-    glassBg: "rgba(236,233,223,0.86)",
-    glassGrad: "linear-gradient(180deg, rgba(255,255,255,0.55) 0%, rgba(236,233,223,0.35) 100%)",
-    border: lt(0.22), hi: "rgba(255,255,255,0.8)",
-    ink: "#23271C", ink2: "#4C5243", ink3: "#7B816D",
-    // The instruction card stays deep ink — the coach's voice is the one
-    // dark object on the light panel, so it's always the first thing read.
-    instr: "linear-gradient(180deg, #262B1E 0%, #15180F 100%)",
-    green: "#4F8A2C", greenRGB: "110,167,66", logoInk: "#0e1118",
-    font: '"Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, "Inter", sans-serif',
-    display: '"AW Conqueror Didot", "Didot", "Bodoni MT", "Playfair Display", Georgia, serif',
-    accent: a.accent, accentDeep: a.deep, accentSoft: a.soft, accentText: a.text, gold: a.gold,
-    accentRGB: a.rgb, onAccent: a.on, logoGrad: a.logo, waveStops: a.wave,
+    surface: p.bg,
+    glassBg: p.bg,
+    glassGrad: `linear-gradient(${p.bg}, ${p.bg})`,
+    border: p.line,
+    hi: p.line,
+    ink: p.ink,
+    ink2: p.ink2,
+    ink3: p.ink2,
+    instr: p.card,
+    green: p.accent,
+    greenRGB: rgb,
+    logoInk: p.ink,
+    // Manrope (bundled), with Segoe UI behind it. The old Didot display face
+    // is retired (redesign D12).
+    font: tokenFont.sans,
+    display: tokenFont.sans,
+    accent: p.accent,
+    accentDeep: p.accent,
+    accentSoft: `rgba(${rgb},0.6)`,
+    accentText: p.accent,
+    gold: p.accent,
+    accentRGB: rgb,
+    onAccent: p.onAccent,
+    logoGrad: `linear-gradient(150deg, ${p.accent} 0%, ${p.accent} 100%)`,
+    warn: p.warn,
+    warnSoft: p.warnSoft,
+    onWarn: p.dark ? p.rail : p.card,
   };
-}
-
-/** interpolate a waveform color at fraction f (0..1) across the accent's stops */
-export function waveColor(stops: [number, number, number][], f: number): string {
-  const seg = f * (stops.length - 1);
-  const i = Math.min(stops.length - 2, Math.floor(seg));
-  const t = seg - i, a = stops[i], b = stops[i + 1];
-  return `rgb(${Math.round(a[0] + (b[0] - a[0]) * t)},${Math.round(a[1] + (b[1] - a[1]) * t)},${Math.round(a[2] + (b[2] - a[2]) * t)})`;
 }

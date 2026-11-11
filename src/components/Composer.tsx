@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { useTheme } from "../design/ThemeProvider";
-import { ar, lt } from "../design/theme";
+import { useTokens } from "../design/ThemeProvider";
 import { ISend } from "../design/icons";
 import { useSession } from "../store/session";
 import { useSettings } from "../store/settings";
 
-const PLACEHOLDER = "Ask a question, or just talk";
+// Redesign SPEC §4.8: the caller picks the placeholder ("Ask about step 3",
+// "Ask or tell it anything", "Ask a follow-up").
+const PLACEHOLDER = "Ask or tell it anything";
 
 const KEY_LABEL: Record<string, string> = {
   ctrl: "Ctrl",
@@ -16,6 +17,7 @@ const KEY_LABEL: Record<string, string> = {
 };
 
 interface Props {
+  placeholder?: string;
   isThinking: boolean;
   onSubmit(text: string): void;
   onStartTalking(): void;
@@ -31,12 +33,13 @@ interface Props {
  * expecting it to close.
  */
 export function Composer({
+  placeholder = PLACEHOLDER,
   isThinking,
   onSubmit,
   onStartTalking,
   onStopTalking,
 }: Props) {
-  const T = useTheme();
+  const { palette: t, font, radius } = useTokens();
   const [value, setValue] = useState("");
   const listening = useSession((s) => s.listening);
   const transcribing = useSession((s) => s.transcribing);
@@ -72,52 +75,18 @@ export function Composer({
 
   const hasValue = value.trim().length > 0;
   const keyLabel = KEY_LABEL[pttKey] ?? "";
+  const busyVoice = listening || transcribing;
 
-  if (listening || transcribing) {
-    return (
-      <div
-        className="no-drag"
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 11,
-          borderRadius: 13,
-          padding: "10px 14px",
-          background: listening
-            ? ar(T.accentRGB, 0.12)
-            : lt(0.05),
-          border: `1px solid ${listening ? ar(T.accentRGB, 0.4) : lt(0.1)}`,
-          minHeight: 44,
-        }}
-      >
-        {listening ? <ListeningBars /> : <PulseDot color={T.ink3} />}
-        <span
-          style={{
-            flex: 1,
-            minWidth: 0,
-            fontSize: 12.5,
-            fontWeight: 600,
-            color: listening ? T.accentText : T.ink2,
-          }}
-        >
-          {listening ? "Listening — keep talking" : "Getting that down…"}
-        </span>
-        {listening && keyLabel && (
-          <span style={{ fontSize: 10.5, color: T.ink3, flexShrink: 0 }}>
-            release {keyLabel}
-          </span>
-        )}
-      </div>
-    );
-  }
-
+  // The restyle keeps every handler: the press-and-hold mic below and the
+  // window-level release above are exactly as before. While listening the
+  // input shows what is happening and the mic turns accent.
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-      {lastTranscript && (
+    <div style={{ display: "flex", flexDirection: "column", gap: 4, margin: "0 12px 12px" }}>
+      {lastTranscript && !busyVoice && (
         <div
           style={{
-            fontSize: 11,
-            color: T.ink3,
+            fontSize: 11.5,
+            color: t.ink2,
             padding: "0 4px",
             overflow: "hidden",
             textOverflow: "ellipsis",
@@ -129,43 +98,84 @@ export function Composer({
         </div>
       )}
       <div
-        className="no-drag"
+        className="no-drag sl-composer"
         style={{
           display: "flex",
           alignItems: "center",
-          gap: 6,
-          background: lt(0.05),
-          border: `1px solid ${lt(0.12)}`,
-          borderRadius: 13,
-          padding: "5px 6px 5px 14px",
+          gap: 4,
+          background: t.input,
+          border: `1px solid ${t.line}`,
+          borderRadius: radius.composer,
+          padding: "4px 4px 4px 14px",
         }}
       >
+        <label htmlFor="sl-composer-input" className="sl-sr-only">
+          Message the coach
+        </label>
         <input
+          id="sl-composer-input"
+          className="sl-composer-input"
           type="text"
-          value={value}
-          placeholder={PLACEHOLDER}
+          value={busyVoice ? "" : value}
+          readOnly={busyVoice}
+          placeholder={
+            listening
+              ? `Listening — keep talking${keyLabel ? ` (release ${keyLabel})` : ""}`
+              : transcribing
+                ? "Getting that down…"
+                : placeholder
+          }
           onChange={(e) => setValue(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();
               submit();
+            } else if (e.key === "Escape") {
+              setValue("");
             }
           }}
           style={{
             flex: 1,
             minWidth: 0,
+            height: 44,
             border: 0,
             outline: "none",
             background: "transparent",
-            color: T.ink,
-            fontSize: 13.5,
-            fontFamily: "inherit",
+            color: t.ink,
+            fontSize: 14,
+            fontFamily: font.sans,
           }}
         />
 
+        {hasValue && !busyVoice && (
+          <button
+            type="button"
+            className="sl-focus"
+            onClick={submit}
+            aria-label="Send"
+            title={isThinking ? "Send — it'll pick this up next" : "Send"}
+            style={{
+              width: 44,
+              height: 44,
+              border: 0,
+              borderRadius: 12,
+              background: "transparent",
+              color: t.ink2,
+              display: "grid",
+              placeItems: "center",
+              cursor: "pointer",
+              flexShrink: 0,
+            }}
+          >
+            <ISend c={t.ink2} />
+          </button>
+        )}
+
         <button
           type="button"
-          className="sl-ctrl"
+          className="sl-focus"
+          aria-label="Hold to talk"
+          aria-pressed={listening}
           title={
             keyLabel
               ? `Hold to talk (or hold ${keyLabel} anywhere)`
@@ -178,45 +188,19 @@ export function Composer({
             onStartTalking();
           }}
           style={{
-            width: 32,
-            height: 32,
+            width: 44,
+            height: 44,
             border: 0,
-            borderRadius: 9,
+            borderRadius: 12,
             cursor: "pointer",
-            background: "transparent",
-            color: T.ink2,
+            background: listening ? t.accent : t.btn,
+            color: listening ? t.onAccent : t.btnInk,
             display: "grid",
             placeItems: "center",
             flexShrink: 0,
           }}
         >
-          <MicIcon />
-        </button>
-
-        <button
-          type="button"
-          onClick={submit}
-          disabled={!hasValue}
-          title={isThinking ? "Send — it'll pick this up next" : "Send"}
-          style={{
-            width: 32,
-            height: 32,
-            border: 0,
-            borderRadius: 9,
-            background: hasValue
-              ? `linear-gradient(180deg, ${T.accent}, ${T.accentDeep})`
-              : lt(0.06),
-            color: hasValue ? T.onAccent : T.ink3,
-            display: "grid",
-            placeItems: "center",
-            cursor: hasValue ? "pointer" : "default",
-            opacity: hasValue ? 1 : 0.5,
-            boxShadow: hasValue ? `0 4px 12px -4px ${ar(T.accentRGB, 0.7)}` : "none",
-            transition: "all 150ms",
-            flexShrink: 0,
-          }}
-        >
-          <ISend c={hasValue ? T.onAccent : T.ink3} />
+          {listening ? <ListeningBars /> : transcribing ? <PulseDot color={t.btnInk} /> : <MicIcon />}
         </button>
       </div>
     </div>
@@ -224,7 +208,6 @@ export function Composer({
 }
 
 function ListeningBars() {
-  const T = useTheme();
   // Fixed phases rather than random, so the animation is identical every time
   // it appears — a mic indicator that looks different each press reads as a
   // glitch.
@@ -247,7 +230,7 @@ function ListeningBars() {
             width: 3,
             height: "100%",
             borderRadius: 2,
-            background: T.accentDeep,
+            background: "currentColor",
             animation: "sl-bar 0.9s ease-in-out infinite",
             animationDelay: `-${delay}s`,
           }}
@@ -275,7 +258,7 @@ function PulseDot({ color }: { color: string }) {
 
 function MicIcon() {
   return (
-    <svg width="15" height="15" viewBox="0 0 14 14" fill="none" aria-hidden>
+    <svg width="18" height="18" viewBox="0 0 14 14" fill="none" aria-hidden>
       <rect
         x="5"
         y="1.5"
