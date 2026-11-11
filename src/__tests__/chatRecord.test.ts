@@ -10,6 +10,7 @@ import {
   chatToSession,
   clampStage,
   isChatId,
+  isChatRecordShape,
   isWorthSaving,
   normalizeChatRecord,
   summarizeChat,
@@ -433,5 +434,26 @@ describe("a long plan's stages", () => {
   it("leave the log untagged in a chat without stages", () => {
     useSession.getState().applyCompletedSteps(["Opened Settings"], 1_000);
     expect(useSession.getState().stepLog).toEqual([{ text: "Opened Settings", at: 1_000 }]);
+  });
+});
+
+describe("refusing a chat that is not a chat", () => {
+  it("accepts a real record, before and after a trip to disk", () => {
+    const record = buildChatRecord(snapshot());
+    expect(isChatRecordShape(record)).toBe(true);
+    expect(isChatRecordShape(JSON.parse(JSON.stringify(record)))).toBe(true);
+  });
+
+  it("refuses a record missing the parts the app indexes into", () => {
+    const record = JSON.parse(JSON.stringify(buildChatRecord(snapshot())));
+    for (const key of ["stepLog", "turns", "upcomingSteps", "title", "goal"]) {
+      const damaged = { ...record };
+      delete damaged[key];
+      expect(isChatRecordShape(damaged), key).toBe(false);
+    }
+    expect(isChatRecordShape({ ...record, id: "../../x" })).toBe(false);
+    expect(isChatRecordShape({ ...record, state: "paused" })).toBe(false);
+    expect(isChatRecordShape(null)).toBe(false);
+    expect(isChatRecordShape("chat_1")).toBe(false);
   });
 });

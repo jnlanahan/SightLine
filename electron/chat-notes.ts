@@ -32,6 +32,9 @@ export function liveNotes(notes: readonly ChatNote[]): ChatNote[] {
   return notes.filter((n) => n.retiredAt === null);
 }
 
+// How many replaced wordings a note remembers.
+const MAX_PREVIOUS_WORDINGS = 5;
+
 function sameText(a: string, b: string): boolean {
   const norm = (t: string) => t.trim().replace(/\s+/g, " ").toLowerCase();
   return norm(a) === norm(b);
@@ -73,6 +76,9 @@ export function normalizeNotes(raw: unknown, fallbackAt: number): ChatNote[] {
           // Kept across a save and reload, or the tidy-up would lose track of
           // which notes are in the user's own words.
           ...(o.edited === true ? { edited: true } : {}),
+          ...(Array.isArray(o.previous)
+            ? { previous: o.previous.filter((p): p is string => typeof p === "string") }
+            : {}),
         };
       }
     }
@@ -109,6 +115,11 @@ export function addNote(
   const clean = text.trim().slice(0, MAX_NOTE_CHARS);
   if (!clean) return notes as ChatNote[];
   const match = notes.find((n) => sameText(n.text, clean));
+  // The wording the user corrected away is a repeat too, and it must not
+  // come back beside their correction.
+  if (!match && notes.some((n) => (n.previous ?? []).some((p) => sameText(p, clean)))) {
+    return notes as ChatNote[];
+  }
   if (match) {
     if (seen && !match.seen && match.retiredAt === null) {
       return notes.map((n) => (n.id === match.id ? { ...n, seen: true } : n));
@@ -146,8 +157,14 @@ export function editNote(
   const next = notes.map((n) => {
     if (n.id !== id || n.retiredAt !== null || n.text === clean) return n;
     changed = true;
-    // Marked so the background tidy-up leaves the user's wording alone.
-    return { ...n, text: clean, edited: true };
+    // Marked so the background tidy-up leaves the user's wording alone, and
+    // the replaced wording is kept so it cannot be noted again.
+    return {
+      ...n,
+      text: clean,
+      edited: true,
+      previous: [...(n.previous ?? []), n.text].slice(-MAX_PREVIOUS_WORDINGS),
+    };
   });
   return changed ? next : (notes as ChatNote[]);
 }

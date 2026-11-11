@@ -456,3 +456,27 @@ describe("attached reference files are cached, not re-sent every look", () => {
     expect(header).toContain("attached reference material");
   });
 });
+
+describe("guide-only rules say so, so they do not fight the watch rules", () => {
+  const prompt = systemPrompt(coachAgent);
+
+  it("a digression keeps the plan, and is silent while watching", () => {
+    expect(prompt).toContain("leave upcoming_steps out of that turn");
+    expect(prompt).not.toContain("leave upcoming_steps empty");
+    expect(prompt).toContain("when you are watching quietly, set it on a wait and say nothing");
+  });
+
+  it("troubleshooting does not start on its own while watching", () => {
+    expect(prompt).toContain("While you are watching quietly, none of this starts on its own");
+  });
+
+  it("only the guide stance is told never to ask the user to report in", () => {
+    expect(prompt).toContain(
+      'While you are guiding step by step, NEVER say "let me know when you\'re done"',
+    );
+  });
+
+  it("a task set while watching is logged only once it passes a check", () => {
+    expect(prompt).toContain("Record the actions you saw, not the task you set");
+  });
+});

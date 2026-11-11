@@ -190,6 +190,34 @@ describe("a response cut off by max_tokens", () => {
     // What was said was already spoken; the text itself still comes through.
     expect(result.instruction).toBe("Open the VPN client and");
   });
+
+  it("does not save a note or a fact that may have been cut off", async () => {
+    // These are the last fields in the schema, so the likeliest to be
+    // truncated — and a fact goes into memory that outlives the chat.
+    const client = fakeClient([
+      {
+        stop_reason: "max_tokens",
+        content: [
+          {
+            type: "tool_use",
+            id: "t1",
+            name: "say",
+            input: {
+              action: "instruct",
+              instruction: "Open the VPN client and",
+              notes: "Their VPN client is vers",
+              note_seen: true,
+              remember: { kind: "setup", content: "They use the Windows desk" },
+            },
+          },
+        ],
+      },
+    ]);
+    const result = await runAgentTurn(opts(client, ["Downloaded the client"]));
+    expect(result.notes).toBe("");
+    expect(result.noteSeen).toBe(false);
+    expect(result.remember).toBeNull();
+  });
 });
 
 describe("a response with no tool call", () => {

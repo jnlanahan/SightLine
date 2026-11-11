@@ -15,7 +15,13 @@ import { app } from "electron";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { logLine } from "../log";
-import { isChatId, normalizeChatRecord, summarizeChat } from "../chat-record";
+import {
+  isChatId,
+  isChatRecordShape,
+  normalizeChatRecord,
+  summarizeChat,
+} from "../chat-record";
+import { capFacts } from "../memory-rank";
 import type {
   ChatRecord,
   ChatSummary,
@@ -24,6 +30,9 @@ import type {
 
 // Memory that grows without limit would eventually crowd out its own ranking.
 const MAX_FACTS = 400;
+// Forgotten facts are kept so they are not learned again; they get their own
+// allowance so live facts can never crowd them out.
+const MAX_ARCHIVED_FACTS = 400;
 // Chats are the product now, so the cap is generous; it only stops the index
 // growing without bound.
 const MAX_CHATS = 500;
@@ -113,12 +122,23 @@ export function listChats(): ChatSummary[] {
 export function getChat(id: string): ChatRecord | null {
   const file = chatFile(id);
   const record = file ? readJson<ChatRecord | null>(file, null) : null;
-  return record ? normalizeChatRecord(record) : null;
+  if (!record) return null;
+  if (!isChatRecordShape(record)) {
+    logLine("[store] a saved chat is damaged and was not opened");
+    return null;
+  }
+  return normalizeChatRecord(record);
 }
 
 export function saveChat(record: ChatRecord): boolean {
   const file = chatFile(record?.id);
   if (!file) return false;
+  // The record arrives from the renderer. One missing its transcript or step
+  // log would be written and then break the list for every chat.
+  if (!isChatRecordShape(record)) {
+    logLine("[store] refused to save a chat that is not in the expected shape");
+    return false;
+  }
   if (!writeJson(file, record)) return false;
 
   const index = listChats();
@@ -169,7 +189,11 @@ function memoryFile(): string {
     const old = path.join(dataDir(), "memory.json");
     try {
       if (!fs.existsSync(file) && fs.existsSync(old) && ensureDir(chatDataDir())) {
-        fs.copyFileSync(old, file);
+        // Copy, then rename: a crash mid-copy must not leave a truncated
+        // file that reads as "no memory" and blocks the copy from re-running.
+        const tmp = `${file}.tmp`;
+        fs.copyFileSync(old, tmp);
+        fs.renameSync(tmp, file);
         logLine("[store] carried memory.json over to data-v2");
       }
     } catch (err) {
@@ -184,17 +208,7 @@ export function listFacts(): MemoryFact[] {
 }
 
 export function saveFacts(facts: MemoryFact[]): boolean {
-  // Prune the least useful first when over the cap: archived, then oldest-used.
-  const trimmed =
-    facts.length <= MAX_FACTS
-      ? facts
-      : [...facts]
-          .sort((a, b) => {
-            if (a.archived !== b.archived) return a.archived ? 1 : -1;
-            return b.lastUsedAt - a.lastUsedAt;
-          })
-          .slice(0, MAX_FACTS);
-  return writeJson(memoryFile(), trimmed);
+  return writeJson(memoryFile(), capFacts(facts, MAX_FACTS, MAX_ARCHIVED_FACTS));
 }
 
 export function addFact(fact: MemoryFact): boolean {

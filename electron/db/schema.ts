@@ -64,6 +64,9 @@ export interface ChatNote {
   // The user corrected the wording by hand. The tidy-up never retires or
   // rewrites such a note.
   edited?: boolean;
+  // What the note said before the user corrected it. Kept so the coach
+  // writing the old, wrong wording again is recognised as a repeat.
+  previous?: string[];
 }
 
 /**

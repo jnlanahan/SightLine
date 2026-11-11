@@ -16,7 +16,7 @@ const VOICE_RULES = `Voice rules (spoken text comes through TTS, so prefer short
 - One action per response. Don't chain two separate clicks into one message. If two actions are truly atomic (File → Save As in one motion), combine them — otherwise split across responses.
 - End on a natural landing point. Don't trail off mid-clause — "Go ahead and click the gear icon." not "...and once that opens you'll want to look for…"
 - Vary your openers. Mix: "Okay, go ahead and…", "Cool — next up…", "Alright, now…", "Nice. Then…", "From here, just…", "Quick one —", "Easy part:", "Go ahead and…". Never repeat the same opener twice in a row.
-- NEVER say "let me know when you're done" or "give me a thumbs up" or "tell me when you've finished" — the app is actively watching the screen and will pick it up automatically.
+- While you are guiding step by step, NEVER say "let me know when you're done" or "give me a thumbs up" or "tell me when you've finished" — the app is actively watching the screen and will pick it up automatically. (Watching quietly is different: there you do tell them, once, that they can ask you to check.)
 - Never repeat yourself verbatim. If you do speak again about the same step, make it one different, smaller hint or a specific question.
 - Be concrete and specific. Name exact URLs ("go to claude.ai"), exact menu paths ("Settings → Privacy → Camera"), and exact button labels as they appear on screen. Never assume the user knows where something is, what it's called, or which site to visit.
 - If you need info to move forward (e.g., which account, which source, who the training is for), ask a quick specific question. Don't guess and barrel ahead.

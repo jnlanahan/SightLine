@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   MAX_RECALLED_FACTS,
   VERIFIED_BOOST,
+  capFacts,
   findDuplicateFact,
   formatFactsForPrompt,
   isDuplicateFact,
@@ -330,5 +331,43 @@ describe("a forgotten fact", () => {
     expect(findDuplicateFact("the VPN blocks their sync port", [forgotten])?.id).toBe(
       forgotten.id,
     );
+  });
+});
+
+describe("keeping memory bounded", () => {
+  const f = (id: string, lastUsedAt: number, archived = false): MemoryFact => ({
+    id,
+    userId: null,
+    kind: "setup",
+    content: id,
+    sourceSessionId: null,
+    createdAt: 0,
+    lastUsedAt,
+    useCount: 0,
+    archived,
+  });
+
+  it("leaves a list under both caps exactly as it is", () => {
+    const facts = [f("a", 1), f("b", 2, true)];
+    expect(capFacts(facts, 5, 5)).toBe(facts);
+  });
+
+  it("drops the least recently used live facts first, keeping order", () => {
+    const facts = [f("new", 9), f("old", 1), f("mid", 5)];
+    expect(capFacts(facts, 2, 5).map((x) => x.id)).toEqual(["new", "mid"]);
+  });
+
+  it("never lets new facts push out the record that something was forgotten", () => {
+    // The bug this locks: archived facts were cut first once memory was full,
+    // so the coach could learn a forgotten fact all over again.
+    const facts = [f("forgotten", 0, true), f("a", 9), f("b", 8), f("c", 7)];
+    const kept = capFacts(facts, 2, 5).map((x) => x.id);
+    expect(kept).toContain("forgotten");
+    expect(kept).toEqual(["forgotten", "a", "b"]);
+  });
+
+  it("caps forgotten facts on their own allowance", () => {
+    const facts = [f("x1", 1, true), f("x2", 2, true), f("x3", 3, true), f("live", 9)];
+    expect(capFacts(facts, 5, 2).map((x) => x.id)).toEqual(["x2", "x3", "live"]);
   });
 });

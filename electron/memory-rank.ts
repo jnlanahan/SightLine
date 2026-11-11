@@ -209,3 +209,29 @@ export function formatFactsForPrompt(facts: readonly MemoryFact[]): string {
       : "")
   );
 }
+
+/**
+ * Keep memory bounded without ever un-forgetting anything.
+ *
+ * A forgotten fact stays on file, archived, because that entry is what stops
+ * the coach learning it again. So live and archived facts are capped
+ * separately: new facts can only push out older LIVE ones, never the record
+ * that something was forgotten. Within each group the least recently used go
+ * first. Order is preserved.
+ */
+export function capFacts(
+  facts: MemoryFact[],
+  maxLive: number,
+  maxArchived: number,
+): MemoryFact[] {
+  const live = facts.filter((f) => !f.archived);
+  const archived = facts.filter((f) => f.archived);
+  if (live.length <= maxLive && archived.length <= maxArchived) return facts;
+  const newest = (group: MemoryFact[], max: number): string[] =>
+    [...group]
+      .sort((a, b) => b.lastUsedAt - a.lastUsedAt)
+      .slice(0, max)
+      .map((f) => f.id);
+  const kept = new Set([...newest(live, maxLive), ...newest(archived, maxArchived)]);
+  return facts.filter((f) => kept.has(f.id));
+}

@@ -5,7 +5,7 @@
 
 import type { Skill } from "../harness/types";
 
-const DIGRESSION_RULE = `"digression" is true ONLY when the screen clearly shows the user has navigated away from the task to something unrelated (social media, personal browsing, a completely different app). Do NOT set it for normal task navigation (switching browsers, opening a referenced file, checking docs). When it is true, say a short warm pause line like "No worries — take your time. I'll be right here when you're ready." and leave upcoming_steps empty.`;
+const DIGRESSION_RULE = `"digression" is true ONLY when the screen clearly shows the user has navigated away from the task to something unrelated (social media, personal browsing, a completely different app). Do NOT set it for normal task navigation (switching browsers, opening a referenced file, checking docs). When it is true and you are guiding, say a short warm pause line like "No worries — take your time. I'll be right here when you're ready."; when you are watching quietly, set it on a wait and say nothing. Either way leave upcoming_steps out of that turn, so your plan is still there when they come back.`;
 
 export interface PlanSkillOptions {
   /** What "completed_steps" means for this agent. */

@@ -74,15 +74,20 @@ function recencyFactor(at: number, now: number): number {
   return RECENCY_FLOOR + (1 - RECENCY_FLOOR) * Math.pow(0.5, ageDays / RECENCY_HALF_LIFE_DAYS);
 }
 
-// A light stem so "uploads", "uploading" and "uploaded" find "upload". Only
-// ever strips a suffix while keeping at least three letters.
-function stem(word: string): string {
-  for (const suffix of ["ing", "ed", "es", "s"]) {
+// A light stem so "uploads", "uploading" and "uploaded" find "upload", and
+// "files", "updates", "updated" and "updating" find "file" and "update".
+// Strips one suffix (keeping at least three letters), then a trailing "e" —
+// so a word that drops its "e" before a suffix lands on the same stem as the
+// word itself.
+export function stem(word: string): string {
+  let base = word;
+  for (const suffix of ["ing", "ed", "s"]) {
     if (word.endsWith(suffix) && word.length - suffix.length >= 3) {
-      return word.slice(0, -suffix.length);
+      base = word.slice(0, -suffix.length);
+      break;
     }
   }
-  return word;
+  return base.length > 3 && base.endsWith("e") ? base.slice(0, -1) : base;
 }
 
 function stems(text: string): Set<string> {

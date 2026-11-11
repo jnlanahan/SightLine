@@ -91,6 +91,45 @@ describe("the coach never talks over itself or ignores the user", () => {
     expect(src).toContain("if (resuming) useSession.getState().setResumePending(null);");
   });
 
+  // A look that fails, throws, or is thrown away has greeted nobody. The
+  // greeting used to be spent the moment the look started.
+  it("a greeting that was never delivered is handed back for the next look", async () => {
+    const src = await loopSource();
+    expect(src).toContain("undeliveredResume = { chatId: sessionId, resume: resuming };");
+    expect(src).toContain("useSession.getState().setResumePending(undeliveredResume.resume);");
+    // Cleared only once the answer is actually being applied.
+    expect(src.indexOf("undeliveredResume = null;")).toBeGreaterThan(
+      src.indexOf("result discarded: session"),
+    );
+  });
+
+  it("a greeting answered with silence is recovered into something spoken", async () => {
+    const src = await loopSource();
+    expect(src).toContain('if (resuming && !answeringFollowUp && action === "wait")');
+  });
+
+  // Leave a chat mid-look, open another: the old chain used to throw the
+  // answer away and then sleep 15-60 s before its first look at the new chat.
+  it("a chat opened mid-look is looked at straight away, not after a sleep", async () => {
+    const src = await loopSource();
+    expect(src).toContain("const chatBefore = useSession.getState().sessionId;");
+    expect(src).toContain("if (useSession.getState().sessionId !== chatBefore) continue;");
+  });
+
+  it("a new chat or a new stance cuts short a sleep chosen for the old one", async () => {
+    const src = await loopSource();
+    expect(src).toMatch(
+      /state\.sessionId !== prev\.sessionId \|\| state\.stance !== prev\.stance\) \{\s+cancelSleep\?\.\(\);/,
+    );
+  });
+
+  it("wandering off never erases the plan", async () => {
+    const src = await loopSource();
+    expect(src).toMatch(
+      /if \(!result\.digression\) \{\s+useSession\.getState\(\)\.setUpcomingSteps\(/,
+    );
+  });
+
   it("a follow-up that returns wait is recovered into something spoken", async () => {
     const src = await loopSource();
     expect(src).toContain('if (answeringFollowUp && action === "wait")');

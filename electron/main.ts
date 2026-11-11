@@ -941,6 +941,11 @@ app.on("will-quit", () => {
   undockWindow();
 });
 
+// What a remembered fact may be. The coach's turn parser applies the same
+// limits; these guard the channel itself.
+const FACT_KINDS: readonly MemoryKind[] = ["setup", "preference", "history", "obstacle"];
+const MAX_FACT_CHARS = 200;
+
 function registerIpc() {
   ipcMain.handle("settings:get", () => loadSettings());
 
@@ -1556,6 +1561,17 @@ function registerIpc() {
       },
     ) => {
       if (!loadSettings().memoryEnabled) return { added: false };
+      // Checked here as well as where the coach's turn is parsed: this is
+      // the last stop before memory that outlives the chat.
+      if (
+        !payload ||
+        typeof payload.content !== "string" ||
+        !payload.content.trim() ||
+        payload.content.length > MAX_FACT_CHARS ||
+        !FACT_KINDS.includes(payload.kind)
+      ) {
+        return { added: false };
+      }
       const existing = listFacts();
       const seen = payload.seen === true;
       // The agent re-notices the same fact across turns and sessions; storing

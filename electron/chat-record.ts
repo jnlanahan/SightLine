@@ -33,6 +33,27 @@ export function isChatId(id: unknown): id is string {
   return typeof id === "string" && CHAT_ID.test(id);
 }
 
+/**
+ * Whether something is close enough to a chat record to save or open. Not a
+ * full validation — just the parts the app indexes into without checking, so
+ * a damaged file or a malformed save is refused instead of throwing later.
+ */
+export function isChatRecordShape(value: unknown): value is ChatRecord {
+  if (!value || typeof value !== "object") return false;
+  const r = value as Record<string, unknown>;
+  return (
+    isChatId(r.id) &&
+    typeof r.title === "string" &&
+    typeof r.goal === "string" &&
+    (r.state === "active" || r.state === "done") &&
+    typeof r.createdAt === "number" &&
+    typeof r.lastActiveAt === "number" &&
+    Array.isArray(r.stepLog) &&
+    Array.isArray(r.turns) &&
+    Array.isArray(r.upcomingSteps)
+  );
+}
+
 // ── The step log ──
 
 /**

@@ -7,6 +7,7 @@ import {
   formatSearchResults,
   searchMemory,
   snippetAround,
+  stem,
   type MemorySearchHit,
 } from "../../electron/memory-search";
 import type {
@@ -338,5 +339,26 @@ describe("what the coach reads", () => {
 
   it("says plainly when nothing was found", () => {
     expect(formatSearchResults("kubernetes", [], NOW)).toContain("Nothing in earlier chats");
+  });
+});
+
+describe("word forms", () => {
+  it("lands a word and its everyday forms on one stem", () => {
+    for (const forms of [
+      ["upload", "uploads", "uploading", "uploaded"],
+      ["file", "files"],
+      ["update", "updates", "updated", "updating"],
+      ["drive", "drives"],
+      ["install", "installs", "installed", "installing"],
+    ]) {
+      const stems = new Set(forms.map(stem));
+      expect(stems.size, forms.join(" / ")).toBe(1);
+    }
+  });
+
+  it("leaves short words alone", () => {
+    expect(stem("bus")).toBe("bus");
+    expect(stem("red")).toBe("red");
+    expect(stem("use")).toBe("use");
   });
 });

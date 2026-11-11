@@ -356,6 +356,14 @@ export async function runAgentTurn(opts: RunTurnOptions): Promise<TurnResult> {
         ...parsed,
         completedSteps: ctx.completedSteps,
         upcomingSteps: ctx.upcomingSteps,
+        // The note and the fact are the last fields in the schema, so they
+        // are the likeliest to be cut off — and a half-written fact would be
+        // saved to memory that outlives this chat.
+        notes: "",
+        noteSeen: false,
+        remember: null,
+        stages: null,
+        stageNumber: null,
       };
     }
     return {

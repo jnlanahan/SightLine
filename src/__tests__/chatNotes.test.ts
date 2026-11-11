@@ -98,7 +98,23 @@ describe("the user correcting a note", () => {
       at: 1,
       retiredAt: null,
       edited: true,
+      previous: ["They're on Windows 11"],
     });
+  });
+
+  it("does not let the old, corrected wording come back as a new note", () => {
+    // The coach reads the same out-of-date screen again and notes what it
+    // noted before. That wording now exists only as the note's history.
+    const edited = editNote(base, "a", "They're on Windows 10");
+    expect(addNote(edited, "They're on Windows 11", true, 9, "b")).toBe(edited);
+    expect(addNote(edited, "they're on  windows 11", false, 9, "b")).toBe(edited);
+  });
+
+  it("remembers the replaced wording across a save and reload", () => {
+    const edited = editNote(base, "a", "They're on Windows 10");
+    const reloaded = normalizeNotes(JSON.parse(JSON.stringify(edited)), 0);
+    expect(reloaded[0].previous).toEqual(["They're on Windows 11"]);
+    expect(addNote(reloaded, "They're on Windows 11", true, 9, "b")).toBe(reloaded);
   });
 
   it("ignores an empty edit, an unknown id, and a retired note", () => {

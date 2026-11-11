@@ -16,7 +16,8 @@ export const troubleshootSkill: Skill = {
 - Then give ONE fix attempt at a time — smallest, safest, most likely fix first. One hypothesis per turn.
 - Record every attempt and its outcome in "notes" ("Tried Start warehouse → still spinning after 2 min") so you never repeat a failed fix.
 - After two failed attempts, or when you see an error you don't recognise, or when you're unsure how the product currently behaves: STOP guessing and call search_web with the EXACT error text plus the product name. You get the findings back in this same turn.
-- When the blocker clears, acknowledge briefly ("There we go."), set troubleshooting back to false, and pick the plan back up.`,
+- When the blocker clears, acknowledge briefly ("There we go."), set troubleshooting back to false, and pick the plan back up.
+- While you are watching quietly, none of this starts on its own. An error on their screen is theirs to notice: put it in notes, stay silent, and troubleshoot only once they ask.`,
   outputFields: [
     {
       name: "troubleshooting",

@@ -110,6 +110,13 @@ export function useSessionLoop(onNeedsApiKey: () => void) {
       const speech: { stream: SpeechStream | null } = { stream: null };
       let unsubEarly: (() => void) | null = null;
       let unsubTool: (() => void) | null = null;
+      // The reopen greeting this look consumed, until its answer is actually
+      // applied. A look that fails, throws, or is discarded has not greeted
+      // anyone, so the finally block hands the greeting back for the next one.
+      let undeliveredResume: {
+        chatId: string | null;
+        resume: { awayMinutes: number; whereWeLeftOff: string };
+      } | null = null;
       const ttsOn = () => Boolean(useSettings.getState().settings?.ttsEnabled);
       let supersededLogged = false;
       const speakOut = (text: string) => {
@@ -288,6 +295,7 @@ export function useSessionLoop(onNeedsApiKey: () => void) {
         // Consumed here so it happens exactly once.
         const resuming = s.resumePending ?? undefined;
         if (resuming) useSession.getState().setResumePending(null);
+        if (resuming) undeliveredResume = { chatId: sessionId, resume: resuming };
         // Turns the user is waiting on. The two anti-repetition guards below
         // exist to stop UNPROMPTED repeats; a greeting that mentions the step
         // they were on is not one.
@@ -475,6 +483,10 @@ export function useSessionLoop(onNeedsApiKey: () => void) {
           }
         }
 
+        // This look's answer is about to be applied, so a greeting it carried
+        // has been delivered (the wait safety net below covers a silent one).
+        undeliveredResume = null;
+
         // 4. Update state — these apply on EVERY action, including "wait",
         //    so Claude can mark progress silently.
         useSession.getState().setError(null);
@@ -483,7 +495,11 @@ export function useSessionLoop(onNeedsApiKey: () => void) {
         useSession
           .getState()
           .applyCompletedSteps(result.completedSteps, Date.now());
-        useSession.getState().setUpcomingSteps(result.upcomingSteps ?? []);
+        // A digression is a pause, not a new plan: whatever the turn sent,
+        // the route is still there when the user comes back.
+        if (!result.digression) {
+          useSession.getState().setUpcomingSteps(result.upcomingSteps ?? []);
+        }
         // After the steps: a step finished on the turn that moves to the next
         // stage belongs to the stage being left.
         if (result.stages || typeof result.stageNumber === "number") {
@@ -597,6 +613,22 @@ export function useSessionLoop(onNeedsApiKey: () => void) {
           action = "acknowledge";
         }
 
+        // The same net for the greeting on reopening a chat: the prompt says
+        // it must be spoken, and a user who reopens a chat and hears nothing
+        // assumes it did not come back.
+        if (resuming && !answeringFollowUp && action === "wait") {
+          const left = resuming.whereWeLeftOff.trim();
+          noAnswerFallback = result.instruction?.trim()
+            ? null
+            : left
+              ? `Welcome back. ${left}`
+              : "Welcome back. Ready when you are.";
+          log(
+            `resume look returned wait — recovering with ${noAnswerFallback ? "the saved summary" : "the model's text"}`,
+          );
+          action = "acknowledge";
+        }
+
         // Muted, or a reply that did not stream: the words exist from here.
         if (action !== "wait") noteFirstWords("result");
 
@@ -695,6 +727,13 @@ export function useSessionLoop(onNeedsApiKey: () => void) {
         if (useSession.getState().activeTool) {
           useSession.getState().setActiveTool(null);
         }
+        if (
+          undeliveredResume &&
+          useSession.getState().sessionId === undeliveredResume.chatId
+        ) {
+          log("resume greeting not delivered — it will be tried again");
+          useSession.getState().setResumePending(undeliveredResume.resume);
+        }
         // Close the stream so waitForSpeechEnd() resolves once the queued
         // audio drains. Anything already enqueued still plays to the end.
         speech.stream?.end();
@@ -751,7 +790,13 @@ export function useSessionLoop(onNeedsApiKey: () => void) {
           if (disposed) break;
 
           const pendingBefore = useSession.getState().pendingFollowUp;
+          const chatBefore = useSession.getState().sessionId;
           await tickRef.current("backstop");
+
+          // The chat changed while that look was in flight (left one, opened
+          // another). Its answer was discarded; the new chat has not been
+          // looked at yet and must not wait out a full poll interval first.
+          if (useSession.getState().sessionId !== chatBefore) continue;
 
           // A follow-up that arrived while that tick was in flight has been
           // waiting this whole time. Go straight back around rather than
@@ -791,6 +836,12 @@ export function useSessionLoop(onNeedsApiKey: () => void) {
     if (useSession.getState().status === "watching") void runChain();
 
     const unsub = useSession.subscribe((state, prev) => {
+      // A different chat, or a different stance, makes the sleep in progress
+      // the wrong length: it was chosen for the old one. Wake the chain so it
+      // looks now and picks its next delay from the current state.
+      if (state.sessionId !== prev.sessionId || state.stance !== prev.stance) {
+        cancelSleep?.();
+      }
       if (state.status === prev.status) return;
       if (state.status === "watching") {
         void runChain(); // no-op if the chain is already alive
