@@ -203,10 +203,11 @@ export function diffPlan(
     });
     stillAhead.forEach((s, i) => {
       if (nextSet.has(norm(s))) return;
-      // Pushed off the end of a full window: every later phrase is gone too
-      // and the new list is no shorter. Not a removal.
+      // Pushed off the end by an insertion: every later phrase is gone too.
+      // The window is 2 to 4 phrases, so what falls off the tail when a step
+      // is put in is still ahead, just out of view. Not a removal.
       const restGone = stillAhead.slice(i + 1).every((r) => !nextSet.has(norm(r)));
-      if (restGone && nextList.length >= stillAhead.length && added.length > 0) return;
+      if (restGone && added.length > 0) return;
       removed.push(s);
     });
   }
