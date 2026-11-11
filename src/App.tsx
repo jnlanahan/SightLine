@@ -57,7 +57,7 @@ import {
   ISpeakerOn,
   ISpeakerOff,
 } from "./design/icons";
-import { lt } from "./design/theme";
+import { lt, type SightLineTheme } from "./design/theme";
 import { EMPTY_USAGE, addUsage, budgetStatus } from "../electron/usage";
 
 type View = "panel" | "settings" | "privacy";
@@ -71,14 +71,13 @@ const STATUS_TEXT: Record<SessionStatus, string> = {
   error:       "Error",
 };
 
-const STATUS_DOT: Record<SessionStatus, string> = {
-  idle:        "#7B816D",
-  watching:    "#4F8A2C",
-  thinking:    "#C07C10",
-  waiting:     "#4F8A2C",
-  paused:      "#7B816D",
-  error:       "#DB3B3B",
-};
+// Status dot colours, from the palette: accent while it works, warn when
+// something is wrong, secondary ink at rest.
+function statusDotColor(T: SightLineTheme, status: SessionStatus | "fixing"): string {
+  if (status === "thinking" || status === "fixing" || status === "error") return T.warn;
+  if (status === "watching" || status === "waiting") return T.accent;
+  return T.ink2;
+}
 
 export default function App() {
   const status         = useSession((s) => s.status);
@@ -150,6 +149,7 @@ export default function App() {
   const pointing  = useSession((s) => s.pointing);
   const follow = useFollowCurrent(phaseView, sessionId);
   const tokens = useTokens();
+  const legacyTheme = useTheme();
   // The chat column comes back (expanding the panel, closing About this
   // chat): land on the current phase, as a reopened chat does.
   const landOnCurrent = follow.landOnCurrent;
@@ -513,7 +513,7 @@ export default function App() {
       : fixing
         ? "Troubleshooting…"
         : STATUS_TEXT[status]);
-  const statusDot  = fixing ? "#C07C10" : STATUS_DOT[status];
+  const statusDot  = statusDotColor(legacyTheme, fixing ? "fixing" : status);
 
   // Collapsed — all hooks above keep running (capture loop, TTS), only the
   // UI shrinks. Docked: a thin vertical rail (the reserved strip narrows);
@@ -932,7 +932,8 @@ function PeekOverlay({ onClose }: { onClose(): void }) {
 
 function PanelShell({
   children,
-  radius = 22,
+  // Floating panel corner radius (redesign SPEC §1: radius.floatingPanel).
+  radius = 14,
   docked = false,
   animate = true,
 }: {
@@ -1163,7 +1164,7 @@ function PanelHeader({
           size={btn}
           title={ttsEnabled ? "Voice on — click to mute the coach" : "Muted — click to turn the coach's voice on"}
           onClick={onToggleVoice}
-          color={ttsEnabled ? undefined : "#C22F2F"}
+          color={ttsEnabled ? undefined : T.warn}
         >
           {ttsEnabled ? <SpeakerOnIcon /> : <SpeakerOffIcon />}
         </CtrlBtn>
@@ -1253,9 +1254,9 @@ function WindowBtn({
         width: size, height: size, flexShrink: 0,
         display: "grid", placeItems: "center",
         borderRadius: 9, cursor: "pointer",
-        background: danger ? "rgba(219,59,59,0.1)" : lt(0.05),
-        border: `1px solid ${danger ? "rgba(219,59,59,0.35)" : lt(0.1)}`,
-        color: danger ? "#C22F2F" : T.ink2,
+        background: danger ? T.warnSoft : lt(0.05),
+        border: `1px solid ${danger ? T.warn : lt(0.1)}`,
+        color: danger ? T.warn : T.ink2,
         marginLeft: 2,
       }}
     >
@@ -1275,7 +1276,7 @@ function QuitConfirmBanner({ onConfirm, onCancel }: { onConfirm(): void; onCance
         display: "flex", alignItems: "center", gap: 10,
         padding: "10px 14px",
         borderBottom: `1px solid ${lt(0.07)}`,
-        background: "rgba(239,68,68,0.07)",
+        background: T.warnSoft,
         flexShrink: 0,
       }}
     >
@@ -1298,7 +1299,7 @@ function QuitConfirmBanner({ onConfirm, onCancel }: { onConfirm(): void; onCance
         onClick={onConfirm}
         style={{
           borderRadius: 8, border: 0,
-          background: "#ef4444", color: "#fff",
+          background: T.warn, color: T.onWarn,
           fontSize: 11, fontWeight: 600, padding: "5px 12px", cursor: "pointer",
         }}
       >
@@ -1330,7 +1331,7 @@ function CollapsedBar({
   onExpand(): void;
 }) {
   const T = useTheme();
-  const dotColor = STATUS_DOT[status];
+  const dotColor = statusDotColor(T, status);
   const pulses   = status === "watching" || status === "thinking";
 
   return (
@@ -1365,7 +1366,7 @@ function CollapsedBar({
         <CtrlBtn
           title={ttsEnabled ? "Voice on — click to mute the coach" : "Muted — click to turn the coach's voice on"}
           onClick={onToggleVoice}
-          color={ttsEnabled ? T.accentText : "#C22F2F"}
+          color={ttsEnabled ? T.accentText : T.warn}
         >
           {ttsEnabled ? <SpeakerOnIcon /> : <SpeakerOffIcon />}
         </CtrlBtn>

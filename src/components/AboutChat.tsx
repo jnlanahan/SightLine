@@ -138,7 +138,7 @@ export function AboutChat({
             type="button"
             className="no-drag"
             onClick={() => setConfirmDelete(true)}
-            style={{ ...ghostBtn, color: "#C22F2F" }}
+            style={{ ...ghostBtn, color: T.warn }}
           >
             Delete chat
           </button>
@@ -152,9 +152,9 @@ export function AboutChat({
                 onClick={onDelete}
                 style={{
                   ...ghostBtn,
-                  border: "1px solid rgba(219,59,59,0.45)",
-                  background: "rgba(219,59,59,0.12)",
-                  color: "#C22F2F",
+                  border: `1px solid ${T.warn}`,
+                  background: T.warnSoft,
+                  color: T.warn,
                 }}
               >
                 Delete

@@ -125,8 +125,8 @@ export function Home({ onStart, onOpen }: Props) {
           disabled={voice.state === "transcribing"}
           style={{
             borderRadius: 9, border: `1px solid ${lt(0.10)}`,
-            background: voice.state === "recording" ? "rgba(239,68,68,0.12)" : lt(0.04),
-            color: voice.state === "recording" ? "#ef4444" : T.ink2,
+            background: voice.state === "recording" ? T.warnSoft : lt(0.04),
+            color: voice.state === "recording" ? T.warn : T.ink2,
             fontSize: 12, fontWeight: 500, padding: "7px 14px",
             cursor: voice.state === "transcribing" ? "default" : "pointer",
             opacity: voice.state === "transcribing" ? 0.5 : 1,
@@ -159,7 +159,7 @@ export function Home({ onStart, onOpen }: Props) {
         </button>
       </div>
       {voice.error && (
-        <p style={{ fontSize: 11, color: "#ef4444", margin: 0 }}>{voice.error}</p>
+        <p style={{ fontSize: 11, color: T.warn, margin: 0 }}>{voice.error}</p>
       )}
 
       {chats.length > 0 && (
@@ -173,8 +173,8 @@ export function Home({ onStart, onOpen }: Props) {
                 style={{
                   display: "flex", alignItems: "center", gap: 8,
                   padding: "10px 12px", borderRadius: 11,
-                  border: "1px solid rgba(239,68,68,0.3)",
-                  background: "rgba(239,68,68,0.07)",
+                  border: `1px solid ${T.warn}`,
+                  background: T.warnSoft,
                 }}
               >
                 <span style={{ flex: 1, minWidth: 0, fontSize: 12, color: T.ink2 }}>
@@ -196,7 +196,7 @@ export function Home({ onStart, onOpen }: Props) {
                   onClick={() => deleteChat(chat.id)}
                   style={{
                     borderRadius: 8, border: 0,
-                    background: "#ef4444", color: "#fff",
+                    background: T.warn, color: T.onWarn,
                     fontSize: 11, fontWeight: 600, padding: "5px 10px",
                     cursor: "pointer", flexShrink: 0,
                   }}

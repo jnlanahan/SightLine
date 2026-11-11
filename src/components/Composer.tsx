@@ -98,7 +98,7 @@ export function Composer({
         </div>
       )}
       <div
-        className="no-drag"
+        className="no-drag sl-composer"
         style={{
           display: "flex",
           alignItems: "center",
@@ -114,6 +114,7 @@ export function Composer({
         </label>
         <input
           id="sl-composer-input"
+          className="sl-composer-input"
           type="text"
           value={busyVoice ? "" : value}
           readOnly={busyVoice}
