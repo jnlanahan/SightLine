@@ -62,6 +62,13 @@
 }
 .sl-rise { animation: sl-rise 250ms ease-out both; }
 
+/* The rail sliding in when a quick question turns into a plan (SPEC §6.1). */
+@keyframes sl-rail-enter {
+  from { width: 0; opacity: 0; }
+  to   { width: 64px; opacity: 1; }
+}
+.sl-rail-enter { overflow: hidden; animation: sl-rail-enter 200ms ease-out both; }
+
 /* Visually hidden, still read by screen readers. */
 .sl-sr-only {
   position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
@@ -72,4 +79,5 @@
   .sl-halo { animation: none; transform: none; opacity: 0.4; }
   .sl-pulse { animation: none; }
   .sl-rise { animation: none; }
+  .sl-rail-enter { animation: none; }
 }

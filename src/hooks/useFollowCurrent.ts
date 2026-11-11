@@ -106,6 +106,9 @@ export interface FollowCurrent {
   onPillClick(): void;
   scrollToPhase(index: number): void;
   scrollToStep(n: number): void;
+  /** Put the current phase at the top, instantly — after the chat column is
+   *  shown again (expanding the panel, closing About this chat). */
+  landOnCurrent(): void;
 }
 
 /**
@@ -198,5 +201,15 @@ export function useFollowCurrent(view: PhaseView, chatKey: string | null): Follo
     else scrollTo(p.target, false);
   }, [scrollTo, scrollToStep]);
 
-  return { scrollRef, onScroll, pill: pill?.label ?? null, onPillClick, scrollToPhase, scrollToStep };
+  const landOnCurrent = useCallback(() => {
+    const v = viewRef.current;
+    atBottomRef.current = true;
+    if (v.layout === "phased" && !v.done) scrollTo({ type: "phase", index: v.currentPhase }, true);
+    else {
+      const el = scrollRef.current;
+      if (el) el.scrollTo({ top: el.scrollHeight, behavior: "auto" });
+    }
+  }, [scrollTo]);
+
+  return { scrollRef, onScroll, landOnCurrent, pill: pill?.label ?? null, onPillClick, scrollToPhase, scrollToStep };
 }

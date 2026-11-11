@@ -29,6 +29,14 @@ import { ModelCaption } from "./components/ModelCaption";
 import { PrivacyNotice } from "./components/PrivacyNotice";
 import { Settings as SettingsView } from "./components/Settings";
 import { PhaseRail } from "./components/PhaseRail";
+import { PhaseChat } from "./components/phase/PhaseChat";
+import { PhaseFooter } from "./components/phase/PhaseFooter";
+import { PhaseHeader } from "./components/phase/PhaseHeader";
+import { ReadyPill } from "./components/phase/ReadyPill";
+import { ChatMenu } from "./components/phase/ChatMenu";
+import { NeedsYouBanner } from "./components/phase/NeedsYouBanner";
+import { useFollowCurrent } from "./hooks/useFollowCurrent";
+import { useTokens } from "./design/ThemeProvider";
 import { usePhaseView } from "./hooks/usePhaseView";
 import { ConversationHistory } from "./components/ConversationHistory";
 import {
@@ -120,7 +128,7 @@ export default function App() {
   const [docked, setDocked]               = useState(false);
   const [planOpen, setPlanOpen]           = useState(false);
   const [aboutOpen, setAboutOpen]         = useState(false);
-  const chatEndRef = useRef<HTMLDivElement | null>(null);
+  const [menuOpen, setMenuOpen]           = useState(false);
   // What the open chat had already run up before this sitting, and when it
   // began. The store counts one sitting — that is what the spending cap
   // applies to — while the saved chat carries the running total.
@@ -132,19 +140,27 @@ export default function App() {
     claudeCalls: number;
   } | null>(null);
 
-  // Keep the newest message (usually the current instruction) in view. Not
-  // keyed on status: every Claude call flips watching → thinking → watching,
-  // which yanked a user who had scrolled up to reread a step back down twice
-  // per tick even when nothing new was said.
-  useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [conversation.length, instruction]);
+  // No scroll-to-newest here any more: the phase chat moves the view only by
+  // the rules in useFollowCurrent (redesign SPEC §6.2, §6.7).
 
   const rateLimitCountdown = useRateLimitCountdown();
   // The phase-chat view model, tracked for the sitting (plan changes, the
   // current step's title, the layout floor). Called on every render so the
   // tracking is continuous while the panel is collapsed too.
-  const { view: phaseView } = usePhaseView();
+  const { view: phaseView, notes: planNotes, planArrivedAt } = usePhaseView();
+  const sessionId = useSession((s) => s.sessionId);
+  const listening = useSession((s) => s.listening);
+  const pointing  = useSession((s) => s.pointing);
+  const follow = useFollowCurrent(phaseView, sessionId);
+  const tokens = useTokens();
+  // The chat column comes back (expanding the panel, closing About this
+  // chat): land on the current phase, as a reopened chat does.
+  const landOnCurrent = follow.landOnCurrent;
+  useEffect(() => {
+    if (collapsed || aboutOpen || !useSession.getState().goal) return;
+    const id = requestAnimationFrame(() => landOnCurrent());
+    return () => cancelAnimationFrame(id);
+  }, [collapsed, aboutOpen, landOnCurrent]);
   const { cancel: cancelTts } = useTts();
 
   const openSettings = useCallback(() => setView("settings"), []);
@@ -417,6 +433,7 @@ export default function App() {
     setShowPeek(false);
     setPlanOpen(false);
     setAboutOpen(false);
+    setMenuOpen(false);
     // Stay docked — the sidebar is the persistent home, not a per-chat
     // takeover. The user leaves docked mode via the header/Settings toggle.
   }
@@ -529,10 +546,17 @@ export default function App() {
               // Home does not fit in 64 px: expand, then leave the chat.
               void toggleCollapsed().then(leaveChat);
             }}
-            // Expanding is all a circle can do until the phase chat exists
-            // (WP4/WP5 add scrolling to the phase or step).
-            onPhase={() => void toggleCollapsed()}
-            onStep={() => void toggleCollapsed()}
+            // A circle expands the panel and scrolls to its phase or step.
+            onPhase={(i) => {
+              void toggleCollapsed().then(() =>
+                requestAnimationFrame(() => requestAnimationFrame(() => follow.scrollToPhase(i))),
+              );
+            }}
+            onStep={(n) => {
+              void toggleCollapsed().then(() =>
+                requestAnimationFrame(() => requestAnimationFrame(() => follow.scrollToStep(n))),
+              );
+            }}
             onMute={toggleVoice}
             onPause={status === "paused" ? resume : pause}
             onCollapse={() => void toggleCollapsed()}
@@ -577,6 +601,220 @@ export default function App() {
     );
   }
 
+  // ── The open chat: the phase-chat screen (redesign SPEC §2, §5) ──
+  function openChatView() {
+    const t = tokens.palette;
+    const quick = phaseView.layout === "quick";
+    const needsYou = status === "error" || Boolean(error) || rateLimitCountdown !== null;
+    // State words (SPEC §7). WP7 moves this into one tested function.
+    const stateWord = done
+      ? "Done"
+      : status === "paused"
+        ? "Paused"
+        : needsYou
+          ? "Needs you"
+          : listening
+            ? "Listening"
+            : goalPending
+              ? "Waiting for you"
+              : status === "thinking" && activeTool
+                ? activeTool.name === "search_web"
+                  ? "Looking that up"
+                  : activeTool.name === "search_memory"
+                    ? "Checking earlier chats"
+                    : "Taking a closer look"
+                : "Watching";
+    const newest = conversation[conversation.length - 1];
+    const answering = status === "thinking" && newest?.role === "user";
+    const statusRow =
+      status !== "thinking"
+        ? null
+        : activeTool
+          ? activeTool.name === "search_web"
+            ? "Looking that up"
+            : activeTool.name === "search_memory"
+              ? "Checking earlier chats"
+              : "Taking a closer look"
+          : answering
+            ? newest.content === STEP_DONE_REPLY
+              ? "Checking your screen"
+              : "Looking at your screen"
+            : null;
+    const bannerMessage = rateLimitCountdown !== null
+      ? `The AI service asked us to wait. Trying again in ${rateLimitCountdown}s.`
+      : error;
+    const title = (!goalPending && agreedGoal) || goal || "";
+    const placeholder =
+      done || quick
+        ? conversation.length <= 1 && !instruction
+          ? "Ask or tell it anything"
+          : "Ask a follow-up"
+        : `Ask about step ${phaseView.currentStep}`;
+    const railEntering = planArrivedAt !== null && Date.now() - planArrivedAt < 1000;
+    const onQuit = () => {
+      if (goal) setShowQuitConfirm(true);
+      else void api().app.quit();
+    };
+
+    return (
+      <PanelShell docked={docked} animate={focused}>
+        {docked && <DockResizeHandle side={settings?.dockSide ?? "left"} />}
+        <div style={{ flex: 1, minHeight: 0, display: "flex", background: t.bg, color: t.ink }}>
+          <div className={railEntering ? "sl-rail-enter" : undefined} style={{ display: "flex", flexShrink: 0 }}>
+            <PhaseRail
+              view={phaseView}
+              collapsed={false}
+              muted={!(settings?.ttsEnabled ?? false)}
+              paused={status === "paused"}
+              needsYou={needsYou}
+              onAllChats={leaveChat}
+              onPhase={(i) => follow.scrollToPhase(i)}
+              onStep={(n) => follow.scrollToStep(n)}
+              onMute={toggleVoice}
+              onPause={status === "paused" ? resume : pause}
+              onCollapse={() => void toggleCollapsed()}
+            />
+          </div>
+          <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", position: "relative" }}>
+            <PhaseHeader
+              title={title}
+              view={phaseView}
+              stateWord={stateWord}
+              menuOpen={menuOpen}
+              onMenu={() => setMenuOpen((v) => !v)}
+              quickControls={{
+                muted: !(settings?.ttsEnabled ?? false),
+                paused: status === "paused",
+                onAllChats: leaveChat,
+                onMute: toggleVoice,
+                onPause: status === "paused" ? resume : pause,
+                onCollapse: () => void toggleCollapsed(),
+              }}
+            />
+            {menuOpen && (
+              <ChatMenu
+                docked={docked}
+                aboutOpen={aboutOpen}
+                attachedCount={attachedFileNames.length}
+                canPeek={hasFrame}
+                onClose={() => setMenuOpen(false)}
+                onAbout={() => setAboutOpen((v) => !v)}
+                onAttach={() => void attachContext()}
+                onPeek={() => setShowPeek(true)}
+                onAdjustArea={() => { void api().overlay.setAdjust(true); }}
+                onToggleDock={() => void patchSettings({ dockEnabled: !docked })}
+                onSettings={openSettings}
+                onMinimize={() => void api().window.minimize()}
+                onQuit={onQuit}
+              />
+            )}
+            {showQuitConfirm && (
+              <QuitConfirmBanner
+                onConfirm={() => {
+                  // Save before the process goes away — quitting mid-chat is
+                  // the most common way a sitting actually ends.
+                  void persistChat().finally(() => {
+                    void api().app.quit();
+                  });
+                }}
+                onCancel={() => setShowQuitConfirm(false)}
+              />
+            )}
+            {showPeek && hasFrame && <PeekOverlay onClose={() => setShowPeek(false)} />}
+
+            {aboutOpen ? (
+              <div className="flex-1 overflow-y-auto sl-scroll" style={{ minHeight: 0 }}>
+                <AboutChat
+                  goal={agreedGoal || goal || ""}
+                  doneWhen={doneWhen}
+                  whereWeLeftOff={
+                    // The tidy-up's summary, until the chat moves on from it.
+                    tidy && tidy.whereWeLeftOff && tidy.turns === conversation.length
+                      ? tidy.whereWeLeftOff
+                      : buildWhereWeLeftOff({
+                          stepLog,
+                          currentStep: instruction,
+                          done,
+                          stages,
+                          stageIndex,
+                        })
+                  }
+                  tidyNote={tidy?.changed ?? ""}
+                  notes={liveNotes(agentNotes)}
+                  fileNames={attachedFileNames}
+                  done={done}
+                  onEditNote={(id, text) => useSession.getState().editAgentNote(id, text)}
+                  onForgetNote={(id) => useSession.getState().forgetAgentNote(id, Date.now())}
+                  onMarkDone={markChatDone}
+                  onDelete={() => void deleteOpenChat()}
+                  onClose={() => setAboutOpen(false)}
+                />
+              </div>
+            ) : (
+              <PhaseChat
+                view={phaseView}
+                stateWord={stateWord}
+                currentInstruction={instruction}
+                currentCode={currentCode}
+                notes={planNotes}
+                pendingGoal={goalPending && !done ? { goal: agreedGoal || goal || "", doneWhen } : null}
+                scrollRef={follow.scrollRef}
+                onScroll={follow.onScroll}
+                banner={bannerMessage ? <NeedsYouBanner message={bannerMessage} /> : undefined}
+                footer={
+                  quick ? (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                      {pointing && !done && (
+                        <div style={{ fontSize: 12.5, color: t.ink2 }}>
+                          Outlined on your screen. I&apos;ll move on when I see it&apos;s done.
+                        </div>
+                      )}
+                      {statusRow ? (
+                        <PhaseFooter stance={stance} pointing={false} statusRow={statusRow} onReply={submitFollowUp} />
+                      ) : status === "paused" ? (
+                        <PhaseFooter stance={stance} pointing={false} paused onReply={submitFollowUp} onResume={resume} />
+                      ) : goalPending ? (
+                        <PhaseFooter stance={stance} pointing={false} goalPending onReply={submitFollowUp} />
+                      ) : (
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: t.ink2 }}>
+                          <span aria-hidden="true" style={{ width: 7, height: 7, borderRadius: "50%", background: t.accent }} />
+                          {done ? "Done." : "Watching quietly."}
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <PhaseFooter
+                      stance={stance}
+                      pointing={pointing}
+                      statusRow={statusRow}
+                      goalPending={goalPending}
+                      paused={status === "paused"}
+                      onReply={submitFollowUp}
+                      onResume={resume}
+                    />
+                  )
+                }
+              />
+            )}
+            {follow.pill && !aboutOpen && <ReadyPill label={follow.pill} onClick={follow.onPillClick} />}
+            <div style={{ flexShrink: 0 }}>
+              <Composer
+                placeholder={placeholder}
+                isThinking={status === "thinking"}
+                onSubmit={submitFollowUp}
+                onStartTalking={startTalking}
+                onStopTalking={stopTalking}
+              />
+              <ModelCaption style={{ display: "block", padding: "0 16px 8px", marginTop: -6 }} />
+            </div>
+          </div>
+        </div>
+      </PanelShell>
+    );
+  }
+
+  if (goal) return openChatView();
+
   return (
     <PanelShell docked={docked} animate={focused}>
       {docked && <DockResizeHandle side={settings?.dockSide ?? "left"} />}
@@ -616,181 +854,13 @@ export default function App() {
       {/* Peek overlay */}
       {showPeek && hasFrame && <PeekOverlay onClose={() => setShowPeek(false)} />}
 
-      {/* Content area */}
-      {!goal ? (
-        <div className="flex flex-1 flex-col gap-2.5 overflow-y-auto p-3 pt-2 sl-scroll">
-          <Home
-            onStart={(g) => startSession(g)}
-            onOpen={(id) => void openChat(id)}
-          />
-        </div>
-      ) : (
-        /* Session layout, top to bottom: progress rail, optional plan list,
-           conversation, composer. Every region is in the normal flex flow —
-           nothing floats over anything else, so opening the plan shrinks the
-           conversation instead of burying it. */
-        <div className="flex flex-1 flex-col" style={{ minHeight: 0 }}>
-          <ProgressRail
-            // A long plan shows where the user is in it; anything shorter
-            // just shows the goal.
-            label={stages.length > 0 ? `Stage ${stageIndex + 1} of ${stages.length}` : "Goal"}
-            // The goal as agreed with the coach, once there is one; the
-            // user's own words until then.
-            goal={stages.length > 0 ? (stages[stageIndex] ?? goal) : (agreedGoal || goal)}
-            steps={planSteps}
-            open={planOpen}
-            docked={docked}
-            onToggle={() => setPlanOpen((v) => !v)}
-          />
-
-          {planOpen && (
-            <>
-              {agreedGoal && (
-                <div
-                  className="sl-selectable"
-                  style={{
-                    flexShrink: 0, padding: "8px 16px",
-                    fontSize: 12, lineHeight: 1.45,
-                    borderBottom: `1px solid ${lt(0.08)}`,
-                  }}
-                >
-                  <div style={{ fontWeight: 600 }}>{agreedGoal}</div>
-                  {doneWhen && (
-                    <div style={{ marginTop: 2, opacity: 0.75 }}>Done when: {doneWhen}</div>
-                  )}
-                </div>
-              )}
-              <StageList stages={stages} current={stageIndex} />
-              <PlanList steps={planSteps} />
-              <div style={{ flexShrink: 0, padding: "8px 16px 10px", borderBottom: `1px solid ${lt(0.08)}` }}>
-                <ContextPanel
-                  fileNames={attachedFileNames}
-                  onAttach={attachContext}
-                  onAbout={() => setAboutOpen(true)}
-                />
-              </div>
-            </>
-          )}
-
-          {aboutOpen ? (
-            <div className="flex-1 overflow-y-auto sl-scroll" style={{ minHeight: 0 }}>
-              <AboutChat
-                goal={agreedGoal || goal}
-                doneWhen={doneWhen}
-                whereWeLeftOff={
-                  // The tidy-up's summary, until the chat moves on from it.
-                  tidy && tidy.whereWeLeftOff && tidy.turns === conversation.length
-                    ? tidy.whereWeLeftOff
-                    : buildWhereWeLeftOff({
-                        stepLog,
-                        currentStep: instruction,
-                        done,
-                        stages,
-                        stageIndex,
-                      })
-                }
-                tidyNote={tidy?.changed ?? ""}
-                notes={liveNotes(agentNotes)}
-                fileNames={attachedFileNames}
-                done={done}
-                onEditNote={(id, text) => useSession.getState().editAgentNote(id, text)}
-                onForgetNote={(id) => useSession.getState().forgetAgentNote(id, Date.now())}
-                onMarkDone={markChatDone}
-                onDelete={() => void deleteOpenChat()}
-                onClose={() => setAboutOpen(false)}
-              />
-            </div>
-          ) : (
-          <>
-          {/* Conversation — the one region that grows and scrolls */}
-          <div
-            className="flex-1 overflow-y-auto sl-scroll"
-            style={{ minHeight: 0, padding: "10px 12px 4px" }}
-          >
-            <ConversationHistory
-              turns={conversation}
-              hideLatestAssistant={instruction}
-              autoScroll={false}
-            />
-            <div style={{ marginTop: 8 }}>
-              {/* The coach has said the goal back: the goal and a one-tap yes
-                  stand where the step will go. An error still shows as one. */}
-              {goalPending && !done && !error ? (
-                <GoalCard
-                  goal={agreedGoal || goal}
-                  doneWhen={doneWhen}
-                  busy={status === "thinking"}
-                  onAgree={() => submitFollowUp(GOAL_AGREED_REPLY)}
-                />
-              ) : (
-                <Instruction
-                  instruction={instruction}
-                  code={currentCode}
-                  status={status}
-                  done={done}
-                  error={error}
-                  activeTool={activeTool}
-                  troubleshooting={troubleshooting}
-                  onStepDone={
-                    stance === "guide"
-                      ? () => submitFollowUp(STEP_DONE_REPLY)
-                      : undefined
-                  }
-                />
-              )}
-            </div>
-            {/* Watching quietly: the two one-tap ways to ask for the coach's
-                voice. They send plain words, the same as typing or saying
-                them. Always available while it watches — hiding them on
-                `done` left the user with no way to talk to the coach after
-                one premature done. */}
-            {stance === "watch" && (
-              <div style={{ marginTop: 8 }}>
-                <TrainingActions
-                  busy={status === "thinking"}
-                  onCheckWork={() => submitFollowUp(CHECK_WORK_REPLY)}
-                  onStuck={() => submitFollowUp(STUCK_REPLY)}
-                />
-              </div>
-            )}
-            <div ref={chatEndRef} />
-          </div>
-
-          <div className="px-3 pb-2 pt-1" style={{ flexShrink: 0 }}>
-            <Composer
-              isThinking={status === "thinking"}
-              onSubmit={submitFollowUp}
-              onStartTalking={startTalking}
-              onStopTalking={stopTalking}
-            />
-            <ModelCaption style={{ display: "block", padding: "5px 4px 0" }} />
-          </div>
-          </>
-          )}
-        </div>
-      )}
-
-      {/* Control bar */}
-      {goal && (
-        <>
-          <ControlBar
-            status={status}
-            ttsEnabled={settings?.ttsEnabled ?? false}
-            hasPeek={hasFrame}
-            showPeek={showPeek}
-            attachedCount={attachedFileNames.length}
-            rateLimitCountdown={rateLimitCountdown}
-            onPause={pause}
-            onResume={resume}
-            onStop={leaveChat}
-            onToggleVoice={toggleVoice}
-            onAttach={attachContext}
-            onPeek={() => setShowPeek((v) => !v)}
-            aboutOpen={aboutOpen}
-            onAbout={() => setAboutOpen((v) => !v)}
-          />
-        </>
-      )}
+      {/* Home: unchanged until its layout is designed (WP9 recolours it). */}
+      <div className="flex flex-1 flex-col gap-2.5 overflow-y-auto p-3 pt-2 sl-scroll">
+        <Home
+          onStart={(g) => startSession(g)}
+          onOpen={(id) => void openChat(id)}
+        />
+      </div>
     </PanelShell>
   );
 }

@@ -30,6 +30,9 @@ export interface LivePhaseView {
   view: PhaseView;
   notes: readonly PlanNote[];
   addedSteps: ReadonlySet<string>;
+  /** When the chat gained a plan this sitting (quick → single/phased), for
+   *  the rail's slide-in. Null when it opened with one, or never got one. */
+  planArrivedAt: number | null;
 }
 
 interface Tracker {
@@ -41,6 +44,7 @@ interface Tracker {
   stepCount: number;
   added: Set<string>;
   notes: PlanNote[];
+  planArrivedAt: number | null;
 }
 
 export function usePhaseView(): LivePhaseView {
@@ -71,6 +75,7 @@ export function usePhaseView(): LivePhaseView {
       stepCount: stepLog.length,
       added: new Set(),
       notes: [],
+      planArrivedAt: null,
     };
     ref.current = t;
   } else if (t.upcoming !== upcomingSteps || t.stages !== stages || t.stepCount !== stepLog.length) {
@@ -91,12 +96,21 @@ export function usePhaseView(): LivePhaseView {
     t.stages = stages;
     t.stepCount = stepLog.length;
   }
-  t.floor = stickyLayout(layoutOf(input), t.floor);
+  const nextFloor = stickyLayout(layoutOf(input), t.floor);
+  if (t.floor === "quick" && nextFloor !== "quick") {
+    // A quick question turned into a walkthrough (SPEC §6.1): say so.
+    const now = Date.now();
+    const known = stepLog.length + (currentInstruction.trim() && !done ? 1 : 0) + upcomingSteps.length;
+    const text = nextFloor === "phased" ? `Plan: ${stages.length} phases` : `Plan: ${known} steps`;
+    t.notes = [...t.notes, { text, step: stepLog.length + (done ? 0 : 1), at: now }];
+    t.planArrivedAt = now;
+  }
+  t.floor = nextFloor;
 
   const view = buildPhaseView(input, {
     currentTitle: t.title.title,
     addedSteps: t.added,
     layoutFloor: t.floor,
   });
-  return { view, notes: t.notes, addedSteps: t.added };
+  return { view, notes: t.notes, addedSteps: t.added, planArrivedAt: t.planArrivedAt };
 }
