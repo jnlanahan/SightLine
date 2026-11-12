@@ -262,7 +262,13 @@ export interface Settings {
   // Colour set for the whole app and the glow overlay. (An old settings
   // file's accent colour is read once to choose it; see settings-store.ts.)
   palette: PaletteName;
+  // The user's own accent colour, "#RRGGBB", used in place of the colour
+  // set's accent in the panel and for the outline on the real screen. Null =
+  // the colour set's own.
+  customAccent: string | null;
   windowBounds: WindowBounds | null;
+  // No longer has a control: every surface is solid since the redesign. Kept
+  // so older settings files still load.
   solidBackground: boolean;
   // One-time migration flag: forces opacity/solidBackground to opaque once
   // for settings saved before the opaque-by-default change.

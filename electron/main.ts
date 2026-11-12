@@ -37,6 +37,7 @@ import {
   setDockChangeListener,
 } from "./dock";
 import { clampDockWidth, RAIL_WIDTH, subtractDockStrip } from "./dock-geometry";
+import { highlightRect } from "./highlight-geometry";
 import { hasKey, setKey } from "./credentials";
 import {
   getNextInstruction,
@@ -201,7 +202,10 @@ const PALETTE_GLOW: Record<string, string> = {
 };
 
 function currentGlowAccent(): { hex: string; rgb: string } {
-  const hex = PALETTE_GLOW[loadSettings().palette] ?? PALETTE_GLOW.graphite;
+  const s = loadSettings();
+  // The user's own accent wins: the outline on their screen should be the
+  // colour they picked for the panel.
+  const hex = s.customAccent ?? PALETTE_GLOW[s.palette] ?? PALETTE_GLOW.porcelain;
   const n = parseInt(hex.slice(1), 16);
   return { hex, rgb: `${(n >> 16) & 255},${(n >> 8) & 255},${n & 255}` };
 }
@@ -1001,7 +1005,9 @@ function registerIpc() {
       }
       // Moving the capture to a different screen (or changing the colour
       // set) means the glow overlay has to be recreated.
-      const paletteChanged = "palette" in patch && next.palette !== prev.palette;
+      const paletteChanged =
+        ("palette" in patch && next.palette !== prev.palette) ||
+        ("customAccent" in patch && next.customAccent !== prev.customAccent);
       if (screenChanged || paletteChanged) {
         void resolveWatchedDisplayId().then(showGlowOverlay);
       } else if ("captureRegion" in patch) {
@@ -1358,25 +1364,25 @@ function registerIpc() {
         .getAllDisplays()
         .find((d) => String(d.id) === geo.displayId);
       if (!display) return;
-      // The model's box is an estimate off a 1280 px downscale, typically a
-      // percent or two off — ~20 px on a 1080 px display, enough to sit
-      // beside a tree-view arrow instead of on it. Pad in proportion to the
-      // screen and enforce a floor, centred on the model's target, so a near
-      // miss still encloses the thing: "it's in here" beats a tight box next
-      // to it.
-      const pad = Math.max(10, Math.round(geo.rect.height * 0.018));
-      const MIN_SIDE = 44;
+      // The box fits what it points at, and stays whole on screen — see
+      // highlight-geometry.ts for the sizes and the measurements behind them.
       const gb = glowWindow.getBounds();
-      const width = Math.max(MIN_SIDE, Math.round(payload.w * geo.rect.width) + pad * 2);
-      const height = Math.max(MIN_SIDE, Math.round(payload.h * geo.rect.height) + pad * 2);
-      const cx = display.bounds.x + geo.rect.x + (payload.x + payload.w / 2) * geo.rect.width - gb.x;
-      const cy = display.bounds.y + geo.rect.y + (payload.y + payload.h / 2) * geo.rect.height - gb.y;
-      const rect = {
-        x: Math.round(cx - width / 2),
-        y: Math.round(cy - height / 2),
-        width,
-        height,
-      };
+      const rect = highlightRect(
+        payload,
+        geo.rect,
+        { x: gb.x - display.bounds.x, y: gb.y - display.bounds.y },
+        { width: gb.width, height: gb.height },
+      );
+      // Back to the very front before it shows. The Windows taskbar is an
+      // always-on-top window too, and whichever of the two was touched last
+      // wins: once the user has clicked the taskbar, a box pointing at an
+      // icon ON the taskbar was drawn underneath it and could not be seen.
+      try {
+        glowWindow.setAlwaysOnTop(true, "screen-saver");
+        glowWindow.moveTop();
+      } catch {
+        // Ordering is a nicety; never let it stop the box being drawn.
+      }
       flashVisible = true;
       logLine(
         `[glow] flash highlight frac=(${payload.x.toFixed(2)},${payload.y.toFixed(2)},${payload.w.toFixed(2)},${payload.h.toFixed(2)}) → rect=(${rect.x},${rect.y},${rect.width},${rect.height})`,

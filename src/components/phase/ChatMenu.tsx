@@ -1,35 +1,38 @@
-// The "⋯" menu (plan, "The redesign: phase chats", item 3). The new screen
-// has room for a rail and one menu button, so everything that otherwise has
-// no home lives here: About this chat, attach, see what the coach sees, the
-// watched area and screen, dock or float, Settings, what this sitting has
-// cost, minimize and quit. A plain list, restyled with the tokens; its layout
-// is not designed yet.
+// The "⋯" menu, on every screen.
+//
+// Two groups. The first exists only while a chat is open, and is about that
+// chat: what the coach remembers in it, attaching a file, seeing what the
+// coach sees, and what this sitting has cost. The second is always there and
+// is about the window: collapse, dock or float, minimize, quit.
+//
+// Settings is not in here: it has its own button beside this one, in the same
+// place on every screen. Choosing the watched screen or area is in Settings.
 
 import { useEffect, useRef, type ReactNode } from "react";
 import { useTokens } from "../../design/ThemeProvider";
 import { useSession } from "../../store/session";
 import { useSettings } from "../../store/settings";
 import { budgetStatus, formatUsd } from "../../../electron/usage";
-import { ScreenPicker } from "../ScreenPicker";
 
 export interface ChatMenuProps {
+  /** A chat is open: show the chat's own group. */
+  inChat: boolean;
   docked: boolean;
-  aboutOpen: boolean;
-  attachedCount: number;
-  canPeek: boolean;
+  aboutOpen?: boolean;
+  attachedCount?: number;
+  canPeek?: boolean;
   onClose(): void;
-  onAbout(): void;
-  onAttach(): void;
-  onPeek(): void;
-  onAdjustArea(): void;
+  onAbout?(): void;
+  onAttach?(): void;
+  onPeek?(): void;
+  onCollapse(): void;
   onToggleDock(): void;
-  onSettings(): void;
   onMinimize(): void;
   onQuit(): void;
 }
 
 /** "So far this sitting: $0.12 of $3.00" — the spend line that used to be
- *  always on screen (plan item 4). */
+ *  always on screen. */
 export function costLine(costUsd: number, capUsd: number): string {
   const spent = formatUsd(costUsd);
   return capUsd > 0 ? `So far this sitting: ${spent} of ${formatUsd(capUsd)}` : `So far this sitting: ${spent}`;
@@ -52,15 +55,16 @@ export function ChatMenu(p: ChatMenuProps) {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  const item = (label: string, onClick: () => void, opts: { disabled?: boolean; danger?: boolean } = {}): ReactNode => (
+  const item = (label: string, onClick: (() => void) | undefined, opts: { disabled?: boolean; hint?: string } = {}): ReactNode => (
     <button
       type="button"
       role="menuitem"
       className="sl-focus no-drag"
       disabled={opts.disabled}
+      title={opts.hint}
       onClick={() => {
         p.onClose();
-        onClick();
+        onClick?.();
       }}
       style={{
         display: "block",
@@ -80,15 +84,23 @@ export function ChatMenu(p: ChatMenuProps) {
     </button>
   );
   const rule = <div aria-hidden="true" style={{ height: 1, background: t.line, margin: "4px 6px" }} />;
+  const heading = (text: string) => (
+    <div
+      aria-hidden="true"
+      style={{ padding: "8px 14px 4px", fontSize: 11, fontWeight: 700, letterSpacing: 1.2, textTransform: "uppercase", color: t.ink2 }}
+    >
+      {text}
+    </div>
+  );
 
   return (
     <>
       {/* Click anywhere else to close. */}
-      <div aria-hidden="true" onClick={p.onClose} style={{ position: "absolute", inset: 0, zIndex: 19 }} />
+      <div aria-hidden="true" className="no-drag" onClick={p.onClose} style={{ position: "absolute", inset: 0, zIndex: 19 }} />
       <div
         ref={listRef}
         role="menu"
-        aria-label="Menu"
+        aria-label="More options"
         className="no-drag"
         style={{
           position: "absolute",
@@ -107,28 +119,31 @@ export function ChatMenu(p: ChatMenuProps) {
           boxShadow: "0 12px 30px rgba(0,0,0,0.3)",
         }}
       >
-        {item(p.aboutOpen ? "Back to the chat" : "About this chat", p.onAbout)}
-        {item(p.attachedCount > 0 ? `Attach a file (${p.attachedCount} attached)` : "Attach a file", p.onAttach)}
-        {item("See what the coach sees", p.onPeek, { disabled: !p.canPeek })}
-        {item("Choose the area it watches", p.onAdjustArea)}
-        {/* Switch screen: the picker shows itself only with two or more. */}
-        <div style={{ padding: "4px 8px" }}>
-          <ScreenPicker compact />
-        </div>
+        {p.inChat && (
+          <>
+            {heading("This chat")}
+            {item(p.aboutOpen ? "Back to the chat" : "About this chat", p.onAbout)}
+            {item(p.attachedCount ? `Attach a file (${p.attachedCount} attached)` : "Attach a file", p.onAttach)}
+            {item("See what the coach sees", p.onPeek, {
+              disabled: !p.canPeek,
+              hint: p.canPeek ? undefined : "Nothing yet — the coach has not looked at your screen in this sitting",
+            })}
+            <div
+              style={{
+                padding: "8px 14px",
+                fontSize: 12.5,
+                color: budget.level === "ok" ? t.ink2 : t.warn,
+                fontVariantNumeric: "tabular-nums",
+              }}
+            >
+              {costLine(costUsd, cap)}
+            </div>
+            {rule}
+            {heading("Window")}
+          </>
+        )}
+        {item("Collapse", p.onCollapse)}
         {item(p.docked ? "Float the window" : "Dock to the side", p.onToggleDock)}
-        {item("Settings", p.onSettings)}
-        {rule}
-        <div
-          style={{
-            padding: "8px 14px",
-            fontSize: 12.5,
-            color: budget.level === "ok" ? t.ink2 : t.warn,
-            fontVariantNumeric: "tabular-nums",
-          }}
-        >
-          {costLine(costUsd, cap)}
-        </div>
-        {rule}
         {item("Minimize", p.onMinimize)}
         {item("Quit", p.onQuit)}
       </div>

@@ -3,7 +3,7 @@ import { useSettings } from "../store/settings";
 import { api } from "../lib/api";
 import { useTheme } from "../design/ThemeProvider";
 import { ar, lt } from "../design/theme";
-import { DEFAULT_PALETTE, PALETTES } from "../design/tokens";
+import { ACCENT_SWATCHES, DEFAULT_PALETTE, PALETTES } from "../design/tokens";
 import type {
   ElevenVoiceOption,
   PaletteName,
@@ -226,6 +226,8 @@ export function Settings({ onClose }: Props) {
             </div>
           </div>
 
+          <AccentPicker />
+
           {/* Idle opacity */}
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
@@ -244,20 +246,9 @@ export function Settings({ onClose }: Props) {
               title="Idle opacity"
             />
             <span style={{ fontSize: 10, color: T.ink3 }}>
-              How visible the panel stays while you work in other apps
+              How visible the panel stays while you work in other apps. Only when the window is floating; docked to the side it is always solid.
             </span>
           </div>
-
-          {/* Solid background */}
-          <ToggleRow
-            T={T}
-            label="Solid background"
-            hint="Removes the glass/blur effect for better readability"
-            checked={settings.solidBackground ?? false}
-            onChange={(v) => patch({ solidBackground: v })}
-            accentRGB={T.accentRGB}
-            accent={T.accent}
-          />
         </div>
 
         {/* Docking */}
@@ -468,6 +459,100 @@ export function Settings({ onClose }: Props) {
 }
 
 /* ── Sub-components ── */
+
+/**
+ * The accent colour. A colour set fixes the backgrounds and the text; this
+ * swaps the one accent (buttons, the current step, the outline on the real
+ * screen) for a ready-made colour or any colour from the picker. Asked for
+ * after the second live run: "maybe we keep the themes and we can adjust the
+ * color within those themes".
+ */
+function AccentPicker() {
+  const T = useTheme();
+  const settings = useSettings((s) => s.settings);
+  const patch = useSettings((s) => s.patch);
+  const saved = settings?.customAccent ?? null;
+  const themeAccent = PALETTES[settings?.palette ?? DEFAULT_PALETTE].accent;
+  // The picker reports every movement of its sliders. Saving each one would
+  // rewrite the settings file and redraw the outline on the screen many times
+  // a second, so the colour is saved once the hand stops.
+  const [draft, setDraft] = useState<string | null>(null);
+  useEffect(() => {
+    if (draft === null) return;
+    const id = window.setTimeout(() => {
+      void patch({ customAccent: draft });
+      setDraft(null);
+    }, 250);
+    return () => window.clearTimeout(id);
+  }, [draft, patch]);
+
+  const current = draft ?? saved;
+  const isPreset = current !== null && ACCENT_SWATCHES.some((s) => s.hex.toUpperCase() === current.toUpperCase());
+  const dot = (selected: boolean): React.CSSProperties => ({
+    width: 28, height: 28, borderRadius: "50%", flexShrink: 0, padding: 0, cursor: "pointer",
+    border: `2px solid ${T.surface}`,
+    boxShadow: selected ? `0 0 0 2px ${T.ink}` : `0 0 0 1px ${lt(0.2)}`,
+  });
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+      <span id="sl-accent-label" style={{ fontSize: 12.5, fontWeight: 500, color: T.ink }}>Accent colour</span>
+      <div
+        className="no-drag"
+        role="radiogroup"
+        aria-labelledby="sl-accent-label"
+        style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}
+      >
+        <button
+          type="button"
+          role="radio"
+          aria-checked={current === null}
+          aria-label="The colour set's own colour"
+          title="The colour set's own colour"
+          onClick={() => { setDraft(null); void patch({ customAccent: null }); }}
+          style={{ ...dot(current === null), background: themeAccent }}
+        />
+        {ACCENT_SWATCHES.map((s) => {
+          const selected = current !== null && current.toUpperCase() === s.hex.toUpperCase();
+          return (
+            <button
+              key={s.hex}
+              type="button"
+              role="radio"
+              aria-checked={selected}
+              aria-label={s.name}
+              title={s.name}
+              onClick={() => { setDraft(null); void patch({ customAccent: s.hex }); }}
+              style={{ ...dot(selected), background: s.hex }}
+            />
+          );
+        })}
+        {/* Any colour at all: the system colour picker, with its spectrum,
+            slider and exact values. */}
+        <label
+          title="Pick any colour"
+          style={{
+            display: "inline-flex", alignItems: "center", gap: 6, height: 28, padding: "0 10px 0 4px",
+            borderRadius: 999, cursor: "pointer", fontSize: 12, fontWeight: 600, color: T.ink,
+            border: `1px solid ${current !== null && !isPreset ? T.ink : lt(0.2)}`,
+          }}
+        >
+          <input
+            type="color"
+            aria-label="Pick any colour"
+            value={(current ?? themeAccent).toLowerCase()}
+            onChange={(e) => setDraft(e.target.value.toUpperCase())}
+            style={{ width: 22, height: 22, padding: 0, border: 0, borderRadius: "50%", background: "transparent", cursor: "pointer" }}
+          />
+          Custom
+        </label>
+      </div>
+      <span style={{ fontSize: 10, color: T.ink3 }}>
+        Used for buttons, the step you are on, and the outline on your screen.
+      </span>
+    </div>
+  );
+}
 
 function ToggleRow({
   T,

@@ -8,7 +8,7 @@
 // keeping their layouts. New components read the palette directly
 // (`useTokens()`).
 
-import { font as tokenFont, type Palette } from "./tokens";
+import { accentInkOn, font as tokenFont, type Palette } from "./tokens";
 
 export interface SightLineTheme {
   surface: string;
@@ -80,7 +80,8 @@ export function makeTheme(p: Palette): SightLineTheme {
     accent: p.accent,
     accentDeep: p.accent,
     accentSoft: `rgba(${rgb},0.6)`,
-    accentText: p.accent,
+    // Readable as words on the panel whatever accent the user picked.
+    accentText: accentInkOn(p),
     gold: p.accent,
     accentRGB: rgb,
     onAccent: p.onAccent,

@@ -49,27 +49,54 @@ describe("header status line", () => {
   });
 });
 
-describe("header", () => {
-  const controls = { muted: false, paused: false, onAllChats: noop, onMute: noop, onPause: noop, onCollapse: noop };
+// The second live run, 11 November 2026: "the same top menu needs to show no
+// matter if you're in a chat or not… the settings button needs to look like a
+// settings button… when you go into a chat, the settings go away."
+describe("the top bar is the same on every screen", () => {
+  const controls = { muted: false, paused: false, onAllChats: noop, onMute: noop, onPause: noop };
+  const base = { menuOpen: false, onMenu: noop, onSettings: noop };
+  const home = () => wrap(createElement(PhaseHeader, { ...base, title: "SightLine", status: "Ready when you are", statusDot: true }));
+  const plan = () => wrap(createElement(PhaseHeader, { ...base, title: "Set up the work VPN", status: headerStatusLine(phased, "Watching") }));
+  const quick = () => wrap(createElement(PhaseHeader, { ...base, title: "Freeze the top row", status: "Watching", statusDot: true, quickControls: controls }));
 
-  it("plan: title, status and the menu button only", () => {
-    const h = wrap(createElement(PhaseHeader, { title: "Set up the work VPN", view: phased, stateWord: "Watching", menuOpen: false, onMenu: noop, quickControls: controls }));
-    expect(h).toContain("Set up the work VPN");
-    expect(h).toContain('aria-label="Menu"');
-    expect(h).toContain('aria-haspopup="menu"');
-    expect(h).not.toContain('aria-label="All chats"');
+  it("Settings and the menu are on Home, in a plan and in a quick answer", () => {
+    for (const h of [home(), plan(), quick()]) {
+      expect(h).toContain('aria-label="Settings"');
+      expect(h).toContain('aria-label="More options"');
+      expect(h).toContain('aria-haspopup="menu"');
+      // Always Settings first, then the menu, at the right-hand end.
+      expect(h.indexOf('aria-label="Settings"')).toBeLessThan(h.indexOf('aria-label="More options"'));
+      expect(h.lastIndexOf("<button")).toBe(h.indexOf('<button', h.indexOf('aria-label="Settings"')));
+    }
   });
 
-  it("quick: All chats and the rail's controls move into the header", () => {
-    const h = wrap(createElement(PhaseHeader, { title: "Freeze the top row", view: view({ currentInstruction: "x" }), stateWord: "Watching", menuOpen: false, onMenu: noop, quickControls: controls }));
-    for (const l of ["All chats", "Mute voice", "Pause watching", "Collapse to rail", "Menu"]) {
-      expect(h).toContain(`aria-label="${l}"`);
+  it("plan: title and status, and no rail controls", () => {
+    const h = plan();
+    expect(h).toContain("Set up the work VPN");
+    expect(h).toContain("Phase 2 of 3");
+    expect(h).not.toContain('aria-label="All chats"');
+    expect(h).not.toContain('aria-label="Mute voice"');
+  });
+
+  it("quick: All chats, mute and pause sit here, because there is no rail", () => {
+    const h = quick();
+    for (const l of ["All chats", "Mute voice", "Pause watching"]) {
+      expect(h).toContain('aria-label="' + l + '"');
     }
+  });
+
+  it("Home uses it too, in place of the old row of eight buttons", async () => {
+    const app = (await import("../App?raw")) as unknown as { default: string };
+    expect(app.default.split("<PhaseHeader").length - 1).toBe(2);
+    expect(app.default.split("<ChatMenu").length - 1).toBe(2);
+    expect(app.default).not.toContain("function PanelHeader");
+    expect(app.default).not.toContain("IGear");
   });
 });
 
 describe("the menu", () => {
   const props = {
+    inChat: true,
     docked: true,
     aboutOpen: false,
     attachedCount: 0,
@@ -78,20 +105,30 @@ describe("the menu", () => {
     onAbout: noop,
     onAttach: noop,
     onPeek: noop,
-    onAdjustArea: noop,
+    onCollapse: noop,
     onToggleDock: noop,
-    onSettings: noop,
     onMinimize: noop,
     onQuit: noop,
   };
 
-  it("holds everything the old header and bottom bar did", () => {
+  it("in a chat: the chat's own options, then the window's", () => {
     const h = wrap(createElement(ChatMenu, props));
     expect(h).toContain('role="menu"');
-    for (const l of ["About this chat", "Attach a file", "See what the coach sees", "Float the window", "Settings", "So far this sitting", "Minimize", "Quit"]) {
+    for (const l of ["About this chat", "Attach a file", "See what the coach sees", "So far this sitting", "Collapse", "Float the window", "Minimize", "Quit"]) {
       expect(h).toContain(l);
     }
+    expect(h.indexOf("Attach a file")).toBeLessThan(h.indexOf("Minimize"));
     expect(wrap(createElement(ChatMenu, { ...props, docked: false }))).toContain("Dock to the side");
+  });
+
+  it("on Home: only the window's options, nothing about a chat", () => {
+    const h = wrap(createElement(ChatMenu, { inChat: false, docked: true, onClose: noop, onCollapse: noop, onToggleDock: noop, onMinimize: noop, onQuit: noop }));
+    for (const l of ["Collapse", "Float the window", "Minimize", "Quit"]) expect(h).toContain(l);
+    for (const l of ["About this chat", "Attach a file", "See what the coach sees", "So far this sitting"]) expect(h).not.toContain(l);
+  });
+
+  it("Settings is not buried in it: it has its own button on every screen", () => {
+    expect(wrap(createElement(ChatMenu, props))).not.toContain(">Settings<");
   });
 
   it("the cost line", () => {
@@ -102,6 +139,18 @@ describe("the menu", () => {
   it("uses no technical words", () => {
     const h = wrap(createElement(ChatMenu, props)).toLowerCase();
     for (const w of ["session", "capture", "tokens", "stance", "stage"]) expect(h).not.toContain(w);
+  });
+});
+
+// "See what the coach sees" opened a picture that could not be closed: the
+// panel's window-drag handler took the press before the click arrived.
+describe("what the coach sees", () => {
+  it("has a Close button and is exempt from window dragging", async () => {
+    const app = (await import("../App?raw")) as unknown as { default: string };
+    const peek = app.default.slice(app.default.indexOf("function PeekOverlay"), app.default.indexOf("function PanelShell"));
+    expect(peek).toContain('className="no-drag ');
+    expect(peek).toContain('aria-label="Close"');
+    expect(peek).toContain("onClick={onClose}");
   });
 });
 

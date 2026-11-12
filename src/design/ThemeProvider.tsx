@@ -10,6 +10,7 @@ import {
   radius,
   size,
   type,
+  withAccent,
   type Palette,
   type PaletteName,
 } from "./tokens";
@@ -26,8 +27,10 @@ export interface DesignTokens {
   motion: typeof motion;
 }
 
-export function makeTokens(name: PaletteName): DesignTokens {
-  const palette = PALETTES[name] ?? PALETTES[DEFAULT_PALETTE];
+export function makeTokens(name: PaletteName, accent?: string | null): DesignTokens {
+  // The colour set, with the user's own accent in place of its accent when
+  // they have picked one in Settings.
+  const palette = withAccent(PALETTES[name] ?? PALETTES[DEFAULT_PALETTE], accent);
   return { name: PALETTES[name] ? name : DEFAULT_PALETTE, palette, font, type, size, radius, motion };
 }
 
@@ -44,12 +47,15 @@ export const useTheme = (): SightLineTheme => useContext(ThemeCtx);
 /** Wrap the app (or a subtree) in a colour set. */
 export function SightLineTheme({
   palette = DEFAULT_PALETTE,
+  accent = null,
   children,
 }: {
   palette?: PaletteName;
+  /** The user's own accent colour (#rrggbb), or null for the set's own. */
+  accent?: string | null;
   children: React.ReactNode;
 }) {
-  const tokens = useMemo(() => makeTokens(palette), [palette]);
+  const tokens = useMemo(() => makeTokens(palette, accent), [palette, accent]);
   const legacy = useMemo(() => makeTheme(tokens.palette), [tokens.palette]);
   return (
     <TokensCtx.Provider value={tokens}>

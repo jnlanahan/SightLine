@@ -30,6 +30,15 @@ textarea {
   user-select: text;
 }
 
+/* The list a drop-down opens is drawn by Windows, not by us. Without these it
+   came up white with the panel's light text on it — unreadable in the dark
+   colour sets (seen in Settings → Model and "Stop a session at"). */
+select option,
+select optgroup {
+  background-color: var(--sl-card, #ffffff);
+  color: var(--sl-ink, #1e1f1c);
+}
+
 /* A visible focus ring on every control, in the palette's accent (redesign
    SPEC §11). The composer draws its ring around the whole box instead. */
 button:focus-visible,

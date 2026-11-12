@@ -57,7 +57,8 @@ Step 12's merge decision now comes after step 22, so the documents are finished 
 - **Checked by eye, 11 November.** No cloud session can see a screen, so the screen was rendered on the owner's machine against stand-in chat data, then driven through a whole walkthrough (goal, yes, seven steps over three phases, done) with a scripted stand-in for the coach. It rendered cleanly and matches the design. That found six defects the 739 tests had passed over, all fixed: replies showing under a finished goal; a quick answer at normal size instead of large; the header using the owner's raw words over the chat's title; a false "Plan updated: removed …" note on nearly every new step; the view ceasing to follow after "I did it" was tapped; and the time each step was done no longer shown anywhere (now a tooltip on the step). The first three and the next two are their own commits.
 - **Merged into `one-coach`, 11 November,** at the owner's request to finish the plan without waiting for a live test. The state before the merge is tagged `one-coach-before-redesign`. 753 tests, type-check and build pass.
 - **Wrap-up done, 11 November:** `CLAUDE.md` describes the new screen; the README is rewritten (it still described the three old modes); `PRODUCTION.md` and the open questions in `REDESIGN-BRIEF.md` are brought up to date; the results table is filled in as far as it can be.
-- **What has still never been run live by the owner:** the four fixes from the first live run (including the new voice, which nobody has heard), and the whole redesigned screen with the real coach. Everything above is checked by tests, by reading, against the live AI service, or by eye with stand-in data, and none of that is the same as using it.
+- **Second live run, 11 November, evening:** the owner used the redesigned app for several chats and it "worked pretty well". Ten points came back, listed in "Second live run" below; all ten are dealt with (nine built, one answered). 771 tests, type-check and build pass. The entry below, written before that run, is now out of date for the screen and the four fixes, which the owner has used; what is new since the run has not been run live.
+- **What has still never been run live by the owner (written before the second run):** the four fixes from the first live run (including the new voice, which nobody has heard), and the whole redesigned screen with the real coach. Everything above is checked by tests, by reading, against the live AI service, or by eye with stand-in data, and none of that is the same as using it.
 - **Next, and only the owner can do these:** the live run (the tick list is in [overnight/2026-11-10/MORNING.md](overnight/2026-11-10/MORNING.md)), choosing the default colour set, and deciding whether `one-coach` goes into `main`. Testing Opus 5.5 was put off by the owner; it is not blocking.
 
 ## First live run, 10 November 2026
@@ -74,6 +75,23 @@ The owner asked how to get the Windows score on their computer, on Sonnet 5.5 (t
 **What was good:** "The response time is pretty good." Measured in that run: first words 2.9 s after the goal was submitted (audible at 3.4 s), and 2.5 s after a follow-up (audible at 2.8 s), with screenshots attached.
 
 **Also seen in the log:** once, the model replied without calling a tool; the runner asked again in the same look and got a proper answer about three seconds later. That is the recovery working as designed, at the cost of one slower reply. Worth watching how often it happens.
+
+## Second live run, 11 November 2026
+
+The owner ran several chats on the redesigned screen, on Sonnet 5.5: 26 looks, eleven chats started or reopened, no errors, no fallbacks. "It worked pretty well this time." The log shows the cost of the new voice: a sentence now takes about 0.85 s to come back (0.25 s before), so speech starts 1.0 to 1.7 s after the first words exist, against 0.3 to 0.5 s in the first run. The owner did not remark on the voice either way.
+
+**What the owner said, and what was done about each.** All built the same evening; none has been run live since.
+
+1. **The pointer box is too big for what it points at.** The app was adding about 19 px on every side of the coach's box, so a 32 px button got a 70 px box. Measured against a screenshot with known positions, the coach's own box already covered the target every time. Now 6 px of padding, and the coach is asked for a close fit; re-measured, it still covered the target in twelve tries out of twelve, with 1 to 6 px to spare.
+2. **A box for the Claude icon on the taskbar could not be seen.** It was drawn, but underneath the taskbar, and it ran off the bottom of the screen. The box is now kept whole on screen and brought to the front before it shows. **Not verified:** whether it really sits above the taskbar can only be seen on the owner's screen.
+3. **"Let's not default it to Graphite."** The default is Porcelain, the light set.
+4. **The solid background switch does nothing.** True since the redesign made every surface solid. Removed. The opacity slider says it applies only to the floating window.
+5. **The Model and "Stop a session at" lists open as a white box that cannot be read.** Windows draws those lists and was not told the panel is dark. Fixed for every drop-down.
+6. **Will the activity log grow forever?** No, and nothing was changed. It is one continuous file; at 5 MB it is set aside as an "old" file and a new one begins, so it never passes about 10 MB. Four months of use had reached 150 KB.
+7. **"See what the coach sees" opens a picture that cannot be closed.** The click was being taken by the panel's window-drag handler. It now has a Close button, and clicking the picture or pressing Esc also closes it.
+8. **The top of the sidebar should be the same in and out of a chat, with a Settings button that looks like one.** One top bar everywhere: title, status, a cog for Settings, and "⋯". Home's old row of eight buttons is gone.
+9. **"⋯" should hold options that only exist in a chat.** Two groups: "This chat" (About this chat, Attach a file, See what the coach sees, the cost so far) only while a chat is open, and "Window" (Collapse, Dock or Float, Minimize, Quit) always. Choosing the watched screen or area stays in Settings, which is now one tap away from anywhere.
+10. **Still not a fan of the colours; maybe a custom colour.** The three sets stay, and the accent colour can now be changed: six ready-made colours, or any colour from the system picker. It is used for buttons, the step in progress and the outline on the screen. If it is the backgrounds rather than the accent that feel wrong, that is a different change and needs the owner to say which.
 
 ## Fixes after the first live run
 

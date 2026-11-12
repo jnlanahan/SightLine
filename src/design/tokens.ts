@@ -124,15 +124,85 @@ export const PALETTES: Record<PaletteName, Palette> = {
   },
 };
 
-export const DEFAULT_PALETTE: PaletteName = "graphite";
+// The light set. The design made dark Graphite the default and flagged that
+// it might draw the eye beside bright programs (docs/redesign DECISIONS D9);
+// after using it, the owner asked for it not to be the default (11 Nov 2026).
+export const DEFAULT_PALETTE: PaletteName = "porcelain";
 
 /** The old four-accent setting, mapped onto the new palettes on first read. */
 export const ACCENT_TO_PALETTE: Record<"lime" | "cobalt" | "rose" | "slate", PaletteName> = {
-  lime: "graphite",
+  lime: "porcelain",
   cobalt: "midnight",
-  rose: "graphite",
+  rose: "porcelain",
   slate: "porcelain",
 };
+
+// ── The user's own accent colour ──
+// A colour set fixes the backgrounds and text. The accent (the current
+// circle, the halo, buttons, the outline on the real screen) can be replaced
+// with any colour the user picks in Settings.
+
+/** One-tap accent choices offered beside the custom picker. */
+export const ACCENT_SWATCHES: readonly { name: string; hex: string }[] = [
+  { name: "Green", hex: "#3E9B4F" },
+  { name: "Teal", hex: "#1F9E97" },
+  { name: "Blue", hex: "#3B7DDD" },
+  { name: "Violet", hex: "#8A63D2" },
+  { name: "Pink", hex: "#D6497F" },
+  { name: "Orange", hex: "#DD7A1F" },
+];
+
+export function isHexColor(v: unknown): v is string {
+  return typeof v === "string" && /^#[0-9a-fA-F]{6}$/.test(v);
+}
+
+function luminance(hex: string): number {
+  const n = parseInt(hex.slice(1), 16);
+  const lin = (c: number) => {
+    const s = c / 255;
+    return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+  };
+  return 0.2126 * lin((n >> 16) & 255) + 0.7152 * lin((n >> 8) & 255) + 0.0722 * lin(n & 255);
+}
+
+/** WCAG contrast ratio between two #rrggbb colours, 1 to 21. */
+export function contrastRatio(a: string, b: string): number {
+  const la = luminance(a);
+  const lb = luminance(b);
+  return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
+}
+
+// Pure black and pure white on purpose: between them, one always reaches
+// 4.5:1 on any colour (the worst case is about 4.58). A softer near-black
+// does not — on a mid blue it fell to 4.42.
+const INK_ON_ACCENT_DARK = "#000000";
+const INK_ON_ACCENT_LIGHT = "#FFFFFF";
+
+/**
+ * A colour set with the user's accent in place of its own. Text on the accent
+ * is whichever of near-black and white reads better, which is always at least
+ * 4.5:1. Anything that is not a #rrggbb colour leaves the set untouched.
+ */
+export function withAccent(p: Palette, hex: string | null | undefined): Palette {
+  if (!isHexColor(hex)) return p;
+  const accent = hex.toUpperCase();
+  const onAccent =
+    contrastRatio(accent, INK_ON_ACCENT_DARK) >= contrastRatio(accent, INK_ON_ACCENT_LIGHT)
+      ? INK_ON_ACCENT_DARK
+      : INK_ON_ACCENT_LIGHT;
+  return { ...p, accent, onAccent, glow: accent };
+}
+
+/**
+ * The accent as TEXT on a surface: the accent itself when it is readable
+ * there, otherwise the set's ink. A pale yellow accent is fine as a button
+ * and unreadable as a word on a light panel.
+ */
+export function accentInkOn(p: Palette, surface: string = p.bg): string {
+  return isHexColor(p.accent) && isHexColor(surface) && contrastRatio(p.accent, surface) >= 4.5
+    ? p.accent
+    : p.ink;
+}
 
 export const font = {
   sans: '"Manrope Variable", "Manrope", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif',

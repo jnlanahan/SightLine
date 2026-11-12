@@ -14,7 +14,6 @@ import { Home } from "./components/Home";
 import { AboutChat } from "./components/AboutChat";
 import { liveNotes } from "../electron/chat-notes";
 import type {
-  CaptureTarget,
   DockSide,
   SessionStatus,
   TokenUsage,
@@ -25,7 +24,8 @@ import { Settings as SettingsView } from "./components/Settings";
 import { PhaseRail } from "./components/PhaseRail";
 import { PhaseChat } from "./components/phase/PhaseChat";
 import { PhaseFooter } from "./components/phase/PhaseFooter";
-import { PhaseHeader } from "./components/phase/PhaseHeader";
+import { PhaseHeader, headerStatusLine } from "./components/phase/PhaseHeader";
+import { IconClose } from "./design/lineIcons";
 import { ReadyPill } from "./components/phase/ReadyPill";
 import { ChatMenu } from "./components/phase/ChatMenu";
 import { NeedsYouBanner } from "./components/phase/NeedsYouBanner";
@@ -47,16 +47,8 @@ import {
 } from "../electron/chat-record";
 import { usePushToTalk } from "./hooks/usePushToTalk";
 import { useTheme } from "./design/ThemeProvider";
-import { Glow, Logo, Spinner, CtrlBtn } from "./design/primitives";
-import {
-  IPause,
-  IGear,
-  IMonitor,
-  IMinimize,
-  IClose,
-  ISpeakerOn,
-  ISpeakerOff,
-} from "./design/icons";
+import { Glow, Logo, CtrlBtn } from "./design/primitives";
+import { IPause, ISpeakerOn, ISpeakerOff } from "./design/icons";
 import { lt, type SightLineTheme } from "./design/theme";
 import { EMPTY_USAGE, addUsage, budgetStatus } from "../electron/usage";
 
@@ -149,7 +141,6 @@ export default function App() {
   const pointing  = useSession((s) => s.pointing);
   const follow = useFollowCurrent(phaseView, sessionId);
   const tokens = useTokens();
-  const legacyTheme = useTheme();
   // The chat column comes back (expanding the panel, closing About this
   // chat): land on the current phase, as a reopened chat does.
   const landOnCurrent = follow.landOnCurrent;
@@ -488,33 +479,6 @@ export default function App() {
     void patchSettings({ ttsEnabled: next });
   }
 
-  const showSpinner = status === "thinking";
-
-  // Troubleshooting overrides the ambient status while the session is live —
-  // the user should see the coach has switched from guiding to fixing.
-  const fixing = troubleshooting && (status === "watching" || status === "thinking");
-  // A mid-turn tool is the one moment "Thinking…" is actively misleading —
-  // the user is waiting on a web search and deserves to know.
-  const toolText =
-    status === "thinking" && activeTool
-      ? activeTool.name === "search_web"
-        ? "Looking that up…"
-        : activeTool.name === "search_memory"
-          ? "Checking earlier chats…"
-          : "Taking a closer look…"
-      : null;
-  // The coach has said the goal back and is not looking again until the user
-  // answers — "Watching your screen" would be untrue.
-  const awaitingGoal = goalPending && status === "watching";
-  const statusText =
-    toolText ??
-    (awaitingGoal
-      ? "Waiting for your go-ahead"
-      : fixing
-        ? "Troubleshooting…"
-        : STATUS_TEXT[status]);
-  const statusDot  = statusDotColor(legacyTheme, fixing ? "fixing" : status);
-
   // Collapsed — all hooks above keep running (capture loop, TTS), only the
   // UI shrinks. Docked: a thin vertical rail (the reserved strip narrows);
   // floating: the horizontal compact bar.
@@ -678,21 +642,26 @@ export default function App() {
           <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", position: "relative" }}>
             <PhaseHeader
               title={title}
-              view={phaseView}
-              stateWord={stateWord}
+              status={headerStatusLine(phaseView, stateWord)}
+              statusDot={quick}
               menuOpen={menuOpen}
               onMenu={() => setMenuOpen((v) => !v)}
-              quickControls={{
-                muted: !(settings?.ttsEnabled ?? false),
-                paused: status === "paused",
-                onAllChats: leaveChat,
-                onMute: toggleVoice,
-                onPause: status === "paused" ? resume : pause,
-                onCollapse: () => void toggleCollapsed(),
-              }}
+              onSettings={openSettings}
+              quickControls={
+                quick
+                  ? {
+                      muted: !(settings?.ttsEnabled ?? false),
+                      paused: status === "paused",
+                      onAllChats: leaveChat,
+                      onMute: toggleVoice,
+                      onPause: status === "paused" ? resume : pause,
+                    }
+                  : undefined
+              }
             />
             {menuOpen && (
               <ChatMenu
+                inChat
                 docked={docked}
                 aboutOpen={aboutOpen}
                 attachedCount={attachedFileNames.length}
@@ -701,9 +670,8 @@ export default function App() {
                 onAbout={() => setAboutOpen((v) => !v)}
                 onAttach={() => void attachContext()}
                 onPeek={() => setShowPeek(true)}
-                onAdjustArea={() => { void api().overlay.setAdjust(true); }}
+                onCollapse={() => void toggleCollapsed()}
                 onToggleDock={() => void patchSettings({ dockEnabled: !docked })}
-                onSettings={openSettings}
                 onMinimize={() => void api().window.minimize()}
                 onQuit={onQuit}
               />
@@ -822,43 +790,30 @@ export default function App() {
   return (
     <PanelShell docked={docked} animate={focused}>
       {docked && <DockResizeHandle side={settings?.dockSide ?? "left"} />}
-      <PanelHeader
-        status={status}
-        statusText={statusText}
-        dotColor={statusDot}
-        showSpinner={showSpinner}
-        docked={docked}
-        ttsEnabled={settings?.ttsEnabled ?? false}
-        onToggleVoice={toggleVoice}
-        onToggleDock={() => void patchSettings({ dockEnabled: !docked })}
-        onOpenSettings={openSettings}
-        onAdjustCapture={() => { void api().overlay.setAdjust(true); }}
-        onCollapse={() => void toggleCollapsed()}
-        onMinimize={() => void api().window.minimize()}
-        onQuit={() => {
-          // Mid-session, closing loses progress — confirm. Otherwise just quit.
-          if (goal) setShowQuitConfirm(true);
-          else void api().app.quit();
-        }}
+      {/* The same top bar as an open chat: title, status, Settings, "⋯". */}
+      <PhaseHeader
+        title="SightLine"
+        status="Ready when you are"
+        statusDot
+        logo={<Logo size={30} radius={9} />}
+        menuOpen={menuOpen}
+        onMenu={() => setMenuOpen((v) => !v)}
+        onSettings={openSettings}
       />
-
-      {showQuitConfirm && (
-        <QuitConfirmBanner
-          onConfirm={() => {
-            // Save before the process goes away — quitting mid-session is the
-            // most common way a session actually ends.
-            void persistChat().finally(() => {
-              void api().app.quit();
-            });
-          }}
-          onCancel={() => setShowQuitConfirm(false)}
+      {menuOpen && (
+        <ChatMenu
+          inChat={false}
+          docked={docked}
+          onClose={() => setMenuOpen(false)}
+          onCollapse={() => void toggleCollapsed()}
+          onToggleDock={() => void patchSettings({ dockEnabled: !docked })}
+          onMinimize={() => void api().window.minimize()}
+          // No chat is open here, so there is nothing to lose by quitting.
+          onQuit={() => void api().app.quit()}
         />
       )}
 
-      {/* Peek overlay */}
-      {showPeek && hasFrame && <PeekOverlay onClose={() => setShowPeek(false)} />}
-
-      {/* Home: unchanged until its layout is designed (WP9 recolours it). */}
+      {/* Home: its own layout is not redesigned yet; it is recoloured. */}
       <div className="flex flex-1 flex-col gap-2.5 overflow-y-auto p-3 pt-2 sl-scroll">
         <Home
           onStart={(g) => startSession(g)}
@@ -919,18 +874,46 @@ function PeekOverlay({ onClose }: { onClose(): void }) {
   const { palette: t } = useTokens();
   if (!lastFrame) return null;
   return (
+    // `no-drag` matters: without it the panel's window-drag handler took the
+    // press, and the click that should close this never arrived. The picture
+    // could not be dismissed at all (second live run, 11 November 2026).
     <div
-      className="absolute inset-x-0 z-50 mx-2 cursor-pointer overflow-hidden rounded-xl shadow-xl"
-      style={{ top: 72, border: `1px solid ${t.line}`, background: t.card }}
-      onClick={onClose}
+      className="no-drag absolute inset-x-0 z-50 mx-2 overflow-hidden rounded-xl shadow-xl"
+      role="dialog"
+      aria-label="What the coach sees"
+      style={{ top: 64, border: `1px solid ${t.line}`, background: t.card }}
     >
+      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 6px 6px 12px" }}>
+        <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, fontWeight: 600, color: t.ink }}>
+          What the coach sees
+          <span style={{ fontWeight: 400, color: t.ink2 }}>
+            {" "}· last look {new Date(lastFrame.timestamp).toLocaleTimeString()}
+          </span>
+        </span>
+        <button
+          type="button"
+          className="sl-focus"
+          aria-label="Close"
+          title="Close"
+          autoFocus
+          onClick={onClose}
+          style={{
+            width: 36, height: 36, flexShrink: 0, border: 0, borderRadius: 10, cursor: "pointer",
+            background: "transparent", color: t.ink, display: "flex", alignItems: "center", justifyContent: "center",
+          }}
+        >
+          <IconClose size={18} />
+        </button>
+      </div>
       <img
         src={lastFrame.dataUrl}
-        alt="Current view"
-        className="max-h-48 w-full object-contain"
+        alt="The last picture of your screen the coach looked at"
+        onClick={onClose}
+        className="w-full cursor-pointer object-contain"
+        style={{ maxHeight: 260, display: "block" }}
       />
-      <p className="px-2 py-1 text-center" style={{ fontSize: 11.5, color: t.ink2 }}>
-        {new Date(lastFrame.timestamp).toLocaleTimeString()} · click to close
+      <p className="px-3 py-2" style={{ margin: 0, fontSize: 11.5, color: t.ink2 }}>
+        This picture is not saved anywhere. Click it, or press Esc, to close.
       </p>
     </div>
   );
@@ -954,7 +937,6 @@ function PanelShell({
   animate?: boolean;
 }) {
   const T = useTheme();
-  const solidBg = useSettings((s) => s.settings?.solidBackground ?? false);
   // Docked: the window IS a reserved strip of the monitor — square corners,
   // solid surface, no glow bloom. Appbars are opaque rectangles.
   const r = docked ? 0 : radius;
@@ -971,18 +953,12 @@ function PanelShell({
         color: T.ink,
       }}
     >
-      {/* Background layer — glass or solid depending on setting. Light
-          porcelain: the panel reads as a bright card, so it stands apart
-          from whatever's on screen behind it. */}
+      {/* Background layer. Always solid: the redesign has no see-through
+          look (not designed yet), and the old "Solid background" switch had
+          stopped doing anything the user could see, so it is gone. */}
       <div aria-hidden style={{
         position: "absolute", inset: 0, pointerEvents: "none",
-        ...(solidBg || docked ? {
-          background: T.surface,
-        } : {
-          backdropFilter: "blur(26px) saturate(1.2)",
-          WebkitBackdropFilter: "blur(26px) saturate(1.2)",
-          background: `${T.glassGrad}, ${T.glassBg}`,
-        }),
+        background: T.surface,
         border: `1px solid ${T.border}`,
         boxShadow: docked
           ? `0 1px 0 0 ${T.hi} inset`
@@ -1049,227 +1025,6 @@ function DockResizeHandle({ side }: { side: DockSide }) {
       onMouseEnter={(e) => { if (!active) (e.currentTarget as HTMLElement).style.background = lt(0.08); }}
       onMouseLeave={(e) => { if (!active) (e.currentTarget as HTMLElement).style.background = "transparent"; }}
     />
-  );
-}
-
-function PanelHeader({
-  status,
-  statusText,
-  dotColor,
-  showSpinner,
-  docked,
-  ttsEnabled,
-  onToggleVoice,
-  onToggleDock,
-  onOpenSettings,
-  onAdjustCapture,
-  onCollapse,
-  onMinimize,
-  onQuit,
-}: {
-  status: SessionStatus;
-  statusText: string;
-  dotColor: string;
-  showSpinner: boolean;
-  docked: boolean;
-  ttsEnabled: boolean;
-  onToggleVoice(): void;
-  onToggleDock(): void;
-  onOpenSettings(): void;
-  onAdjustCapture(): void;
-  onCollapse(): void;
-  onMinimize(): void;
-  onQuit(): void;
-}) {
-  const T = useTheme();
-  const pulses   = status === "watching" || status === "thinking";
-  // Docked, the whole panel is a ~400px strip. At the floating size these
-  // controls overflow the header and pile on top of the status text.
-  const btn = docked ? 30 : 36;
-  const patchSettings = useSettings((s) => s.patch);
-  const selectedDisplayId = useSettings((s) => s.settings?.selectedDisplayId ?? null);
-  const selectedSourceId = useSettings((s) => s.settings?.selectedSourceId ?? null);
-  const [targets, setTargets] = useState<CaptureTarget[]>([]);
-  useEffect(() => {
-    void api().capture.listTargets().then(setTargets);
-  }, []);
-
-  // The sight line: a luminous hairline under the header that encodes what
-  // the assistant is doing — breathing while it watches, sweeping while it
-  // thinks, quiet otherwise.
-  const lineStyle: React.CSSProperties =
-    status === "thinking"
-      ? {
-          background: `linear-gradient(90deg, transparent, ${T.accent} 35%, ${T.accentSoft} 50%, ${T.accent} 65%, transparent)`,
-          backgroundSize: "60% 100%",
-          backgroundRepeat: "no-repeat",
-          animation: "sl-line-sweep 1.3s linear infinite",
-        }
-      : status === "watching"
-        ? {
-            background: `linear-gradient(90deg, transparent, ${T.accent} 30%, ${T.accent} 70%, transparent)`,
-            animation: "sl-line-breathe 3.2s ease-in-out infinite",
-          }
-        : { background: lt(0.1) };
-
-  return (
-    <div
-      className="drag-region"
-      style={{
-        position: "relative",
-        display: "flex", alignItems: "center", gap: 12,
-        padding: "13px 16px 11px",
-        flexShrink: 0,
-      }}
-    >
-      <span aria-hidden className="sl-sightline" style={{
-        position: "absolute", left: 14, right: 14, bottom: 0, height: 2,
-        borderRadius: 2, pointerEvents: "none", ...lineStyle,
-      }} />
-      <Logo size={docked ? 30 : 38} radius={docked ? 9 : 11} />
-
-      {/* Docked, this is a ~400px strip and the wordmark, status, mode label
-          and nine buttons cannot all fit — they used to overlap into an
-          unreadable pile. Docked drops the wordmark (the logo is right there)
-          and puts status on one clipped line. */}
-      <div style={{ flex: 1, minWidth: 0, overflow: "hidden" }}>
-        {!docked && (
-          <div style={{
-            fontFamily: T.display, fontSize: 19, fontWeight: 650,
-            letterSpacing: "-0.01em", lineHeight: 1.1, color: T.ink,
-            whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
-          }}>
-            SightLine
-          </div>
-        )}
-        <div style={{
-          marginTop: docked ? 0 : 3,
-          display: "flex", alignItems: "center", gap: 6,
-          fontSize: 11, color: T.ink3,
-          minWidth: 0, whiteSpace: "nowrap",
-        }}>
-          {/* Status dot */}
-          <span style={{ position: "relative", display: "inline-flex", width: 7, height: 7, flexShrink: 0 }}>
-            <span style={{ position: "absolute", inset: 0, borderRadius: "50%", background: dotColor }} />
-            {pulses && (
-              <span style={{
-                position: "absolute", inset: -3, borderRadius: "50%",
-                background: dotColor, opacity: 0.3,
-                animation: "sl-live-pulse 1.5s ease-out infinite",
-              }} />
-            )}
-          </span>
-          <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>
-            {statusText}
-          </span>
-        </div>
-      </div>
-
-      {showSpinner && <Spinner size={24} />}
-
-      <div className="no-drag" style={{ display: "flex", alignItems: "center", gap: 1, flexShrink: 0 }}>
-        <CtrlBtn
-          size={btn}
-          title={ttsEnabled ? "Voice on — click to mute the coach" : "Muted — click to turn the coach's voice on"}
-          onClick={onToggleVoice}
-          color={ttsEnabled ? undefined : T.warn}
-        >
-          {ttsEnabled ? <SpeakerOnIcon /> : <SpeakerOffIcon />}
-        </CtrlBtn>
-        {/* Capture area lives in Settings too; docked there is no room for it. */}
-        {!docked && (
-          <CtrlBtn size={btn} title="Adjust capture area" onClick={onAdjustCapture}>
-            <CropIcon />
-          </CtrlBtn>
-        )}
-        <CtrlBtn
-          size={btn}
-          title={docked ? "Undock — float the window" : "Dock to the side of the screen"}
-          onClick={onToggleDock}
-        >
-          <DockIcon active={docked} />
-        </CtrlBtn>
-        {targets.length > 1 && (
-          <CtrlBtn
-            size={btn}
-            title={`Watching: ${
-              targets.find(
-                (t) =>
-                  t.sourceId === selectedSourceId ||
-                  (!selectedSourceId && t.displayId === selectedDisplayId),
-              )?.label ?? "Primary"
-            } — click to switch screens (previews in Settings)`}
-            onClick={() => {
-              const idx = targets.findIndex(
-                (t) =>
-                  t.sourceId === selectedSourceId ||
-                  (!selectedSourceId && t.displayId === selectedDisplayId),
-              );
-              const next = targets[(idx + 1) % targets.length];
-              void patchSettings({
-                selectedDisplayId: next.displayId,
-                selectedSourceId: next.sourceId,
-                selectedSourceName: next.sourceName,
-              });
-            }}
-          >
-            <IMonitor />
-          </CtrlBtn>
-        )}
-        <CtrlBtn size={btn} title="Settings" onClick={onOpenSettings}>
-          <IGear />
-        </CtrlBtn>
-
-        {/* Standard window controls: minimize · collapse · close */}
-        <span aria-hidden style={{ width: 1, height: 20, background: lt(0.12), margin: docked ? "0 3px" : "0 6px", flexShrink: 0 }} />
-        <WindowBtn size={btn} title="Minimize" onClick={onMinimize}>
-          <IMinimize />
-        </WindowBtn>
-        <WindowBtn size={btn} title="Collapse to compact bar" onClick={onCollapse}>
-          <ChevronDownIcon />
-        </WindowBtn>
-        <WindowBtn size={btn} title="Close SightLine" onClick={onQuit} danger>
-          <IClose />
-        </WindowBtn>
-      </div>
-    </div>
-  );
-}
-
-// Window-chrome button — quieter than CtrlBtn but always findable, with a
-// bordered hit target like every other app's title bar.
-function WindowBtn({
-  children,
-  title,
-  onClick,
-  danger,
-  size = 32,
-}: {
-  children: React.ReactNode;
-  title: string;
-  onClick(): void;
-  danger?: boolean;
-  size?: number;
-}) {
-  const T = useTheme();
-  return (
-    <button
-      type="button"
-      className="no-drag"
-      title={title}
-      onClick={onClick}
-      style={{
-        width: size, height: size, flexShrink: 0,
-        display: "grid", placeItems: "center",
-        borderRadius: 9, cursor: "pointer",
-        background: danger ? T.warnSoft : lt(0.05),
-        border: `1px solid ${danger ? T.warn : lt(0.1)}`,
-        color: danger ? T.warn : T.ink2,
-        marginLeft: 2,
-      }}
-    >
-      {children}
-    </button>
   );
 }
 
@@ -1411,37 +1166,6 @@ function SpeakerOnIcon() {
 function SpeakerOffIcon() {
   const T = useTheme();
   return <ISpeakerOff c={T.ink3} />;
-}
-
-function CropIcon() {
-  const T = useTheme();
-  return (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-      <path d="M3 1.5v9h9" stroke={T.ink2} strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M1.5 3h9v9" stroke={T.ink2} strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" strokeDasharray="2.5 1.5" />
-    </svg>
-  );
-}
-
-// A screen with a filled left rail — the docked-sidebar glyph. Filled when
-// docked, outline-only when floating.
-function DockIcon({ active }: { active: boolean }) {
-  const T = useTheme();
-  const c = active ? T.accent : T.ink2;
-  return (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-      <rect x="1.5" y="2.5" width="11" height="9" rx="1.5" stroke={c} strokeWidth="1.4" />
-      <rect x="1.5" y="2.5" width="4" height="9" rx="1.5" fill={c} fillOpacity={active ? 0.9 : 0.35} />
-    </svg>
-  );
-}
-
-function ChevronDownIcon() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-      <path d="M2 4l4 4 4-4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
 }
 
 function ChevronUpIcon() {

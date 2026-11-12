@@ -32,7 +32,8 @@ const DEFAULTS: Settings = {
   // to catch a runaway, not to ration normal use.
   sessionBudgetUsd: 3.0,
   memoryEnabled: true,
-  palette: "graphite",
+  palette: "porcelain",
+  customAccent: null,
   windowBounds: null,
   solidBackground: true,
   uiOpaqueMigration: false,
@@ -46,11 +47,16 @@ const DEFAULTS: Settings = {
 // The old four-accent setting, mapped onto the redesign's colour sets. Mirrors
 // ACCENT_TO_PALETTE in src/design/tokens.ts (a test keeps the two equal).
 export const LEGACY_ACCENT_TO_PALETTE: Record<LegacyAccentName, PaletteName> = {
-  lime: "graphite",
+  lime: "porcelain",
   cobalt: "midnight",
-  rose: "graphite",
+  rose: "porcelain",
   slate: "porcelain",
 };
+
+/** A usable custom accent: "#rrggbb", or null for the colour set's own. */
+export function resolveCustomAccent(value: unknown): string | null {
+  return typeof value === "string" && /^#[0-9a-fA-F]{6}$/.test(value) ? value.toUpperCase() : null;
+}
 
 const PALETTE_NAMES: readonly PaletteName[] = ["graphite", "porcelain", "midnight"];
 
@@ -108,7 +114,14 @@ function readFromDisk(): Settings {
   // One-time read of the retired accent setting: it picks the colour set and
   // is then dropped, so the next save no longer writes it.
   const { accentColor: _legacyAccent, ...rest } = parsed;
-  const merged: Settings = { ...DEFAULTS, ...rest, palette: resolvePalette(parsed) };
+  const merged: Settings = {
+    ...DEFAULTS,
+    ...rest,
+    palette: resolvePalette(parsed),
+    // settings.json is hand-editable; a value that is not a colour would
+    // otherwise reach CSS and the glow window as it is.
+    customAccent: resolveCustomAccent(parsed.customAccent),
+  };
   if (RETIRED_VOICE_IDS.has(merged.elevenVoiceId)) {
     merged.elevenVoiceId = DEFAULTS.elevenVoiceId;
   }
@@ -123,6 +136,7 @@ export function loadSettings(): Settings {
 
 export function saveSettings(next: Partial<Settings>): Settings {
   const merged = { ...loadSettings(), ...next };
+  if ("customAccent" in next) merged.customAccent = resolveCustomAccent(next.customAccent);
   cache = merged;
   try {
     const file = settingsPath();

@@ -1,14 +1,25 @@
-// The open chat's header (SPEC §4.1, §5): the chat title, one status line,
-// and the "⋯" menu. For a quick answer there is no rail, so All chats and the
-// rail's controls move up here.
+// The top bar. One bar for the whole app: Home and an open chat show the same
+// thing in the same place — a title, one status line, then Settings (a cog)
+// and the "⋯" menu at the right edge, always both, always in that order.
+//
+// (Second live run, 11 November 2026: "the same top menu needs to show no
+// matter if you're in a chat or not… when you go into a chat, the settings go
+// away". Before this, Home had an older bar of eight buttons and a chat had
+// only "⋯".)
+//
+// What differs is only what the screen in front needs:
+//   - Home: the logo and the app's name.
+//   - A quick answer has no rail (SPEC §5), so All chats, mute and pause sit
+//     here instead. Collapse is in the "⋯" menu.
 
 import type { ReactNode } from "react";
 import { useTokens } from "../../design/ThemeProvider";
 import {
-  IconCollapse,
   IconList,
+  IconMore,
   IconPause,
   IconPlay,
+  IconSettings,
   IconSpeaker,
   IconSpeakerOff,
 } from "../../design/lineIcons";
@@ -28,10 +39,15 @@ export function headerStatusLine(view: PhaseView, stateWord: string): string {
 
 export interface PhaseHeaderProps {
   title: string;
-  view: PhaseView;
-  stateWord: string;
+  /** The line under the title. */
+  status: string;
+  /** A small accent dot before the status: Home, and a quick answer. */
+  statusDot?: boolean;
+  /** Home: the logo in front of the title. */
+  logo?: ReactNode;
   menuOpen: boolean;
   onMenu(): void;
+  onSettings(): void;
   /** Quick layout only: the controls the rail would otherwise carry. */
   quickControls?: {
     muted: boolean;
@@ -39,24 +55,22 @@ export interface PhaseHeaderProps {
     onAllChats(): void;
     onMute(): void;
     onPause(): void;
-    onCollapse(): void;
   };
 }
 
-export function PhaseHeader({ title, view, stateWord, menuOpen, onMenu, quickControls }: PhaseHeaderProps) {
+export function PhaseHeader({ title, status, statusDot, logo, menuOpen, onMenu, onSettings, quickControls: q }: PhaseHeaderProps) {
   const { palette: t, type } = useTokens();
-  const quick = view.layout === "quick";
-  const q = quick ? quickControls : undefined;
 
-  const btn = (label: string, icon: ReactNode, onClick: () => void, width: number, extra: Record<string, unknown> = {}) => (
+  const btn = (label: string, icon: ReactNode, onClick: () => void, extra: Record<string, unknown> = {}) => (
     <button
       type="button"
       className="sl-focus no-drag"
       aria-label={label}
+      title={label}
       onClick={onClick}
       {...extra}
       style={{
-        width,
+        width: 40,
         height: 44,
         flexShrink: 0,
         border: 0,
@@ -79,7 +93,7 @@ export function PhaseHeader({ title, view, stateWord, menuOpen, onMenu, quickCon
         display: "flex",
         alignItems: "center",
         gap: 2,
-        padding: q ? "8px 4px 8px 4px" : "8px 4px 8px 20px",
+        padding: q ? "8px 4px 8px 4px" : logo ? "8px 4px 8px 14px" : "8px 4px 8px 20px",
         borderBottom: `1px solid ${t.line}`,
         flexShrink: 0,
       }}
@@ -89,6 +103,7 @@ export function PhaseHeader({ title, view, stateWord, menuOpen, onMenu, quickCon
           type="button"
           className="sl-focus no-drag"
           aria-label="All chats"
+          title="All chats"
           onClick={q.onAllChats}
           style={{
             width: 44, height: 44, flexShrink: 0, border: 0, borderRadius: 10,
@@ -99,6 +114,7 @@ export function PhaseHeader({ title, view, stateWord, menuOpen, onMenu, quickCon
           <IconList size={20} />
         </button>
       )}
+      {logo && <span style={{ flexShrink: 0, display: "flex", marginRight: 10 }}>{logo}</span>}
       <div style={{ flex: 1, minWidth: 0, paddingLeft: q ? 6 : 0 }}>
         <div
           title={title}
@@ -127,8 +143,8 @@ export function PhaseHeader({ title, view, stateWord, menuOpen, onMenu, quickCon
             whiteSpace: "nowrap",
           }}
         >
-          {quick && <span aria-hidden="true" style={{ width: 7, height: 7, borderRadius: "50%", background: t.accent, flexShrink: 0 }} />}
-          <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{headerStatusLine(view, stateWord)}</span>
+          {statusDot && <span aria-hidden="true" style={{ width: 7, height: 7, borderRadius: "50%", background: t.accent, flexShrink: 0 }} />}
+          <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{status}</span>
         </div>
       </div>
       {q && (
@@ -137,22 +153,14 @@ export function PhaseHeader({ title, view, stateWord, menuOpen, onMenu, quickCon
             q.muted ? "Turn voice on" : "Mute voice",
             q.muted ? <IconSpeakerOff size={18} /> : <IconSpeaker size={18} />,
             q.onMute,
-            40,
-            { "aria-pressed": q.muted, title: q.muted ? "Voice is muted" : undefined },
+            { "aria-pressed": q.muted, title: q.muted ? "Voice is muted" : "Mute voice" },
           )}
-          {btn(q.paused ? "Resume watching" : "Pause watching", q.paused ? <IconPlay size={18} /> : <IconPause size={18} />, q.onPause, 40)}
-          {btn("Collapse to rail", <IconCollapse size={18} />, q.onCollapse, 40)}
+          {btn(q.paused ? "Resume watching" : "Pause watching", q.paused ? <IconPlay size={18} /> : <IconPause size={18} />, q.onPause)}
         </>
       )}
-      {btn(
-        "Menu",
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true">
-          <path d="M5 12h.01M12 12h.01M19 12h.01" />
-        </svg>,
-        onMenu,
-        q ? 40 : 44,
-        { "aria-haspopup": "menu", "aria-expanded": menuOpen },
-      )}
+      {/* The same two, in the same place, on every screen. */}
+      {btn("Settings", <IconSettings size={19} />, onSettings)}
+      {btn("More options", <IconMore size={18} />, onMenu, { "aria-haspopup": "menu", "aria-expanded": menuOpen })}
     </header>
   );
 }

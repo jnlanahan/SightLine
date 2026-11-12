@@ -23,7 +23,20 @@ const svg = (size: number, sw: number, children: React.ReactNode) => (
   </svg>
 );
 
-export const IconList = ({ size = 20 }: P) => svg(size, 1.8, <path d="M4 6h16M4 12h16M4 18h10" />);
+/** A cog. Settings, everywhere — the older icon read as a brightness sun. */
+export const IconSettings = ({ size = 18 }: P) =>
+  svg(
+    size,
+    1.8,
+    <>
+      <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
+      <circle cx="12" cy="12" r="3" />
+    </>,
+  );
+/** Three dots: more options. */
+export const IconMore = ({ size = 18 }: P) => svg(size, 2.2, <path d="M5 12h.01M12 12h.01M19 12h.01" />);
+export const IconClose = ({ size = 18 }: P) => svg(size, 1.8, <path d="M6 6l12 12M18 6L6 18" />);
+export const IconList =({ size = 20 }: P) => svg(size, 1.8, <path d="M4 6h16M4 12h16M4 18h10" />);
 export const IconCheck = ({ size = 14, stroke = 3 }: P & { stroke?: number }) =>
   svg(size, stroke, <path d="m5 12 5 5L20 7" />);
 export const IconSpeaker = ({ size = 18 }: P) =>
