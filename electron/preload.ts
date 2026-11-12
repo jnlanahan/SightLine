@@ -79,11 +79,16 @@ export interface SightLineApi {
   tts: {
     // previousText is what the coach already said in THIS response; it keeps
     // prosody continuous across sentence-by-sentence synthesis.
-    speak(text: string, previousText?: string): Promise<
-      | { audioBase64: string; engine: TtsEngine; cached: boolean; ms: number }
+    // streamId: ask for the audio piece by piece as it is made (see
+    // onAudioChunk). The reply then has `streamed: true` and no audioBase64,
+    // unless the audio came from the cache or a provider that cannot stream.
+    speak(text: string, previousText?: string, streamId?: string): Promise<
+      | { audioBase64: string; engine: TtsEngine; cached: boolean; ms: number; streamed?: boolean }
       | { __error: "missing_tts_provider"; message: string }
       | { __error: "request_failed"; message: string }
     >;
+    /** Pieces of audio for a `speak` call made with a streamId, then `done`. */
+    onAudioChunk(cb: (ev: { id: string; chunk?: Uint8Array; done?: true }) => void): () => void;
     // ElevenLabs voices available on the configured account, for the picker.
     listVoices(): Promise<ElevenVoiceOption[]>;
   };
@@ -210,8 +215,16 @@ const api: SightLineApi = {
     dragEnd: () => ipcRenderer.send("window:drag-end"),
   },
   tts: {
-    speak: (text, previousText) =>
-      ipcRenderer.invoke("tts:speak", { text, previousText }),
+    speak: (text, previousText, streamId) =>
+      ipcRenderer.invoke("tts:speak", { text, previousText, streamId }),
+    onAudioChunk: (cb) => {
+      const handler = (
+        _: Electron.IpcRendererEvent,
+        ev: { id: string; chunk?: Uint8Array; done?: true },
+      ) => cb(ev);
+      ipcRenderer.on("tts:audio-chunk", handler);
+      return () => ipcRenderer.removeListener("tts:audio-chunk", handler);
+    },
     listVoices: () => ipcRenderer.invoke("tts:list-voices"),
   },
   overlay: {

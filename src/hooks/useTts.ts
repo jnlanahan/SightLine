@@ -124,7 +124,8 @@ function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
 }
 
 type CloudAudio =
-  | { ok: true; audioBase64: string; engine: CloudEngine }
+  // `streamed`: the audio came piece by piece instead (audioBase64 is empty).
+  | { ok: true; audioBase64: string; engine: CloudEngine; streamed: boolean }
   | { ok: false; message: string };
 
 // Cap on synthesis requests in flight at once.
@@ -170,6 +171,9 @@ async function fetchCloudAudio(
   text: string,
   previousText: string,
   gen: number,
+  // Given this, the main process also sends the audio piece by piece under
+  // this id while it is being made (see "Playing audio as it arrives").
+  streamId?: string,
 ): Promise<CloudAudio> {
   // A cancelled stream's chunks must not occupy synthesis slots. Without this
   // check, a barge-in mid-answer left up to five stale requests queued ahead
@@ -181,7 +185,7 @@ async function fetchCloudAudio(
   try {
     if (gen !== speakGeneration) return CANCELLED;
     const result = await withTimeout(
-      api().tts.speak(text, previousText),
+      streamId ? api().tts.speak(text, previousText, streamId) : api().tts.speak(text, previousText),
       IPC_TIMEOUT_MS,
       "tts_ipc_timeout",
     );
@@ -191,7 +195,12 @@ async function fetchCloudAudio(
       api().log(`[tts] cloud error: ${result.__error} ${msg}`.trim());
       return { ok: false, message: msg || result.__error };
     }
-    return { ok: true, audioBase64: result.audioBase64, engine: result.engine };
+    return {
+      ok: true,
+      audioBase64: result.audioBase64,
+      engine: result.engine,
+      streamed: result.streamed === true,
+    };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.warn("[SightLine TTS] cloud TTS failed:", err);
@@ -210,11 +219,276 @@ export function playbackPace(raw: unknown): number {
   return Math.max(0.7, Math.min(1.2, raw));
 }
 
+// ── Playing audio as it arrives ──
+//
+// A sentence used to be played only once ALL of its audio had arrived. With
+// the current voice model that is 0.6 to 0.85 s, though the first audio is
+// there after about a quarter of a second; the owner noticed the delay
+// (second live run, 11 November 2026). So the main process now passes the
+// audio on piece by piece, and a sentence starts on its first piece.
+//
+// Only the sentence the listener is waiting on gains from this. Later
+// sentences are made while the one before them plays, and are usually whole
+// by their turn — those still play the simple way, from one block.
+
+/** One sentence's audio, arriving. */
+interface Clip {
+  id: string;
+  chunks: Uint8Array<ArrayBuffer>[];
+  /** No more pieces are coming. */
+  finished: boolean;
+  settled: boolean;
+  /** The player, while one is attached: called for every piece and at the end. */
+  onData: (() => void) | null;
+  /** The request's own answer (whole audio when it was not streamed). */
+  result: Promise<CloudAudio>;
+  /** Resolves on the first piece, or when the request settles. */
+  ready: Promise<void>;
+  wake(): void;
+}
+
+const clips = new Map<string, Clip>();
+let chunkListenerOn = false;
+let clipSeq = 0;
+
+/** Whether this browser can play MP3 that is still arriving. */
+function canStreamAudio(): boolean {
+  try {
+    return (
+      typeof MediaSource !== "undefined" &&
+      MediaSource.isTypeSupported("audio/mpeg") &&
+      typeof api().tts.onAudioChunk === "function"
+    );
+  } catch {
+    return false;
+  }
+}
+
+function releaseClip(clip: Clip) {
+  if (clip.finished && clip.settled) clips.delete(clip.id);
+}
+
+function ensureChunkListener() {
+  if (chunkListenerOn) return;
+  chunkListenerOn = true;
+  api().tts.onAudioChunk((ev) => {
+    const clip = clips.get(ev.id);
+    if (!clip) return;
+    if (ev.chunk) clip.chunks.push(new Uint8Array(ev.chunk));
+    if (ev.done) clip.finished = true;
+    clip.wake();
+    releaseClip(clip);
+  });
+}
+
+/** Start making one sentence's audio, streamed when the browser can play it so. */
+function startClip(text: string, previousText: string, gen: number): Clip {
+  const streaming = canStreamAudio();
+  let markReady: () => void = () => {};
+  const clip: Clip = {
+    id: `clip_${Date.now().toString(36)}_${++clipSeq}`,
+    chunks: [],
+    finished: false,
+    settled: false,
+    onData: null,
+    result: Promise.resolve(CANCELLED),
+    ready: new Promise<void>((resolve) => {
+      markReady = resolve;
+    }),
+    wake() {
+      markReady();
+      clip.onData?.();
+    },
+  };
+  if (streaming) {
+    ensureChunkListener();
+    clips.set(clip.id, clip);
+  }
+  clip.result = fetchCloudAudio(text, previousText, gen, streaming ? clip.id : undefined).then((r) => {
+    clip.settled = true;
+    // A streamed sentence ends with its own "done" piece, which normally
+    // arrives before this answer. If it has not, give it a moment rather
+    // than cutting the last pieces off; anything else is complete already.
+    if (r.ok && r.streamed && !clip.finished) {
+      setTimeout(() => {
+        if (clip.finished) return;
+        clip.finished = true;
+        clip.wake();
+        releaseClip(clip);
+      }, 1500);
+    } else {
+      clip.finished = true;
+    }
+    clip.wake();
+    releaseClip(clip);
+    return r;
+  });
+  return clip;
+}
+
+function joinChunks(chunks: readonly Uint8Array<ArrayBuffer>[]): Uint8Array<ArrayBuffer> {
+  const total = chunks.reduce((n, c) => n + c.length, 0);
+  const out = new Uint8Array(total);
+  let at = 0;
+  for (const c of chunks) {
+    out.set(c, at);
+    at += c.length;
+  }
+  return out;
+}
+
+function noteAudioStarted(engine: CloudEngine) {
+  recordTtsMode(engine);
+  const heard = takeAudioStart(Date.now());
+  if (heard) {
+    api().log(`[timing] audio started ${heard.ms}ms after ${heard.kind}`);
+  }
+}
+
+/**
+ * Play a sentence whose audio is still arriving. Resolves "played" once it
+ * has been heard to the end (or was cancelled), or "unavailable" if playing
+ * this way could not start at all — the caller then plays it the simple way.
+ */
+function playArriving(clip: Clip, gen: number): Promise<"played" | "unavailable"> {
+  return new Promise((resolve) => {
+    if (gen !== speakGeneration) {
+      resolve("played");
+      return;
+    }
+    let source: MediaSource;
+    try {
+      source = new MediaSource();
+    } catch {
+      resolve("unavailable");
+      return;
+    }
+    const url = URL.createObjectURL(source);
+    const audio = new Audio(url);
+    audio.playbackRate = playbackPace(useSettings.getState().settings?.ttsSpeed);
+    currentAudio = audio;
+
+    let buffer: SourceBuffer | null = null;
+    let fed = 0;
+    let started = false;
+    let settled = false;
+    const release = () => {
+      clip.onData = null;
+      URL.revokeObjectURL(url);
+      if (currentAudio === audio) currentAudio = null;
+    };
+    const finish = (reason: string) => {
+      if (settled) return;
+      settled = true;
+      release();
+      if (reason !== "ended" && gen === speakGeneration) {
+        console.warn(`[SightLine TTS] audio ${reason} (gen ${gen})`);
+        api().log(`[tts] audio ${reason} (gen ${gen})`);
+      }
+      resolve("played");
+    };
+    // Something went wrong in the plumbing. If the listener has heard any of
+    // it, the sentence is spent; if not, the caller can still play it whole.
+    const giveUp = () => {
+      if (settled) return;
+      settled = true;
+      release();
+      try {
+        audio.pause();
+      } catch {
+        // already gone
+      }
+      resolve(started || gen !== speakGeneration ? "played" : "unavailable");
+    };
+    const feed = () => {
+      if (settled || !buffer || buffer.updating) return;
+      if (fed < clip.chunks.length) {
+        try {
+          buffer.appendBuffer(clip.chunks[fed++]);
+        } catch {
+          giveUp();
+        }
+        return;
+      }
+      if (clip.finished && source.readyState === "open") {
+        try {
+          source.endOfStream();
+        } catch {
+          // already ended
+        }
+      }
+    };
+    source.addEventListener(
+      "sourceopen",
+      () => {
+        try {
+          buffer = source.addSourceBuffer("audio/mpeg");
+        } catch {
+          giveUp();
+          return;
+        }
+        buffer.addEventListener("updateend", () => {
+          if (!started && !settled) {
+            audio.play().then(
+              () => {
+                started = true;
+                noteAudioStarted("elevenlabs");
+              },
+              () => giveUp(),
+            );
+          }
+          feed();
+        });
+        buffer.addEventListener("error", giveUp);
+        feed();
+      },
+      { once: true },
+    );
+    clip.onData = feed;
+    audio.onended = () => finish("ended");
+    audio.onerror = () => (started ? finish("error") : giveUp());
+    audio.onabort = () => finish("abort");
+  });
+}
+
+/**
+ * Play one sentence's audio: as it arrives when it is still arriving, from
+ * one block when it is already whole. Resolves true if it played (or was
+ * cancelled), false if nothing could be played — the caller falls back to
+ * the system voice.
+ */
+async function playClip(clip: Clip, gen: number): Promise<boolean> {
+  await clip.ready;
+  if (gen !== speakGeneration) return true;
+  if (clip.chunks.length > 0 && !clip.finished) {
+    const outcome = await playArriving(clip, gen);
+    if (outcome === "played") return true;
+  }
+  const result = await clip.result;
+  if (gen !== speakGeneration) return true;
+  if (!result.ok) return false;
+  if (result.streamed) {
+    // Every piece came by the side channel; wait for the last of them.
+    while (!clip.finished) {
+      await new Promise<void>((resolve) => {
+        clip.onData = resolve;
+      });
+    }
+    clip.onData = null;
+    if (gen !== speakGeneration) return true;
+    if (clip.chunks.length === 0) return false;
+    return playAudioBytes(joinChunks(clip.chunks), result.engine, gen);
+  }
+  if (!result.audioBase64) return false;
+  const bytes = Uint8Array.from(atob(result.audioBase64), (c) => c.charCodeAt(0));
+  return playAudioBytes(bytes, result.engine, gen);
+}
+
 // Play one synthesized chunk to completion. Resolves true if the audio
 // played (or was cancelled), false if playback couldn't start — the caller
 // then falls back to web speech.
-function playAudioBuffer(
-  audioBase64: string,
+function playAudioBytes(
+  bytes: Uint8Array<ArrayBuffer>,
   engine: CloudEngine,
   gen: number,
 ): Promise<boolean> {
@@ -223,7 +497,6 @@ function playAudioBuffer(
       resolve(true); // cancelled while synthesizing
       return;
     }
-    const bytes = Uint8Array.from(atob(audioBase64), (c) => c.charCodeAt(0));
     const blob = new Blob([bytes], { type: "audio/mp3" });
     const blobUrl = URL.createObjectURL(blob);
     const audio = new Audio(blobUrl);
@@ -252,13 +525,7 @@ function playAudioBuffer(
     audio.onabort = () => finish("abort");
 
     audio.play().then(
-      () => {
-        recordTtsMode(engine);
-        const heard = takeAudioStart(Date.now());
-        if (heard) {
-          api().log(`[timing] audio started ${heard.ms}ms after ${heard.kind}`);
-        }
-      },
+      () => noteAudioStarted(engine),
       (playErr) => {
         if (settled) return;
         settled = true;
@@ -377,7 +644,9 @@ export function openSpeechStream(): SpeechStream {
 
   interface QueueItem {
     text: string;
-    audioPromise: Promise<CloudAudio>;
+    /** The sentence's audio, being made. Null once the stream has fallen back
+     *  to the system voice. */
+    clip: Clip | null;
   }
   const queue: QueueItem[] = [];
   let ended = false;
@@ -407,16 +676,10 @@ export function openSpeechStream(): SpeechStream {
       while (queue.length > 0) {
         if (gen !== speakGeneration) return; // cancelled
         const item = queue.shift()!;
-        const result = degraded
-          ? ({ ok: false, message: "degraded" } as const)
-          : await item.audioPromise;
-        if (gen !== speakGeneration) return;
-        if (result.ok) {
-          const played = await playAudioBuffer(
-            result.audioBase64,
-            result.engine,
-            gen,
-          );
+        if (!degraded && item.clip) {
+          // Starts on the first piece of audio when it is still arriving.
+          const played = await playClip(item.clip, gen);
+          if (gen !== speakGeneration) return;
           if (played) continue;
         }
         // Cancelled while the cloud chunk was failing to start — nothing to
@@ -452,9 +715,7 @@ export function openSpeechStream(): SpeechStream {
       spokenSoFar = spokenSoFar ? `${spokenSoFar} ${trimmed}` : trimmed;
       queue.push({
         text: trimmed,
-        audioPromise: degraded
-          ? Promise.resolve({ ok: false, message: "degraded" })
-          : fetchCloudAudio(trimmed, previousText, gen),
+        clip: degraded ? null : startClip(trimmed, previousText, gen),
       });
       void pump();
     },

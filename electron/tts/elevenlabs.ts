@@ -71,6 +71,12 @@ export async function speakTextElevenLabs(
     signal?: AbortSignal;
     /** What was already spoken in this response — see SynthRequest. */
     previousText?: string;
+    /**
+     * Called with each piece of audio as it arrives, so playback can start
+     * before the sentence has finished being made. The whole audio is still
+     * returned at the end (for the cache).
+     */
+    onChunk?: (chunk: Uint8Array) => void;
   } = {},
 ): Promise<Buffer> {
   if (Date.now() < unauthorizedUntil) {
@@ -143,7 +149,25 @@ export async function speakTextElevenLabs(
     );
   }
 
-  const buf = Buffer.from(await resp.arrayBuffer());
+  if (!opts.onChunk || !resp.body) {
+    const whole = Buffer.from(await resp.arrayBuffer());
+    if (whole.length === 0) throw new Error("elevenlabs_empty_audio");
+    return whole;
+  }
+  // The service sends the sentence as it makes it: the first audio arrives in
+  // about a quarter of a second, the last after 0.6 to 0.85 s. Handing each
+  // piece on as it lands is what lets the coach start speaking on the first.
+  const reader = resp.body.getReader();
+  const parts: Buffer[] = [];
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (value && value.length > 0) {
+      parts.push(Buffer.from(value));
+      opts.onChunk(value);
+    }
+  }
+  const buf = Buffer.concat(parts);
   if (buf.length === 0) throw new Error("elevenlabs_empty_audio");
   return buf;
 }

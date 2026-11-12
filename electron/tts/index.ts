@@ -39,6 +39,14 @@ export interface SpeakResult {
   cached: boolean;
   /** End-to-end milliseconds inside the main process. */
   ms: number;
+  /**
+   * True when the audio was handed over piece by piece while it was being
+   * made (see `speak`'s onChunk). `audioBase64` is then empty: the caller
+   * already has every piece.
+   */
+  streamed?: boolean;
+  /** Milliseconds to the first piece of audio, when streamed. */
+  firstMs?: number;
 }
 
 export interface SpeakFailure {
@@ -131,6 +139,7 @@ async function synthesize(
   s: Settings,
   previousText: string,
   signal: AbortSignal,
+  onChunk?: (chunk: Uint8Array) => void,
 ): Promise<Buffer> {
   switch (provider) {
     case "elevenlabs":
@@ -138,6 +147,7 @@ async function synthesize(
         voiceId: s.elevenVoiceId,
         previousText,
         signal,
+        onChunk,
       });
     case "google":
       // The gRPC client has its own per-call deadline (see google-tts.ts).
@@ -153,13 +163,14 @@ async function synthesizeWithDeadline(
   s: Settings,
   previousText: string,
   label: string,
+  onChunk?: (chunk: Uint8Array) => void,
 ): Promise<Buffer> {
   const ms = TIMEOUT_MS[provider];
   const controller = new AbortController();
   const abortTimer = setTimeout(() => controller.abort(), ms);
   try {
     return await withTimeout(
-      synthesize(text, provider, s, previousText, controller.signal),
+      synthesize(text, provider, s, previousText, controller.signal, onChunk),
       ms,
       label,
     );
@@ -189,6 +200,11 @@ function worthCaching(req: SynthRequest): boolean {
 export async function speak(
   text: string,
   previousText = "",
+  // Given this, audio is passed on piece by piece as it is made, so the
+  // caller can start playing on the first piece. Only a provider that sends
+  // its audio that way uses it (ElevenLabs); a cache hit or another provider
+  // returns the whole audio as before and never calls it.
+  onChunk?: (chunk: Uint8Array) => void,
 ): Promise<SpeakResult | SpeakFailure> {
   const startedAt = Date.now();
   // Single preprocessing point for every path into synthesis — this is what
@@ -219,6 +235,16 @@ export async function speak(
       };
     }
 
+    // Set once any of this sentence has been handed over, and so may already
+    // be playing.
+    let firstMs: number | null = null;
+    const forward =
+      onChunk && provider === "elevenlabs"
+        ? (chunk: Uint8Array) => {
+            if (firstMs === null) firstMs = Date.now() - startedAt;
+            onChunk(chunk);
+          }
+        : undefined;
     try {
       const audio = await synthesizeWithDeadline(
         trimmed,
@@ -226,20 +252,35 @@ export async function speak(
         s,
         previousText,
         `${provider}_tts_timeout`,
+        forward,
       );
       if (worthCaching(req)) writeCached(req, audio);
       const ms = Date.now() - startedAt;
       if (failures.length > 0) {
         logLine(`[tts] ${provider} succeeded after: ${failures.join(" | ")}`);
       }
-      return {
-        audioBase64: audio.toString("base64"),
-        engine: provider,
-        cached: false,
-        ms,
-      };
+      return firstMs !== null
+        ? { audioBase64: "", engine: provider, cached: false, ms, streamed: true, firstMs }
+        : { audioBase64: audio.toString("base64"), engine: provider, cached: false, ms };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
+      if (firstMs !== null) {
+        // The start of this sentence is already with the caller and may be
+        // playing. Handing the whole sentence to the next provider would say
+        // it again in a different voice; a sentence that ends early is the
+        // lesser fault. It is not cached.
+        logLine(
+          `[tts] ${provider} stopped part-way (${msg}); the sentence ends where the audio does`,
+        );
+        return {
+          audioBase64: "",
+          engine: provider,
+          cached: false,
+          ms: Date.now() - startedAt,
+          streamed: true,
+          firstMs,
+        };
+      }
       failures.push(`${provider}: ${msg}`);
       logLine(`[tts] ${provider} failed (${msg}); trying next provider`);
     }

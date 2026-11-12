@@ -1293,17 +1293,34 @@ function registerIpc() {
   ipcMain.handle(
     "tts:speak",
     async (
-      _e: IpcMainInvokeEvent,
-      payload: { text: string; previousText?: string },
+      e: IpcMainInvokeEvent,
+      payload: { text: string; previousText?: string; streamId?: string },
     ) => {
       // previousText is the request-stitching context (what this response
       // already said). It was being dropped here, which made every sentence
       // after the first start a fresh performance — the wandering intonation
       // the voice settings were tuned to fix.
-      const result = await synthesizeSpeech(payload.text, payload.previousText ?? "");
+      //
+      // streamId: the panel can play audio as it arrives. Each piece is sent
+      // under this id while the sentence is still being made, then one
+      // "done" marker, then the usual reply. Without an id nothing changes.
+      const streamId =
+        typeof payload.streamId === "string" && /^[\w-]{1,64}$/.test(payload.streamId)
+          ? payload.streamId
+          : null;
+      const send = (msg: { id: string; chunk?: Uint8Array; done?: true }) => {
+        if (!e.sender.isDestroyed()) e.sender.send("tts:audio-chunk", msg);
+      };
+      const result = await synthesizeSpeech(
+        payload.text,
+        payload.previousText ?? "",
+        streamId ? (chunk) => send({ id: streamId, chunk }) : undefined,
+      );
+      if (streamId) send({ id: streamId, done: true });
       if ("__error" in result) return result;
       logLine(
         `[tts] ${result.engine}${result.cached ? " (cached)" : ""} ${result.ms}ms ` +
+          (result.streamed ? `(first audio ${result.firstMs}ms) ` : "") +
           `for "${payload.text.slice(0, 40)}"`,
       );
       return result;
