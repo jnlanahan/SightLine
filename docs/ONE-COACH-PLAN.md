@@ -78,7 +78,7 @@ The owner asked how to get the Windows score on their computer, on Sonnet 5.5 (t
 
 ## Second live run, 11 November 2026
 
-The owner ran several chats on the redesigned screen, on Sonnet 5.5: 26 looks, eleven chats started or reopened, no errors, no fallbacks. "It worked pretty well this time." The log shows the cost of the new voice: a sentence now takes about 0.85 s to come back (0.25 s before), so speech starts 1.0 to 1.7 s after the first words exist, against 0.3 to 0.5 s in the first run. The owner did not remark on the voice either way.
+The owner ran several chats on the redesigned screen, on Sonnet 5.5: 26 looks, eleven chats started or reopened, no errors, no fallbacks. "It worked pretty well this time." The log shows the cost of the new voice: a sentence now takes about 0.85 s to come back (0.25 s before), so speech starts 1.0 to 1.7 s after the first words exist, against 0.3 to 0.5 s in the first run. Asked afterwards, the owner said the voice "sounded a lot better… a little bit of a delay, but it sounded a little more natural". So the new voice model stays.
 
 **What the owner said, and what was done about each.** All built the same evening; none has been run live since.
 
